@@ -1,7 +1,7 @@
 # F01 — Foundation and selective POC reuse
 
 **Target:** 2026-08-14  
-**Status:** Implementation validated — Claude Review Gate incomplete
+**Status:** Complete
 **Implementation gate:** Approved by the user on 2026-08-10.
 
 ## Goal
@@ -157,7 +157,7 @@ Only F01 implementation slices may be active while this Feature Column is open.
 - [x] Startup/check requires no API key, network call, media permission, database, or persistent conversation data.
 - [x] Tests pass with one documented command and do not spend API budget.
 - [x] The implementation contains no unused dependency, abstraction, configuration, or later-feature scaffolding.
-- [ ] Claude Review Gate is completed and accepted corrections are resolved before F01 is marked complete.
+- [x] Claude Review Gate is completed and accepted corrections are resolved before F01 is marked complete.
 
 ## Demo
 
@@ -187,16 +187,17 @@ Only F01 implementation slices may be active while this Feature Column is open.
 ## Approval and completion record
 
 - [x] **Feature plan approved by user** — approved explicitly on 2026-08-10.
-- [ ] **F01 acceptance checks passed.**
-- [ ] **Claude Review Gate passed and corrections resolved.**
-- [ ] **F01 marked complete in this file and its permanent Trello Feature Column.**
+- [x] **F01 acceptance checks passed.**
+- [x] **Claude Review Gate passed and corrections resolved.**
+- [x] **F01 marked complete in this file and its permanent Trello Feature Column.**
 
 ## Implementation evidence
 
-- **Parser spike:** `whatsapp-chat-to-pdf==0.1.0` passed the dash, multiline, media, order, and 500-turn checks but returned zero turns for `[14:03, 6/20/2026]`. It was removed with its isolated transitive dependencies.
+- **Parser spike:** `whatsapp-chat-to-pdf==0.1.0` passed the dash, multiline, media, order, and 500-turn checks but returned zero turns for `[14:03, 6/20/2026]`. Source inspection confirmed its `parse_text` path is in-memory and does not call its PDF renderer, network, or persistent-write paths. It was removed with its isolated transitive dependencies.
 - **Selected parser:** the six named parser symbols adapted from Autistic Analyzer commit `a1a9d1dd3d6e0c0b5a0dd89ef595b4e17f3b8f1c`; this is the only parser and adds no parser dependency.
-- **Automated validation:** clean Python 3.12.10 environment, `python -m pytest` → `13 passed`; `python -m conversation_copilot --check` → exit `0` with the three required summary lines.
+- **Automated validation:** clean Python 3.12.10 environment, `python -m pytest` → `18 passed`; `python -m conversation_copilot --check` → exit `0` with the three required summary lines. A non-editable `pip install .` in a throwaway environment also passed the check and confirmed the fixture is packaged.
 - **Fixture provenance:** bundled fixture Git blob `d76e92a18a017515f6733616067e9e19fab2e854` exactly matches the pinned POC commit and parses to 500 ordered turns from Maya Cohen and Simon.
 - **Windows validation:** the Tkinter window visibly showed the exact title and summary; closing it left zero Conversation Copilot windows and zero matching Python background commands.
-- **Known limitation:** the fallback intentionally supports only the two proven US numeric, 24-hour export formats; expand it only for an accepted failing export.
-- **Claude Review Gate:** incomplete. The configured Fable 5 model required unavailable usage credits; a Sonnet retry returned only a forbidden skill-call attempt; a direct-review retry produced no verdict before the host timeout and was stopped after a further 30-second wait. No findings or corrections were fabricated from these failed attempts.
+- **Known limitation:** the fallback intentionally supports only the two proven US numeric, 24-hour export formats. An unsupported timestamp shape can be discarded when it appears first or absorbed as a continuation after a valid turn; an impossible supported timestamp or model-invalid message aborts the parse. Expand or recover per-line only for an accepted failing export.
+- **Claude Review Gate:** Opus 5 first returned `FAIL` with ten findings. Accepted corrections prevent ValidationError content leaks, exclude supported-format system notices from continuations, remove the unused summary parameter, exercise UI dispatch and failure paths, clarify media matching, remove redundant fixture text assertions, require explicit turn source, derive counts, document malformed-input behavior, and rename the argument parser. The BOM-removal portion of F-3 was rejected because parser-boundary BOM normalization is pinned POC behavior and is covered directly; `utf-8-sig` separately handles fixture-file decoding. Opus 5 follow-up returned `PASS` and found the acceptance evidence sufficient.
+- **Non-blocking follow-up findings:** accepted the unsupported-format documentation correction and added `build/` and `dist/` ignores. Rejected an extra timestamp-prefix constant because F01 is contractually limited to the six named fallback symbols and two fixed formats; any accepted format expansion must change the inline guard and its regression together.

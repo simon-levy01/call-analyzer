@@ -9,15 +9,15 @@ from .parser import parse_whatsapp_transcript
 FIXTURE_PATH = Path(__file__).with_name("demo") / "lecturer_demo_chat.txt"
 
 
-def foundation_summary(fixture_path: Path | None = None) -> str:
-    text = (fixture_path or FIXTURE_PATH).read_text(encoding="utf-8-sig")
+def foundation_summary() -> str:
+    text = FIXTURE_PATH.read_text(encoding="utf-8-sig")
     turns = parse_whatsapp_transcript(text, source="demo")
     speaker_count = len({turn.speaker_name for turn in turns})
     if len(turns) != 500 or speaker_count != 2:
         raise ValueError(
             f"expected 500 Conversation Turns from 2 speakers, got {len(turns)} from {speaker_count}"
         )
-    return "Foundation ready\n500 Conversation Turns\n2 speakers"
+    return f"Foundation ready\n{len(turns)} Conversation Turns\n{speaker_count} speakers"
 
 
 def show_window(summary: str) -> None:
@@ -31,13 +31,19 @@ def show_window(summary: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m conversation_copilot")
-    parser.add_argument("--check", action="store_true", help="validate the bundled replay without opening a window")
-    args = parser.parse_args(argv)
+    arg_parser = argparse.ArgumentParser(prog="python -m conversation_copilot")
+    arg_parser.add_argument("--check", action="store_true", help="validate the bundled replay without opening a window")
+    args = arg_parser.parse_args(argv)
 
     try:
         summary = foundation_summary()
-    except (OSError, ValidationError, ValueError) as exc:
+    except ValidationError:
+        print(
+            "Foundation check failed: fixture produced an invalid Conversation Turn",
+            file=sys.stderr,
+        )
+        return 1
+    except (OSError, ValueError) as exc:
         print(f"Foundation check failed: {exc}", file=sys.stderr)
         return 1
 

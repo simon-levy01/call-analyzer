@@ -13,7 +13,7 @@ BRACKET_EXPORT_RE = re.compile(
 )
 
 
-def parse_whatsapp_transcript(text: str, source: str = "paste") -> list[ConversationTurn]:
+def parse_whatsapp_transcript(text: str, source: str) -> list[ConversationTurn]:
     turns: list[ConversationTurn] = []
 
     for raw_line in text.splitlines():
@@ -21,7 +21,11 @@ def parse_whatsapp_transcript(text: str, source: str = "paste") -> list[Conversa
         match = DASH_EXPORT_RE.match(line) or BRACKET_EXPORT_RE.match(line)
         if match:
             turns.append(_message_from_match(match, len(turns) + 1, source))
-        elif turns and line:
+        elif turns and line and not re.match(
+            r"^(?:\d{1,2}/\d{1,2}/\d{2}, \d{1,2}:\d{2} - |"
+            r"\[\d{1,2}:\d{2}, \d{1,2}/\d{1,2}/\d{4}\] )",
+            line,
+        ):
             turns[-1].content = f"{turns[-1].content}\n{line}"
 
     return turns
@@ -48,4 +52,6 @@ def _parse_timestamp(date_text: str, time_text: str) -> datetime:
 
 def _is_media_placeholder(body: str) -> bool:
     normalized = body.strip().lower()
-    return "media omitted" in normalized or "omitted" in normalized and "image" in normalized
+    return "media omitted" in normalized or (
+        "omitted" in normalized and "image" in normalized
+    )
