@@ -1,7 +1,7 @@
 # F01 — Foundation and selective POC reuse
 
 **Target:** 2026-08-14  
-**Status:** Implementation validated — Claude Review Gate pending  
+**Status:** Implementation validated — Claude Review Gate incomplete
 **Implementation gate:** Approved by the user on 2026-08-10.
 
 ## Goal
@@ -199,4 +199,4 @@ Only F01 implementation slices may be active while this Feature Column is open.
 - **Fixture provenance:** bundled fixture Git blob `d76e92a18a017515f6733616067e9e19fab2e854` exactly matches the pinned POC commit and parses to 500 ordered turns from Maya Cohen and Simon.
 - **Windows validation:** the Tkinter window visibly showed the exact title and summary; closing it left zero Conversation Copilot windows and zero matching Python background commands.
 - **Known limitation:** the fallback intentionally supports only the two proven US numeric, 24-hour export formats; expand it only for an accepted failing export.
-- **Claude Review Gate:** pending.
+- **Claude Review Gate:** incomplete. The configured Fable 5 model required unavailable usage credits; a Sonnet retry returned only a forbidden skill-call attempt; a direct-review retry produced no verdict before the host timeout and was stopped after a further 30-second wait. No findings or corrections were fabricated from these failed attempts.
