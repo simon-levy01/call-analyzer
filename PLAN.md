@@ -137,13 +137,15 @@ During and after implementation:
 3. Demonstrate the feature against its acceptance checks.
 4. Hand Claude the feature plan, changed files/diff, test results, and known limitations for QA/code review.
 5. Fix accepted findings or record why a finding was rejected.
-6. Mark the feature complete in its plan and permanent Trello column before planning the next feature.
+6. Rerun the feature checks, commit the reviewed result, and push it to the project's GitHub repository so the accepted history is preserved remotely.
+7. Mark the feature complete in its plan and permanent Trello column before planning the next feature.
 
 ## Agent and Source-of-Truth Rules
 
 - The head agent maintains this master plan, the glossary, and cross-feature consistency.
 - New feature sessions must read the master plan, glossary, current feature plan, Trello column, and relevant code before editing.
 - `PLAN.md` controls project direction; the current feature plan controls implementation scope; Trello records execution status.
+- GitHub records accepted implementation history. A code feature is not complete until its post-Claude-review result is committed and pushed.
 - A feature session may clarify or reduce its feature but must not silently expand the master scope.
 - Architectural changes that affect later features must update this plan and the board.
 
@@ -194,4 +196,3 @@ If the schedule slips, remove work in this order:
 5. Broad hardware optimization and macOS support.
 
 Do not trim the working video capture path, evidence-backed multimodal interpretation, contact-aware guidance, uncertainty, repeatable evaluation, or the live Windows demo.
-
