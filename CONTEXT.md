@@ -12,6 +12,10 @@ _Avoid_: Autistic Analyzer, emotion detector, people reader
 A one-to-one video or voice conversation that the user has explicitly selected for live support.
 _Avoid_: recording session, monitored call
 
+**Selected Call Window**:
+The visible WhatsApp Desktop, Zoom, or dedicated Google Chrome window with an active Google Meet call that the user explicitly chooses as the source for an Assisted Call.
+_Avoid_: desktop recording, hidden capture, automatic window target
+
 **Selected Contact**:
 The person whom the user confirms as the other participant before contact memory is used or changed.
 _Avoid_: detected person, target, subject
@@ -33,8 +37,16 @@ The attribution of a Conversation Turn to the user, the selected contact, or unc
 _Avoid_: detected speaker identity, assumed sender
 
 **Remote Face Region**:
-The visible area believed to contain the selected contact's face, normally the largest face in the chosen call window and correctable by the user.
+The single visible area believed to contain the selected contact's face, normally initialized from the largest face in the Selected Call Window and correctable by the user. Other visible faces, including the user's self-preview, are not analysis subjects.
 _Avoid_: face identity, biometric profile
+
+**Remote Face Selection**:
+The user's temporary choice of which visible face belongs to the other participant in the current Assisted Call. It assigns an analysis role only and does not name, recognize, or remember a person.
+_Avoid_: facial identity, biometric recognition, remembered face
+
+**Facial Signal**:
+A local, time-bounded measurement of visible geometry or movement from the Remote Face Region before any interpretation.
+_Avoid_: detected emotion, facial truth, self-analysis
 
 **Observation**:
 A time-bounded piece of visible, vocal, or linguistic information produced during an assisted call before interpretation.

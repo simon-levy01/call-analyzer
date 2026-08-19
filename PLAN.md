@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Build a Windows-first assistant for autistic users that runs beside a one-to-one WhatsApp or Zoom video call. It combines visible facial signals, both sides of the conversation, and contact-specific memory to offer cautious possible tones, social cues, useful reminders, follow-up questions, and reply suggestions.
+Build a Windows-first assistant for autistic users that runs beside a one-to-one WhatsApp, Zoom, or Google Meet video call. Google Meet is supported only in a dedicated Google Chrome window. The assistant combines visible facial signals, both sides of the conversation, and contact-specific memory to offer cautious possible tones, social cues, useful reminders, follow-up questions, and reply suggestions.
 
 This is the grand plan. It defines direction, sequence, and gates. Each feature receives its own smaller plan immediately before implementation; this file must not prematurely specify every screen, algorithm, or schema.
 
@@ -14,8 +14,8 @@ This is the grand plan. It defines direction, sequence, and gates. Each feature 
 
 By October 1, the application must demonstrate a complete one-to-one call loop on the development Windows computer:
 
-1. The user starts the assistant, selects a visible WhatsApp or Zoom call window, and confirms or corrects the suggested contact.
-2. The app follows the largest remote face and processes visual signals without recording video.
+1. The user starts the assistant, selects a visible WhatsApp, Zoom, or dedicated Chrome-hosted Google Meet call window, and confirms or corrects the suggested contact.
+2. The app follows the largest remote face and processes visual signals without recording video. A brief miss may reacquire automatically; after six seconds without the selected face it pauses without silently choosing another face, and the user explicitly resumes with **Continue tracking**.
 3. It captures the user's microphone and the other person's system audio, producing attributed conversation turns.
 4. It combines visual observations, conversation context, and approved contact memory into structured, evidence-backed tone hypotheses and social cues.
 5. It can offer up to three items in each guidance category: possible tones, important cues, replies, remembered details to mention, and follow-up questions. The interface may show fewer.
@@ -39,10 +39,10 @@ By October 1, the application must demonstrate a complete one-to-one call loop o
 
 ### Required
 
-- Windows desktop operation beside WhatsApp Desktop and Zoom.
+- Windows desktop operation beside WhatsApp Desktop, Zoom, and Google Meet in a dedicated Google Chrome window.
 - User-selected application-window capture.
 - One-to-one calls and one selected contact.
-- Local facial landmarks/blendshapes and remote-face tracking.
+- Local facial landmarks/blendshapes, remote-face tracking, six-second loss protection, and explicit **Continue tracking** recovery.
 - Microphone and Windows system-audio capture.
 - Transcription and separation of the user's speech from the contact's speech.
 - Multimodal tone hypotheses such as possibly happy, sad, angry/tense, emotionally intense, neutral, or unclear.
@@ -61,7 +61,7 @@ By October 1, the application must demonstrate a complete one-to-one call loop o
 - Group calls and group chats.
 - Facial recognition or biometric identity.
 - Hidden capture, employee/student scoring, or definitive emotion detection.
-- Native Zoom or WhatsApp private integrations when selected-window capture is sufficient.
+- Native/private Zoom, WhatsApp, or Google Meet integrations when selected-window capture is sufficient.
 - macOS packaging.
 - Hardware wearables.
 - Cloud accounts or server-hosted memory.
@@ -74,7 +74,7 @@ These are preferred starting points, not permanent choices. Each feature plan mu
 |---|---|---|
 | Windows window capture | `Windows.Graphics.Capture` secure picker | Narrow screen-region capture only if an app cannot be captured reliably |
 | Facial observations | MediaPipe Face Landmarker in live-stream mode | ONNX Runtime/DirectML model after evaluation proves landmarks are insufficient |
-| Remote face selection | Largest detected face plus user correction | Saved per-app crop/layout |
+| Remote face selection | Largest detected face plus **Switch face** correction; six-second loss lock plus **Continue tracking** | Saved per-app crop/layout |
 | Audio capture | Microphone plus Windows WASAPI loopback | Selected application audio if reliable isolation is available |
 | Speech transcription | Local `faster-whisper` first | Current low-cost OpenAI transcription/realtime model |
 | Structured interpretation | Current low-cost OpenAI model with enforced structured output | Stronger OpenAI model for post-call analysis only when quality requires it |
@@ -113,13 +113,15 @@ Target dates are completion targets. If one slips, apply the trimming order inst
 | Feature | Target | Outcome |
 |---|---:|---|
 | F01 — Foundation and selective POC reuse | Aug 14 | Runnable project, chosen desktop approach, imported tests/fixtures, shared event/contact vocabulary |
-| F02 — WhatsApp/Zoom window capture and facial signals | Aug 23 | Stable selected-window frames, largest-face tracking, local observations, no frame retention |
+| F02 — WhatsApp/Zoom/Chrome Meet window capture and facial signals | Aug 23 | Stable selected-window frames, largest-face tracking, explicit loss recovery, local observations, no frame retention |
 | F03 — Two-sided audio and transcription | Aug 31 | Microphone and system audio become attributed transcript turns with acceptable latency |
 | F04 — Multimodal tone and cue interpretation | Sep 9 | Structured, uncertainty-aware tones/cues combine visual, vocal, and language evidence |
 | F05 — Contact memory and personalization | Sep 16 | Approved long-term memory, aliases, provenance, retrieval, supersession, and relationship-specific style |
 | F06 — Live guidance and post-call review | Sep 22 | Replies, reminders, follow-ups, summaries, and memory proposals work in the call loop |
 | F07 — Evaluation and calibration | Sep 27 | Repeatable scenarios, measured errors/latency/abstention, and tuned update behavior |
 | F08 — Windows packaging and final demonstration | Oct 1 | Reliable live Windows demo, clean setup, limitations, and recorded fallback |
+
+F02 completed on 2026-08-19 under the explicit validation exception below: real WhatsApp passed, real Zoom/Meet were user-waived and remain documented risks, and the final tool-disabled Claude Opus 5 review passed after correcting two-face **Continue tracking** recovery.
 
 ## Per-Feature Workflow
 
@@ -135,7 +137,7 @@ During and after implementation:
 1. Build the smallest complete vertical slice and leave one runnable check for non-trivial logic.
 2. Test with saved inputs before spending API budget on live calls.
 3. Demonstrate the feature against its acceptance checks.
-4. Hand Claude the feature plan, changed files/diff, test results, and known limitations for QA/code review.
+4. Hand Claude Opus 5 the feature plan, changed files/diff, test results, and known limitations for QA/code review in a tool-disabled, read-only session. Use Opus 5 for preliminary reviews and the final required gate unless the user explicitly approves another model.
 5. Fix accepted findings or record why a finding was rejected.
 6. Rerun the feature checks, commit the reviewed result, and push it to the project's GitHub repository so the accepted history is preserved remotely.
 7. Mark the feature complete in its plan and permanent Trello column before planning the next feature.
@@ -172,10 +174,12 @@ The project is not finished because a demo looks plausible. Evaluation must incl
 - controlled one-to-one scenarios covering happiness, sadness, tension/anger, emotional intensity, neutrality, sarcasm, uncertainty, and changing engagement;
 - comparisons of transcript-only, current multimodal context, and multimodal context plus contact memory;
 - useful cue rate, incorrect cue rate, `unclear`/abstention behavior, latency, stability, and API cost;
-- wrong-contact, stale-memory, contradicted-memory, and no-face/no-audio cases;
+- wrong-contact, stale-memory, contradicted-memory, and no-face/no-audio cases, including six-second face loss without silent reselection and explicit continuation;
 - checks that raw frames are not retained and local conversations/memories can be deleted;
 - user correction of tone, contact selection, and memory proposals;
 - Claude review before every code feature is marked complete.
+
+**F02 validation exception — approved by the user on 2026-08-19:** the real WhatsApp call gate remains required and passed. The user explicitly waived the real Zoom and Google Meet calls for F02 completion, accepting the residual application/layout and Meet-title risks. In their place, F02 retains deterministic WGC/title-invalidation coverage plus memory-only generic-Chrome YouTube smoke checks while generic Chrome remains excluded from production selection. One portrait produced full selected-face signals; a four-person grid exposed a detector-scale ceiling in which full-window detection found no faces although diagnostic quadrant crops found three. This waives QA evidence only, not Zoom or dedicated Chrome-hosted Google Meet product support, and the untested live cases and large-portrait requirement remain documented for later validation.
 
 ## Cost Control
 
@@ -190,7 +194,7 @@ The project is not finished because a demo looks plausible. Evaluation must incl
 If the schedule slips, remove work in this order:
 
 1. Group conversations and group calls.
-2. Deep/private Zoom or WhatsApp integrations beyond selected-window capture.
+2. Deep/private Zoom, WhatsApp, or Google Meet integrations beyond selected-window capture.
 3. Polished text UI and WhatsApp Web convenience features.
 4. Paid Hume/prosody experiments and extra emotion models.
 5. Broad hardware optimization and macOS support.
