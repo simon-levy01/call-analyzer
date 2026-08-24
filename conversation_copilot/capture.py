@@ -365,11 +365,6 @@ class WindowCapture:
         finally:
             self._ready_event.set()
             self.frames.clear()
-            if session is not None:
-                try:
-                    session.close()
-                except Exception:
-                    pass
             if pool is not None and frame_token is not None:
                 try:
                     pool.remove_frame_arrived(frame_token)
@@ -383,6 +378,11 @@ class WindowCapture:
             if pool is not None:
                 try:
                     pool.close()
+                except Exception:
+                    pass
+            if session is not None and window_exists(self.target.hwnd):
+                try:
+                    session.close()
                 except Exception:
                     pass
             if device is not None:

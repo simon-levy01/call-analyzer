@@ -1,0 +1,27 @@
+{
+  "sample_rate": 16000,
+  "channels": 1,
+  "sample_width_bytes": 2,
+  "clips": {
+    "english.wav": {
+      "language": "en",
+      "text": "Today is Wednesday. The numbers are seven, forty two, and one hundred. The weather is pleasant and we are testing local transcription in English.",
+      "keywords": ["today", "Wednesday", "seven", "forty two", "one hundred", "weather", "pleasant", "local", "English"]
+    },
+    "hebrew.wav": {
+      "language": "he",
+      "text": "היום יום רביעי. שבע. ארבעים ושתיים. מאה. מזג האוויר נעים. אנחנו בודקים תמלול מקומי בעברית.",
+      "keywords": ["היום", "רביעי", "שבע", "ארבעים ושתיים", "מאה", "מזג האוויר", "נעים", "תמלול", "מקומי", "עברית"]
+    },
+    "long-english.wav": {
+      "language": "en",
+      "text": "This is a deliberately long synthetic sentence for the fifteen second segmentation boundary. We continue speaking at a steady pace with clear words, ordinary numbers, and neutral content. The local assistant must split a long utterance without losing source attribution or chronological order. This sentence contains no private names, no call content, and no copied recording."
+    }
+  },
+  "schedule": [
+    {"source": "microphone", "clip": "english.wav", "start_seconds": 0.0},
+    {"source": "system_audio_loopback", "clip": "hebrew.wav", "start_seconds": 12.0},
+    {"source": "microphone", "clip": "long-english.wav", "start_seconds": 22.0},
+    {"source": "system_audio_loopback", "clip": "english.wav", "start_seconds": 27.0}
+  ]
+}

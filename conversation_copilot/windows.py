@@ -61,6 +61,7 @@ class CallWindow:
     title: str
     process_path: str
     kind: str
+    process_id: int = 0
 
     @property
     def display_name(self) -> str:
@@ -75,6 +76,7 @@ class _WindowSnapshot:
     visible: bool
     minimized: bool
     cloaked: bool
+    process_id: int = 0
 
 
 def _window_text(hwnd: int) -> str:
@@ -106,6 +108,12 @@ def _process_path(hwnd: int) -> str:
         _kernel32.CloseHandle(handle)
 
 
+def _process_id(hwnd: int) -> int:
+    process_id = wintypes.DWORD()
+    _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
+    return int(process_id.value)
+
+
 def _snapshot_window(hwnd: int) -> _WindowSnapshot | None:
     if not _user32.IsWindow(hwnd):
         return None
@@ -125,6 +133,7 @@ def _snapshot_window(hwnd: int) -> _WindowSnapshot | None:
         visible=bool(_user32.IsWindowVisible(hwnd)),
         minimized=bool(_user32.IsIconic(hwnd)),
         cloaked=bool(cloaked.value),
+        process_id=_process_id(hwnd),
     )
 
 
@@ -153,7 +162,13 @@ def _eligible(snapshot: _WindowSnapshot) -> CallWindow | None:
         kind = "Google Meet"
     else:
         return None
-    return CallWindow(snapshot.hwnd, snapshot.title, snapshot.process_path, kind)
+    return CallWindow(
+        snapshot.hwnd,
+        snapshot.title,
+        snapshot.process_path,
+        kind,
+        snapshot.process_id,
+    )
 
 
 def eligible_window(hwnd: int) -> CallWindow | None:
@@ -181,10 +196,11 @@ def still_eligible(selected: CallWindow) -> bool:
         current
         and current.kind == selected.kind
         and current.process_path.casefold() == selected.process_path.casefold()
+        and current.process_id == selected.process_id
     )
 
 
-def list_call_windows() -> list[CallWindow]:
+def _enumerate_call_windows() -> list[CallWindow]:
     windows: list[CallWindow] = []
 
     @_EnumWindowsProc
@@ -196,4 +212,20 @@ def list_call_windows() -> list[CallWindow]:
 
     if not _user32.EnumWindows(collect, 0):
         raise ctypes.WinError(ctypes.get_last_error())
+    return windows
+
+
+def list_call_windows() -> list[CallWindow]:
+    windows = _enumerate_call_windows()
+    windows = _apply_call_priority(windows)
     return sorted(windows, key=lambda window: (window.kind, window.title.casefold()))
+
+
+def whatsapp_call_active() -> bool:
+    return any(window.kind == "WhatsApp" for window in _enumerate_call_windows())
+
+
+def _apply_call_priority(windows: list[CallWindow]) -> list[CallWindow]:
+    if any(window.kind == "WhatsApp" for window in windows):
+        return [window for window in windows if window.kind != "Google Meet"]
+    return windows

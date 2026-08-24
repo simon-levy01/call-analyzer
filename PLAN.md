@@ -16,7 +16,7 @@ By October 1, the application must demonstrate a complete one-to-one call loop o
 
 1. The user starts the assistant, selects a visible WhatsApp, Zoom, or dedicated Chrome-hosted Google Meet call window, and confirms or corrects the suggested contact.
 2. The app follows the largest remote face and processes visual signals without recording video. A brief miss may reacquire automatically; after six seconds without the selected face it pauses without silently choosing another face, and the user explicitly resumes with **Continue tracking**.
-3. It captures the user's microphone and the other person's system audio, producing attributed conversation turns.
+3. It captures the user's microphone and one explicitly selected Windows playback endpoint, producing attributed conversation turns while clearly warning that every sound routed to that endpoint is in scope. Chrome and other non-call audio must be closed or kept silent during WhatsApp/Zoom capture. Once that audio session is healthy, visual capture loss pauses only facial signals: the empty face area collapses, the existing transcript and audio state remain visible, transcription continues until explicit Stop/close, and no replacement video or audio source is selected silently. A clean Stop may retain the two selections only inside the same live enumeration context; Refresh, fault, or in-process rebuild clears them. App restart never restores prior choices, though its fresh initial enumeration may suggest current defaults.
 4. It combines visual observations, conversation context, and approved contact memory into structured, evidence-backed tone hypotheses and social cues.
 5. It can offer up to three items in each guidance category: possible tones, important cues, replies, remembered details to mention, and follow-up questions. The interface may show fewer.
 6. It uses `low`, `medium`, `high`, or `unclear` confidence and never presents emotion or intent as certain.
@@ -43,8 +43,12 @@ By October 1, the application must demonstrate a complete one-to-one call loop o
 - User-selected application-window capture.
 - One-to-one calls and one selected contact.
 - Local facial landmarks/blendshapes, remote-face tracking, six-second loss protection, and explicit **Continue tracking** recovery.
-- Microphone and Windows system-audio capture.
+- Explicit PyAudioWPatch microphone plus explicit WASAPI playback-endpoint loopback capture.
+- Call-source priority: an eligible WhatsApp call suppresses Chrome/Meet selection; if one appears during active Meet capture, F03 stops both audio sides and requires explicit reselection. An idle WhatsApp main window does not block Meet.
+- Audio-led combined-session lifecycle: once both explicit audio sides are healthy, loss of the selected visual target releases only F02 resources and transcription continues visibly until explicit Stop/close; no video target is selected automatically.
+- Session-scoped audio selection convenience: a clean Stop/Start retains the exact microphone/playback records in the still-live enumeration context, while Refresh, fault, rebuild, and shutdown failure clear both and require explicit reselection. App restart restores no prior record/index; the fresh context may suggest its current Windows defaults.
 - Transcription and separation of the user's speech from the contact's speech.
+- English, Hebrew, and per-utterance Auto transcription, with Auto constrained to English/Hebrew only for the current product.
 - Multimodal tone hypotheses such as possibly happy, sad, angry/tense, emotionally intense, neutral, or unclear.
 - Contact-specific memories, relationship-specific interaction style, and shared context across imported text and calls.
 - Live replies, reminders, and follow-up suggestions.
@@ -75,8 +79,8 @@ These are preferred starting points, not permanent choices. Each feature plan mu
 | Windows window capture | `Windows.Graphics.Capture` secure picker | Narrow screen-region capture only if an app cannot be captured reliably |
 | Facial observations | MediaPipe Face Landmarker in live-stream mode | ONNX Runtime/DirectML model after evaluation proves landmarks are insufficient |
 | Remote face selection | Largest detected face plus **Switch face** correction; six-second loss lock plus **Continue tracking** | Saved per-app crop/layout |
-| Audio capture | Microphone plus Windows WASAPI loopback | Selected application audio if reliable isolation is available |
-| Speech transcription | Local `faster-whisper` first | Current low-cost OpenAI transcription/realtime model |
+| Audio capture | Explicit PyAudioWPatch microphone plus explicit WASAPI playback-endpoint loopback | Warn that endpoint scope includes every routed sound; close/quiet Chrome and other non-call audio during WhatsApp/Zoom |
+| Speech transcription | Local `faster-whisper`; fixed English/Hebrew plus per-utterance Auto constrained to those two languages | Current low-cost OpenAI transcription/realtime model |
 | Structured interpretation | Current low-cost OpenAI model with enforced structured output | Stronger OpenAI model for post-call analysis only when quality requires it |
 | Local application core | Reuse the POC's Python/FastAPI/Pydantic path where useful | Select the smallest Windows shell during the foundation feature |
 | Durable storage and search | SQLite plus FTS5 baseline | Compare Mem0 and Graphiti during the memory feature; adopt only if they win against the acceptance criteria |
@@ -123,6 +127,8 @@ Target dates are completion targets. If one slips, apply the trimming order inst
 
 F02 completed on 2026-08-19 under the explicit validation exception below: real WhatsApp passed, real Zoom/Meet were user-waived and remain documented risks, and the final tool-disabled Claude Opus 5 review passed after correcting two-face **Continue tracking** recovery.
 
+F02's completed standalone contract still stops its visual-only session when the selected window closes or becomes ineligible. Beginning with F03, the combined Assisted Call follows the audio-led rule above: a healthy explicit microphone/playback-endpoint session survives visual-target loss, while F02 signals stop, its empty thumbnail area collapses so the live transcript/audio state stays visible, and no replacement window is captured. Future feature plans must preserve this distinction. F03 also owns cross-source priority: while an eligible WhatsApp call exists, Chrome/Meet is not offered as a source; an already-running Meet session fails closed if a WhatsApp call appears.
+
 ## Per-Feature Workflow
 
 Before implementation of feature `FNN`:
@@ -137,7 +143,7 @@ During and after implementation:
 1. Build the smallest complete vertical slice and leave one runnable check for non-trivial logic.
 2. Test with saved inputs before spending API budget on live calls.
 3. Demonstrate the feature against its acceptance checks.
-4. Hand Claude Opus 5 the feature plan, changed files/diff, test results, and known limitations for QA/code review in a tool-disabled, read-only session. Use Opus 5 for preliminary reviews and the final required gate unless the user explicitly approves another model.
+4. Hand Claude Opus 5 the feature plan, changed files/diff, test results, and known limitations for QA/code review in a tool-disabled, read-only session. Each feature gate reviews that feature and its direct integration surface only, including existing components, contracts, and regression checks that the new feature touches or can affect; it does not repeat a general review of unrelated unchanged program code. Reserve whole-program Claude review for the dedicated project-wide/final gate. Use Opus 5 for preliminary reviews and the final required gate unless the user explicitly approves another model.
 5. Fix accepted findings or record why a finding was rejected.
 6. Rerun the feature checks, commit the reviewed result, and push it to the project's GitHub repository so the accepted history is preserved remotely.
 7. Mark the feature complete in its plan and permanent Trello column before planning the next feature.
@@ -174,12 +180,14 @@ The project is not finished because a demo looks plausible. Evaluation must incl
 - controlled one-to-one scenarios covering happiness, sadness, tension/anger, emotional intensity, neutrality, sarcasm, uncertainty, and changing engagement;
 - comparisons of transcript-only, current multimodal context, and multimodal context plus contact memory;
 - useful cue rate, incorrect cue rate, `unclear`/abstention behavior, latency, stability, and API cost;
-- wrong-contact, stale-memory, contradicted-memory, and no-face/no-audio cases, including six-second face loss without silent reselection and explicit continuation;
+- wrong-contact, stale-memory, contradicted-memory, and no-face/no-audio cases, including six-second face loss without silent reselection, explicit visual continuation, visible uninterrupted audio transcription when visual capture ends mid-call, clean-stop selection retention versus fault/rebuild clearing, truthful endpoint-wide audio warnings/operating rules, and WhatsApp-over-Chrome source priority;
 - checks that raw frames are not retained and local conversations/memories can be deleted;
 - user correction of tone, contact selection, and memory proposals;
 - Claude review before every code feature is marked complete.
 
 **F02 validation exception — approved by the user on 2026-08-19:** the real WhatsApp call gate remains required and passed. The user explicitly waived the real Zoom and Google Meet calls for F02 completion, accepting the residual application/layout and Meet-title risks. In their place, F02 retains deterministic WGC/title-invalidation coverage plus memory-only generic-Chrome YouTube smoke checks while generic Chrome remains excluded from production selection. One portrait produced full selected-face signals; a four-person grid exposed a detector-scale ceiling in which full-window detection found no faces although diagnostic quadrant crops found three. This waives QA evidence only, not Zoom or dedicated Chrome-hosted Google Meet product support, and the untested live cases and large-portrait requirement remain documented for later validation.
+
+**F03 validation exception — approved by the user on 2026-08-25:** real WhatsApp two-sided transcription passed. The user waived the F03 Zoom and Google Meet live calls for now; both are recorded as `WAIVED — not passed`. This accepts residual application-specific window, routing, layout, title, and endpoint-scope risks and does not present either app as validated.
 
 ## Cost Control
 

@@ -186,6 +186,10 @@ Only F01 implementation slices may be active while this Feature Column is open.
 
 ## Approval and completion record
 
+### Post-F03 shared-window metadata addendum — 2026-08-24
+
+F03 extends the retained stdlib Win32 window record with the owning process ID so exact-window revalidation and source-priority checks do not guess from a title. Revalidation includes HWND, kind, executable path, and process ID. The shared list applies the approved call priority: an eligible WhatsApp call removes Chrome/Meet candidates, while an idle WhatsApp shell does not. A later process-loopback experiment failed on live WhatsApp and was removed; audio uses explicit endpoint loopback. This is later-feature integration behavior and does not alter F01's completed parser/model evidence.
+
 - [x] **Feature plan approved by user** — approved explicitly on 2026-08-10.
 - [x] **F01 acceptance checks passed.**
 - [x] **Claude Review Gate passed and corrections resolved.**

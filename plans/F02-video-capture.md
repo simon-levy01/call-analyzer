@@ -25,6 +25,14 @@ Running `python -m conversation_copilot` retains the F01 foundation behavior and
 
 No emotion label, interpretation, landmark dashboard, transcript, audio control, memory, or polished interface is added.
 
+### Post-F03 combined-session lifecycle addendum — 2026-08-22
+
+The completed F02 behavior above remains the standalone visual-session contract and its historical acceptance evidence is unchanged. F03 adds the approved combined-session rule: after the explicit microphone and playback-endpoint loopback streams start successfully, a closed, replaced, ineligible, or otherwise lost F02 visual target releases the visual capture/worker, clears current Facial Signals, collapses the unavailable thumbnail so the prior transcript and live audio state remain visible, and shows that transcription is continuing instead of stopping healthy audio. It never follows a replacement HWND/window/tab automatically. A face-only loss while the selected capture remains alive still uses F02's six-second lock and explicit **Continue tracking**. If no healthy F03 audio session exists, F02 retains its original full-stop/reselect behavior. Future multimodal features must use this combined rule and must not reinterpret F02's historical “stop” evidence as requiring healthy audio to stop.
+
+F03's approved 2026-08-24 source-priority revision also narrows the shared selector without changing F02's capture implementation: when an eligible WhatsApp `Video call` window exists, dedicated Chrome/Meet candidates are hidden; Zoom remains eligible. If a WhatsApp call appears after Meet audio starts, F03 stops both audio sides and requires explicit reselection rather than switching. An idle WhatsApp main window is not an eligible call and does not suppress Meet. F02 still captures only the exact explicitly selected HWND.
+
+During the 2026-08-25 F03 fallback regression, repeated target-close checks exposed a Windows WGC shutdown race: `GraphicsCaptureSession.close()` can block after the captured HWND is already destroyed. The retained minimal correction revokes frame/item handlers, closes the frame pool, and calls session close only while the target HWND still exists; a destroyed target is already stopped by Windows and its remaining references are released on the capture thread. Four fresh full `--check-video-capture` runs then passed with 0/0 workers/frames; the latest target-close latency was 81 ms. This strengthens teardown only and does not change F02 targeting, buffering, or facial behavior.
+
 ## Verified starting facts
 
 - F01 is complete and healthy on the development computer: Python 3.12.10, `18 passed`, and `python -m conversation_copilot --check` reports 500 Conversation Turns from two speakers.

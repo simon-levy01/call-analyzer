@@ -43,13 +43,38 @@ def test_hidden_minimized_and_cloaked_windows_are_rejected():
 
 
 def test_revalidation_keeps_exact_hwnd_kind_and_process_path(monkeypatch):
-    selected = windows.CallWindow(10, "Google Meet", r"C:\Chrome\chrome.exe", "Google Meet")
+    selected = windows.CallWindow(10, "Google Meet", r"C:\Chrome\chrome.exe", "Google Meet", 42)
     monkeypatch.setattr(windows, "eligible_window", lambda hwnd: selected if hwnd == 10 else None)
     assert windows.still_eligible(selected)
 
-    changed_path = windows.CallWindow(10, "Google Meet", r"D:\Fake\chrome.exe", "Google Meet")
+    changed_path = windows.CallWindow(10, "Google Meet", r"D:\Fake\chrome.exe", "Google Meet", 42)
     monkeypatch.setattr(windows, "eligible_window", lambda _hwnd: changed_path)
     assert not windows.still_eligible(selected)
+
+    changed_process = windows.CallWindow(
+        10, "Google Meet", r"C:\Chrome\chrome.exe", "Google Meet", 43
+    )
+    monkeypatch.setattr(windows, "eligible_window", lambda _hwnd: changed_process)
+    assert not windows.still_eligible(selected)
+
+
+def test_whatsapp_call_hides_chrome_meet_but_not_zoom():
+    whatsapp = windows.CallWindow(1, "Video call", "WhatsApp.exe", "WhatsApp", 10)
+    meet = windows.CallWindow(2, "Google Meet", "chrome.exe", "Google Meet", 20)
+    zoom = windows.CallWindow(3, "Meeting", "Zoom.exe", "Zoom", 30)
+
+    assert windows._apply_call_priority([meet, zoom]) == [meet, zoom]
+    assert windows._apply_call_priority([meet, whatsapp, zoom]) == [whatsapp, zoom]
+
+
+def test_whatsapp_priority_check_ignores_idle_or_other_call_apps(monkeypatch):
+    meet = windows.CallWindow(2, "Google Meet", "chrome.exe", "Google Meet", 20)
+    whatsapp = windows.CallWindow(1, "Video call", "WhatsApp.exe", "WhatsApp", 10)
+
+    monkeypatch.setattr(windows, "_enumerate_call_windows", lambda: [meet])
+    assert not windows.whatsapp_call_active()
+    monkeypatch.setattr(windows, "_enumerate_call_windows", lambda: [meet, whatsapp])
+    assert windows.whatsapp_call_active()
 
 
 def test_capture_availability_rejects_minimized_state(monkeypatch):
