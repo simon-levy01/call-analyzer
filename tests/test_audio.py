@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -23,9 +24,12 @@ from conversation_copilot.audio import (
     SpeechSegmenter,
     TurnDraft,
     TurnOrderer,
+    TRANSCRIBE_OPTIONS,
     UtteranceJob,
     _latency_groups,
     _auto_language,
+    production_transcription_language,
+    transcription_language_labels,
     device_labels,
 )
 from conversation_copilot.models import SpeakerRole
@@ -507,6 +511,46 @@ def test_model_failure_faults_and_clears_raw_work():
     assert snapshot.queued_jobs == snapshot.stream_count == snapshot.worker_count == 0
 
 
+def test_live_transcription_uses_shared_production_options():
+    calls = []
+
+    class Model:
+        def transcribe(self, *_args, **kwargs):
+            calls.append(kwargs)
+            return iter(()), None
+
+    devices = catalog()
+    session = AudioCallSession(
+        devices,
+        devices.microphones[0],
+        devices.playbacks[0],
+        "en",
+        model_factory=Model,
+        require_installed_model=False,
+    )
+    session.start()
+    key = session._register(1.0, datetime.now(timezone.utc))
+    session._jobs.put_nowait(
+        (
+            key,
+            UtteranceJob(
+                key,
+                "microphone",
+                np.ones(16_000, dtype=np.int16),
+                1.0,
+                datetime.now(timezone.utc),
+                time.perf_counter(),
+                time.perf_counter(),
+            ),
+        )
+    )
+
+    wait_until(lambda: bool(calls))
+    session.stop()
+
+    assert calls[0] == {"language": "en", "task": "transcribe", **TRANSCRIBE_OPTIONS}
+
+
 def test_final_results_keep_physical_source_roles_and_capture_order():
     class ScriptedModel:
         def __init__(self):
@@ -810,14 +854,103 @@ def test_source_priority_change_stops_both_audio_sides():
 
 
 def test_model_cache_requires_every_runtime_file(tmp_path, monkeypatch):
-    snapshot = tmp_path / "models--Systran--faster-whisper-small" / "snapshots" / "one"
-    snapshot.mkdir(parents=True)
+    assert (
+        audio_module.MODEL_CACHE_DIRECTORY
+        == "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo"
+    )
     monkeypatch.setattr(audio_module, "MODEL_CACHE", tmp_path)
+    wrong_snapshot = (
+        tmp_path
+        / "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo"
+        / "snapshots"
+        / "different-revision"
+    )
+    wrong_snapshot.mkdir(parents=True)
+    required = tuple(sorted(audio_module.PINNED_MODEL_FILES))
+    for name in required:
+        wrong_snapshot.joinpath(name).write_bytes(b"model")
+    old_snapshot = tmp_path / "models--Systran--faster-whisper-small" / "snapshots" / "one"
+    old_snapshot.mkdir(parents=True)
+    for name in required:
+        old_snapshot.joinpath(name).write_bytes(b"model")
+    assert not audio_module.local_model_available()
+
+    snapshot = (
+        tmp_path
+        / "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo"
+        / "snapshots"
+        / audio_module.MODEL_REVISION
+    )
+    snapshot.mkdir(parents=True)
     (snapshot / "model.bin").write_bytes(b"model")
     assert not audio_module.local_model_available()
     (snapshot / "config.json").write_text("{}", encoding="utf-8")
-    (snapshot / "tokenizer.json").write_text("{}", encoding="utf-8")
+    assert not audio_module.local_model_available()
+    tokenizer = snapshot / "tokenizer.json"
+    tokenizer.write_text("{}", encoding="utf-8")
+    assert not audio_module.local_model_available()
+    (snapshot / "preprocessor_config.json").write_text("{}", encoding="utf-8")
+    (snapshot / "vocabulary.json").write_text("{}", encoding="utf-8")
     assert audio_module.local_model_available()
+
+
+def test_model_installer_verifies_the_pinned_snapshot(tmp_path, monkeypatch):
+    calls = []
+
+    class FakeWhisperModel:
+        complete = False
+
+        def __init__(self, model_name, **kwargs):
+            calls.append((model_name, kwargs))
+            snapshot = (
+                tmp_path
+                / audio_module.MODEL_CACHE_DIRECTORY
+                / "snapshots"
+                / audio_module.MODEL_REVISION
+            )
+            snapshot.mkdir(parents=True, exist_ok=True)
+            files = set(audio_module.PINNED_MODEL_FILES)
+            if not self.complete:
+                files.remove("tokenizer.json")
+            for name in files:
+                snapshot.joinpath(name).write_bytes(b"model")
+
+    monkeypatch.setattr(audio_module, "MODEL_CACHE", tmp_path)
+    monkeypatch.setattr(audio_module, "prepare_transcription_runtime", lambda: None)
+    monkeypatch.setitem(
+        sys.modules,
+        "faster_whisper",
+        SimpleNamespace(WhisperModel=FakeWhisperModel),
+    )
+
+    with pytest.raises(RuntimeError, match="missing: tokenizer.json"):
+        audio_module.install_local_model()
+    FakeWhisperModel.complete = True
+    audio_module.install_local_model()
+
+    assert audio_module.local_model_available()
+    assert calls[-1][0] == audio_module.MODEL_NAME
+    assert calls[-1][1]["revision"] == audio_module.MODEL_REVISION
+
+
+def test_provisioned_snapshot_matches_pinned_file_contract():
+    snapshot = (
+        audio_module.MODEL_CACHE
+        / audio_module.MODEL_CACHE_DIRECTORY
+        / "snapshots"
+        / audio_module.MODEL_REVISION
+    )
+    if not snapshot.is_dir():
+        pytest.skip("pinned production model is not provisioned on this machine")
+
+    assert audio_module.PINNED_MODEL_FILES <= {path.name for path in snapshot.iterdir()}
+
+
+def test_production_ui_supports_english_only():
+    assert transcription_language_labels() == ("English",)
+    assert production_transcription_language("English") == "en"
+    with pytest.raises(KeyError):
+        production_transcription_language("Hebrew")
 
 
 def test_invalid_language_is_rejected_before_runtime_work():

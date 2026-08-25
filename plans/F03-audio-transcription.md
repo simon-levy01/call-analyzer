@@ -1,13 +1,123 @@
 # F03 — Two-sided audio and transcription
 
-**Status:** Complete; WhatsApp passed; Zoom/Meet waived as not passed; final Claude `PASS`; reviewed result ready to commit/push
+**Status:** Complete and manually accepted for English; the post-completion local large-v3-turbo revision passes automated regression/replay gates and the user-approved real-call check; its corrected final Claude rerun was unavailable because the Claude account hit its session limit, and the user explicitly accepted commit/push without waiting for that rerun; Hebrew/Auto remain unsupported and Zoom/Meet remain waived as not passed
 **Prepared:** 2026-08-19
 **Roadmap outcome:** Capture microphone and call playback as separate sources and produce ordered, speaker-attributed `ConversationTurn` objects.
 **Planning result:** The decisions in [Approval record](#approval-record) are approved. No implementation code was written during this planning task.
 
+## Post-completion language outcome — 2026-08-25
+
+English is the only supported transcription language. A local comparison used 50
+human-recorded Hebrew FLEURS utterances (8 minutes 11 seconds) with identical decoding
+settings and the five-second target. The best tested free local candidate,
+`ivrit-ai/whisper-large-v3-ct2`, produced **22.2% word error**. Its turbo variant
+produced 22.8%; the other tested free models ranged from 30.3% to 128.8%. The current
+general large-v3-turbo model produced 34.4%. This is not sufficiently accurate for
+project text, even when latency passes.
+
+Hebrew and automatic English/Hebrew selection are therefore unsupported and excluded
+from the application for now. The English large-v3-turbo path remains local and free;
+its real-recording comparison produced approximately 3.8–5.1% word error. The benchmark
+fixture remains for small regression checks. The 50-clip FLEURS matrix was a separate
+external-corpus evaluation with an ad hoc local runner; the committed profile harness
+does not reproduce that matrix and compares each linked application's model plus decoding
+settings rather than model weights alone. Earlier clean synthetic Hebrew and Auto results
+below are preserved as historical evidence and do not establish current language support.
+
+| Free local candidate | Hebrew WER | Worst clip delay |
+|---|---:|---:|
+| `ivrit-ai/whisper-large-v3-ct2` | **22.2%** | 3.43 s |
+| `ivrit-ai/whisper-large-v3-turbo-ct2` | 22.8% | 0.83 s |
+| `ivrit-ai/faster-whisper-v2-d4` | 30.3% | 11.65 s |
+| General Whisper large-v3 | 32.0% | 2.93 s |
+| General/current large-v3-turbo, fair settings | 34.4% | 1.06 s |
+| Original project small | 53.7% | 1.65 s |
+| Stage Whisper base | 71.8% | 1.59 s |
+| Faster-Whisper-Transcriber distil, unsupported Hebrew diagnostic | 128.8% | 2.94 s |
+
+The first post-completion Claude Opus 5 review returned `NOT PASS`. Corrections pin the
+production model revision, derive and verify its exact cache path, make benchmark failures
+ineligible for accuracy ranking and return a failing process status, validate degraded-WAV
+inputs, document the external FLEURS method honestly, and align the five-second code/plan
+maximum. After correction, 83 tests and `pip check` pass; offline replay has zero network
+attempts/audio artifacts and 0.828-second maximum inference. A fresh 60.2-second combined
+F02/F03 run passes with 1.409-second single-source p95, 2.686/2.724-second overlap
+p95/maximum, queue peak/final 1/0, zero saturation, 24.90 F02 signals/second, and 0/0
+workers/results. A fresh Claude pass and manual English WhatsApp call remain required.
+
+The second corrected-diff Claude Opus 5 review also returned `NOT PASS`. Its blocking
+findings are corrected: partial benchmark failures cannot duplicate cases; local-cache
+profiles must match the pinned production model/revision/compute type; complete wrong-
+revision and legacy-small cache snapshots are negative-tested; and README makes production
+model provisioning an explicit prerequisite. The focused audio/benchmark suite passes
+49/49 after these corrections. A third exact verdict is required before the manual call.
+
+The third Claude review returned `NOT PASS` on benchmark/cache boundaries. Corrections
+require every CTranslate2 runtime file including `vocabulary.json`, make built-in profile
+comparison English-only by default, exclude profiles that do not support the selected
+language, preserve aggregate WER precision, and raise local-profile programming errors
+instead of turning them into measurements. Tests now cover wrong/legacy/incomplete caches,
+profile-label mismatch, actual audio degradation, and fixture language filtering. A fresh
+exact verdict remains required before the manual call.
+
+The fourth Claude review returned `NOT PASS` with three remaining blockers. Corrections
+make cache readiness match faster-whisper's required core plus either tokenizer or
+`vocabulary.*`, fail before execution when language filtering leaves zero compatible
+profiles, and share one production decoding-options constant between live inference and
+the current benchmark profile. The corrected focused/full suites pass 53/53 and 87/87;
+the real current English fixture profile passes at 0% WER in 0.80 seconds. A fresh exact
+verdict remains required before the manual call.
+
+The fifth Claude review returned `NOT PASS` on three final data-integrity boundaries.
+Corrections require the pinned snapshot's local `tokenizer.json`, aggregate exact integer
+edit/word counts with a successful unequal-length multi-case test, accept Windows UTF-8
+BOM reference files, and pin deterministic temperature for every comparison profile.
+The post-correction offline replay measures maximum RTF 0.065, satisfying the 0.60 gate.
+A fresh exact verdict remains required before the manual call.
+
+The sixth Claude review returned `NOT PASS` because the first shared-options edit had
+not reached the live worker and the external Hebrew runner was not reproducible. Every
+live/replay production call now consumes `TRANSCRIBE_OPTIONS`, with a direct live-worker
+kwargs test. The committed benchmark now accepts a validated external-corpus manifest and
+includes the pinned ivrit.ai, general large-v3, current, original small, and Stage base
+fair-settings profiles used by the matrix. Focused/full suites pass 57/57 and 91/91;
+offline replay passes at maximum RTF 0.066 with zero network attempts/audio artifacts.
+A fresh exact verdict remains required before the manual call.
+
+The seventh Claude review returned `NOT PASS` and contradicted the fifth review about
+vocabulary readiness. Inspection of the installed faster-whisper loader resolves the
+question: its pinned snapshot download allow-list contains config, model, preprocessor,
+tokenizer, and `vocabulary.*`; the exact pinned production snapshot contains the five
+named files now required by `PINNED_MODEL_FILES`. This exact-revision contract supersedes
+the earlier cache-rule iterations. Empty benchmark case lists are also rejected instead
+of producing 0% WER. A fresh exact verdict remains required before the manual call.
+
+The eighth Claude review returned `NOT PASS` on the final installer/cache contract. The
+installer now verifies that the exact pinned snapshot is complete after download and
+reports its missing runtime files. Tests reuse `PINNED_MODEL_FILES` as the single file-set
+contract and prove both incomplete-install rejection and successful installer readiness.
+A fresh exact verdict remains required before the manual call.
+
+The ninth Claude review returned `NOT PASS` on benchmark evidence labeling and weak
+boundary checks. Reports now identify built-in, single-media, or manifest provenance and
+only name a winner when multiple profiles finish. The noScribe proxy reuses the pinned
+model identifier, the English-only selector and start mapping share the audio contract,
+the provisioned snapshot is checked on machines where it exists, and invalid manifest/CLI
+inputs are regression-tested. Focused/full suites pass 70/70 and 104/104; offline replay
+passes at maximum RTF 0.065 and 0.708-second maximum inference. A fresh exact verdict
+remains required before the manual call.
+
+The corrected Claude-only rerun was attempted with both Opus and Sonnet, but the account-
+wide session limit prevented either model from receiving the diff. The user then tested a
+real English call, reported that it had a couple of errors but was very good, and explicitly
+approved the result. No call content, transcript, contact name, recording, screenshot, or
+window title was retained. This approval waives only the unavailable corrected rerun for
+this post-completion model revision; the ninth review's findings were corrected and the
+104-test/replay gates above remain the automated evidence for commit/push.
+
 ## Goal and user-visible result
 
-The user selects the existing call window, a microphone, one playback device, and a transcription language, then starts an assisted-call session. The existing F02 visual loop continues while F03:
+The user selects the existing call window, a microphone, and one playback device, then starts an English transcription session. The existing F02 visual loop continues while F03:
 
 1. captures the microphone as `user`;
 2. captures the explicitly selected WASAPI playback endpoint with PyAudioWPatch as `selected_contact`, with a visible warning that every sound routed to that endpoint is in scope;
@@ -16,7 +126,7 @@ The user selects the existing call window, a microphone, one playback device, an
 5. keeps a healthy audio/transcription session running if visual capture is lost mid-call, without silently selecting another video window; and
 6. stops cleanly without saving raw call audio.
 
-The visible controls remain deliberately small: microphone selector, playback-device selector and endpoint-scope warning, language selector, Start/Stop, per-source listening state, and a plain chronological transcript. When no selected-face thumbnail is available, its empty area collapses so the existing transcript and live audio state remain visible. A clean Stop keeps the two explicit choices in the same live enumeration context for the next Start. Refresh, device change/fault, or an in-process enumeration rebuild clears them and requires explicit reselection. An app restart never restores prior records/indices; its fresh initial enumeration may suggest that context's current Windows defaults. F03 adds no transcript editor, memory controls, social interpretation, reply suggestions, summaries, or polished UI.
+The visible controls remain deliberately small: microphone selector, playback-device selector and endpoint-scope warning, an English-only language selector, Start/Stop, per-source listening state, and a plain chronological transcript. When no selected-face thumbnail is available, its empty area collapses so the existing transcript and live audio state remain visible. A clean Stop keeps the two explicit choices in the same live enumeration context for the next Start. Refresh, device change/fault, or an in-process enumeration rebuild clears them and requires explicit reselection. An app restart never restores prior records/indices; its fresh initial enumeration may suggest that context's current Windows defaults. F03 adds no transcript editor, memory controls, social interpretation, reply suggestions, summaries, or polished UI.
 
 ## Verified starting facts
 
@@ -86,8 +196,8 @@ These decisions, including the approved Gate A v2 revision, are approved:
 1. **Capture binding:** use only `PyAudioWPatch==0.2.12.8` for explicit microphone and endpoint-loopback enumeration/opening. The native process-loopback experiment failed the real WhatsApp assertion and was removed.
 2. **Loopback scope:** bind playback to one explicitly selected render/loopback pair in the same live PortAudio enumeration context. Every sound routed to that playback endpoint is in scope. The UI and manual checklist require Chrome and other non-call audio to be closed or silent during WhatsApp/Zoom; Meet uses Chrome but requires every other tab/application to remain silent.
 3. **Acoustic crossover:** do not require headphones. Test the user's actual microphone and speakers first. They pass when loopback speech does not create duplicate `user` turns; if crossover appears, adjust microphone gain/device routing and retest, with headphones remaining an optional mitigation. F03 does not add echo cancellation unless the tested setup cannot meet the attribution gate and the plan is explicitly revised.
-4. **Local model:** the initial `faster-whisper` 1.2.1 `small` CPU `int8` candidate failed the repeated Auto-language latency gate. The user then separately approved the pinned CUDA 12/cuDNN 9 wheel runtime; the retained implementation is the tested GPU `float16` configuration with no CPU or cloud fallback.
-5. **Language:** offer `English`, `Hebrew`, and `Auto`; fixed choices pass `en` or `he`, while Auto compares only the model's English and Hebrew probabilities independently per finalized utterance and explicitly transcribes with the stronger of those two. Auto cannot select a third language. Transcribe rather than translate.
+4. **Local model:** the initial `faster-whisper` 1.2.1 `small` CPU `int8` candidate failed the repeated Auto-language latency gate. The user then separately approved the pinned CUDA 12/cuDNN 9 wheel runtime. The post-completion English path uses GPU `float16` `mobiuslabsgmbh/faster-whisper-large-v3-turbo` pinned at revision `0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf`, with no CPU or cloud fallback.
+5. **Language:** offer English only and pass `language="en"`. Hebrew and Auto were removed after the 2026-08-25 free local model comparison found no sufficiently accurate Hebrew candidate. Transcribe rather than translate.
 6. **Turn presentation:** show only finalized turns. While speech is open or inference is running, show source-specific `Listening`/`Transcribing` state, not unstable partial text.
 7. **Cloud contingency:** if and only if the local candidate fails an approved accuracy or latency gate, stop and present the evidence. A separately approved revision may replace it with low-cost OpenAI `gpt-transcribe`; the product will not retain two transcription implementations merely as speculative fallback.
 8. **Validation:** WhatsApp is required. Zoom and Google Meet require real validation or explicit user waivers recorded as `WAIVED — not passed`.
@@ -119,6 +229,11 @@ The retained microphone binding is documented at [`PyAudioWPatch`](https://githu
 | OpenAI `gpt-transcribe` | Sends call audio off-device; requires internet | Current low-cost transcription option: $0.0045/minute; supports completed files, streamed file transcripts, and committed Realtime turns | Contingency only after an explicit local-gate failure and separate privacy/cost approval. |
 | OpenAI `gpt-live-transcribe` | Sends call audio off-device; requires internet | Lower-latency realtime deltas, but currently $0.017/minute | Not the low-cost default; consider only if the approved cloud path also fails the latency requirement. |
 | `gpt-4o-mini-transcribe` / realtime Whisper alternatives | Cloud-only | Current alternatives, but neither is the recommended cost/requirement match | Not retained. |
+
+The later 2026-08-25 free-model comparison supersedes the initial multilingual
+assumption: Hebrew-tuned large-v3 was best at 22.2% word error on real FLEURS speech,
+which the user rejected as insufficient. No tested free local Hebrew model is retained
+for production. A paid/cloud candidate would require a separate privacy and cost decision.
 
 Official local references: [`faster-whisper`](https://github.com/SYSTRAN/faster-whisper), [CTranslate2 installation](https://opennmt.net/CTranslate2/installation.html), [hardware support](https://opennmt.net/CTranslate2/hardware_support.html), [quantization](https://opennmt.net/CTranslate2/quantization.html), and [OpenAI Whisper model sizes](https://github.com/openai/whisper/blob/main/README.md?plain=1). Current cloud references: [OpenAI transcription models](https://developers.openai.com/api/docs/models), [`gpt-transcribe`](https://developers.openai.com/api/docs/models/gpt-transcribe), [`gpt-live-transcribe`](https://developers.openai.com/api/docs/models/gpt-live-transcribe), and the [OpenAI audio guide](https://developers.openai.com/api/docs/guides/audio).
 
@@ -262,7 +377,7 @@ If CPU passes, do not install a GPU runtime. If CPU fails latency but passes acc
 
 ### Language, timestamps, and final turns
 
-- `English` uses `language="en"`; `Hebrew` uses `language="he"`; `Auto` runs per-utterance language detection, discards every candidate except `en`/`he`, and passes the higher-probability approved language explicitly to transcription. Translation is disabled.
+- Production uses `language="en"`. Hebrew and automatic language detection are excluded until a future free model passes a new representative accuracy comparison. Translation is disabled.
 - Request segment and word timestamps from `faster-whisper` for boundary/accuracy checks. F03 does not expand `ConversationTurn`; transient word timestamps are discarded after construction.
 - `ConversationTurn.timestamp` is an aware UTC wall-clock timestamp corresponding to the utterance’s first voiced capture sample. Ordering uses a monotonic capture timestamp plus a sequence number, never inference completion time.
 - Microphone turns use `speaker_name="You"`, `speaker_role=user`, `source="microphone"`, and `is_media=False`.
@@ -463,15 +578,15 @@ All thresholds must pass twice on clean runs on the verified development machine
 - An eligible WhatsApp call removes Chrome/Meet from selection. If it appears during active Meet capture, both sides stop and require reselection; an idle WhatsApp main window does not block Meet.
 - `ConversationTurn.timestamp` differs from the manifest’s first voiced sample by no more than one capture block plus 20 ms.
 - Five minutes of digital silence on either source yields zero turns and zero non-silence text.
-- Quiet synthetic English normalized WER is at most 15%; approved Hebrew corpus normalized WER is at most 20%. Each approved language has at least 90% exact recall of a separate non-private keyword/number list.
-- Auto evaluates language independently per finalized utterance and can select only English (`en`) or Hebrew (`he`), even when the model's highest unrestricted language probability is a third language.
+- Quiet synthetic English normalized WER is at most 15%, with at least 90% exact recall of the separate non-private keyword/number list.
+- Production explicitly transcribes English (`en`). Hebrew and Auto cannot be selected; their retained fixtures remain offline regression and fixed-language benchmark inputs, not evidence of product support.
 - The manual scripted call for each non-waived app has at least 90% materially correct utterances per source and zero role swaps. Evidence records counts, not content.
 - No partial turn enters application state. Empty or failed inference produces a visible status/error and no fabricated turn.
 
 ### Latency and performance
 
 - Single-source speech-end-to-final-turn p95 is at most 3.0 seconds.
-- Across the overlapping two-source replay, speech-end-to-final-turn p95 is at most 5.0 seconds and maximum is at most 8.0 seconds; the completed-utterance queue returns to zero within 10 seconds after speech stops.
+- Across the overlapping two-source replay, speech-end-to-final-turn p95 and maximum are each at most 5.0 seconds; the completed-utterance queue returns to zero within 10 seconds after speech stops.
 - Chosen local inference real-time factor is at most 0.60 per source on the representative corpus.
 - While F03 inference runs, F02 still emits at least 10 video observations/second, keeps its one-frame slot bound, and shows no frozen stale frame.
 - Tk heartbeat maximum gap is at most 250 ms during capture/inference and the Stop action acknowledges within 250 ms.
@@ -493,7 +608,7 @@ Failing any threshold means the related Trello card remains open. Accuracy/laten
 Use a consenting second participant or a second controlled account, a non-private script, and the user's actual microphone and speakers. Never record the call. Headphones are optional, not required. For each application:
 
 1. start F02+F03 and verify both source indicators;
-2. alternate at least ten short English/Hebrew utterances in Auto, confirm each finalized utterance uses the appropriate one of those two languages, include simultaneous speech, 10 seconds of silence, one utterance longer than 15 seconds, and numbers/names from the non-private test list;
+2. use at least ten short English utterances, including simultaneous speech, 10 seconds of silence, one utterance longer than 15 seconds, and numbers/names from the non-private test list;
 3. verify speaker playback does not reappear as a duplicate microphone/`user` turn, then verify each side’s displayed role, chronological order, and final-only behavior;
 4. confirm the endpoint-wide warning is visible and follow it: close or silence Chrome and other non-call audio for WhatsApp/Zoom; for Meet, keep every other Chrome tab/application silent. Do not claim software exclusion of unrelated audio;
 5. remove/disable the camera or otherwise lose the selected visual target while the call continues, confirm facial signals stop without stopping either audio side or finalized transcription, confirm the empty face area collapses so the prior transcript and both audio states remain visible, and confirm no replacement video window is selected silently;
@@ -513,7 +628,7 @@ Use a consenting second participant or a second controlled account, a non-privat
 - **Selection convenience boundary:** clean Stop/Start may reuse the still-live enumeration context and its exact selected records. This is session-only convenience, not persistence; Refresh, fault, or in-process rebuild clears both selectors rather than matching names or reusing indices. A new app process may preselect its newly enumerated current defaults but never restores the previous process's choices.
 - **Process isolation unavailable for live WhatsApp:** the Windows process-loopback experiment returned digital silence for the active WhatsApp render session and was removed. Revisit only if Windows/WhatsApp behavior changes and a new approved spike passes the real call before integration.
 - **Overlapping speech:** one GPU model worker serializes simultaneous finalized utterances. The measured overlap gate passed with a bounded queue; add another bounded worker only after a measured regression and an approved plan change.
-- **Hebrew/code-switching:** deterministic Hebrew and constrained English/Hebrew Auto gates passed, but clean generated speech remains easier than real calls. Auto chooses one of those two languages per finalized utterance; third-language and mixed-language-within-one-utterance transcription are not promised modes.
+- **Hebrew/code-switching:** unsupported. Real-recording tests found no sufficiently accurate free local Hebrew model; the best candidate produced 22.2% word error. Clean synthetic Hebrew/Auto passes were not representative enough. Re-enable only after a future free model passes a new real-speech comparison.
 - **Model provisioning:** offline runtime works only after the pinned model is installed. Missing model state is reported before a call.
 - **GPU deployment:** the retained Windows configuration depends on the pinned NVIDIA cuBLAS/cuDNN wheels and a compatible NVIDIA driver. The model and wheel payloads increase installation size; there is intentionally no silent CPU fallback.
 - **Cloud privacy/cost:** any cloud replacement sends call audio off-device, needs internet, changes the privacy posture, and requires explicit approval plus updated documentation.
@@ -546,7 +661,7 @@ The user approved the plan on 2026-08-19 with these answers:
 
 1. **Endpoint-wide audio scope — approved 2026-08-19, temporarily superseded 2026-08-24, reinstated 2026-08-25.** The implementation treats every sound routed to the selected playback endpoint as `selected_contact`. After the process-isolation attempt failed live WhatsApp, the user approved returning to this working behavior with the explicit rule to close/silence Chrome and other non-call audio.
 2. **Headphones requirement — rejected and revised.** Headphones are not required. Test the user's microphone and speakers as-is and keep them when the zero-role-crossover gate passes. Adapt device gain/routing based on measured behavior if necessary.
-3. **Languages — approved.** Gate English, Hebrew, and Auto independently, with no translation.
+3. **Languages — superseded 2026-08-25.** The original English/Hebrew/Auto approval is replaced by English-only support after no tested free local Hebrew model met the required accuracy. There is still no translation.
 4. **Transcript behavior — approved.** Show source status and finalized `ConversationTurn` objects only; do not add unstable partial captions.
 5. **Application validation — validation planned.** WhatsApp, Zoom, and Google Meet are currently scheduled for manual validation. The user may decide at the validation stage whether to test or explicitly waive Zoom and/or Meet; no waiver is granted now, and any later waiver is recorded as `WAIVED — not passed`.
 6. **Gate A v2 device identity — approved.** Session-scoped PyAudioWPatch indices may replace stable Windows endpoint IDs because F03 persists no device choice. Selection must be revalidated and opened explicitly in one enumeration context; any mismatch, default change, disconnect, or rebuilt enumeration fails closed and requires reselection. Native WASAPI remains an unapproved contingency if this behavioral gate fails.
@@ -556,7 +671,8 @@ The user approved the plan on 2026-08-19 with these answers:
 10. **Process-isolated call playback and source priority — approved 2026-08-24, capture portion retired 2026-08-25.** Native Windows process loopback passed synthetic applications but returned digital silence for the audible live WhatsApp render session and every related PID, including one final Microsoft-sample-style correction. The helper/source/binary were removed. WhatsApp-over-Chrome call-window selection/runtime priority remains retained because it is independent of the failed audio binding.
 11. **One final fix, then endpoint fallback — approved 2026-08-25.** The user authorized one more root-cause process-loopback correction and, on failure, explicitly chose the previously working playback-endpoint implementation with a no-Chrome/no-other-audio operating rule during WhatsApp. The final correction failed with `peak 1`, RMS `0.479`; Gate D is therefore the current approved production path and requires a fresh pre-manual Claude `PASS` before retest.
 12. **Live visibility and clean-stop selection retention — approved 2026-08-25.** When face/video output is unavailable, collapse the empty thumbnail so the prior finalized transcript and live audio state remain visible. Preserve the selected microphone/playback only across a clean Stop/Start using the same live enumeration context. Refresh, device/enumeration fault, shutdown failure, and in-process rebuild clear both and require explicit reselection. App restart restores no prior choice/index, though the new initial enumeration may suggest current Windows defaults; no PortAudio index is persisted or remapped by name.
-13. **Auto language scope — approved 2026-08-25.** Auto is limited to English and Hebrew for now. It compares only `en`/`he` probabilities for each finalized utterance and explicitly transcribes with the stronger approved language; it never selects a third language and still does not translate.
+13. **Auto language scope — retired 2026-08-25.** The constrained English/Hebrew Auto implementation passed synthetic checks but was removed from the product after representative Hebrew testing failed the accuracy requirement. Production passes English explicitly; legacy Auto helpers and Hebrew fixtures remain unreachable from the production UI for historical regression and fixed-language benchmark use only.
 14. **Zoom and Google Meet validation — waived 2026-08-25.** The user chose to waive both remaining F03 live-call checks for now. Each is recorded as `WAIVED — not passed`, not as successful validation; WhatsApp remains the only passed live application gate.
+15. **English model revision — accepted with Claude-limit exception 2026-08-25.** The user accepted the real-call result as very good despite a couple of transcription errors. Opus had reviewed only the staged transcription revision and its ninth-round findings were corrected; the corrected rerun could not start because the Claude account hit its session limit on both Opus and Sonnet. The user approved completion without waiting for that account reset. This exception applies only to the post-completion English model revision and does not change future review gates.
 
 The original approval did not pre-approve CUDA installation or OpenAI audio egress. After the local CPU candidate failed its repeated latency gate, the user separately approved the pinned CUDA/cuDNN wheel runtime used here. OpenAI audio egress remains unapproved.

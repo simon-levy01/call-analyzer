@@ -55,7 +55,8 @@ Google Play services and contains no metrics or network client.
 ## Two-sided local transcription
 
 Before the first assisted call, use a supported NVIDIA GPU/driver and provision the
-approved multilingual model plus the pinned CUDA wheel runtime once:
+multilingual large-v3-turbo checkpoint pinned at revision
+`0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf` plus the pinned CUDA wheel runtime once:
 
 ```powershell
 .\.venv\Scripts\python -m conversation_copilot --install-transcription-model
@@ -67,9 +68,9 @@ endpoint-wide: every sound routed to the selected device can enter the contact
 transcript. Close or silence Chrome and every other non-call audio app during
 WhatsApp/Zoom. For Google Meet, use Chrome for the call and keep other Chrome tabs
 and applications silent. The app shows this warning beside the playback selector.
-Language choices are English, Hebrew, and Auto. Auto makes a fresh choice for each
-finalized utterance but is intentionally limited to English or Hebrew; it cannot
-select a third language and does not translate.
+English is the supported transcription language. Hebrew and automatic language
+selection are currently excluded because their measured accuracy is not reliable
+enough for the project text.
 If microphone opening is blocked, enable **Let desktop apps access your microphone**
 under Windows Settings > Privacy & security > Microphone, then reselect the device.
 A clean **Stop** keeps the same explicit choices for the next **Start** while the
@@ -85,6 +86,48 @@ Validate the cached offline path with:
 ```powershell
 .\.venv\Scripts\python -m conversation_copilot --check-audio
 .\.venv\Scripts\python -m conversation_copilot --benchmark-audio --seconds 600
+```
+
+## Compare transcription accuracy
+
+Compare the current model with the default model/settings profiles from
+Faster-Whisper-Transcriber, Stage Whisper, and noScribe. Provision the production
+model with `--install-transcription-model` first; then this command downloads missing
+comparison-only models and runs the complete selected profile benchmark:
+
+```powershell
+.\.venv\Scripts\python -m conversation_copilot.transcription_benchmark --download-models
+```
+
+The built-in run defaults to English. Pass `--language he` for the retained Hebrew
+fixture; profiles that do not support Hebrew are excluded rather than scored as failures,
+and selecting only incompatible profiles is an error. By default each clean fixture also
+gets a deterministic call-like degraded case; pass `--clean-only` to disable that or
+`--json` for machine-readable results.
+
+The benchmark corpus retains exact English and Hebrew reference text so future
+models can be compared. To test a video or audio file with a human-verified transcript:
+
+```powershell
+.\.venv\Scripts\python -m conversation_copilot.transcription_benchmark `
+  --media .\sample.mp4 --reference .\sample.txt --language en --download-models
+```
+
+The noScribe row intentionally uses the same pinned weights as production with
+noScribe's decoding settings. The Stage Whisper profile is a faster-whisper execution
+of Stage Whisper's default
+`base` weights because the linked Stage Whisper application pins a 2022 PyTorch
+Whisper build. These are end-to-end profile comparisons: each application's decoding
+settings are part of the result, so the report does not isolate model weights. The
+50-clip FLEURS Hebrew matrix was a separate external-corpus evaluation and is not
+recreated by the built-in two-clip fixture. The committed runner can repeat an external
+corpus from a JSON manifest containing `media`, `reference`, and `language` fields:
+
+```powershell
+.\.venv\Scripts\python -m conversation_copilot.transcription_benchmark `
+  --manifest .\fleurs-hebrew.json --language he --profiles `
+  ivrit-large-v3 ivrit-large-v3-turbo ivrit-bilingual-v2-d4 general-large-v3 `
+  current-fair original-small stage-base-fair --download-models --json
 ```
 
 ## Tests

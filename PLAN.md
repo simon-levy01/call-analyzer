@@ -48,7 +48,7 @@ By October 1, the application must demonstrate a complete one-to-one call loop o
 - Audio-led combined-session lifecycle: once both explicit audio sides are healthy, loss of the selected visual target releases only F02 resources and transcription continues visibly until explicit Stop/close; no video target is selected automatically.
 - Session-scoped audio selection convenience: a clean Stop/Start retains the exact microphone/playback records in the still-live enumeration context, while Refresh, fault, rebuild, and shutdown failure clear both and require explicit reselection. App restart restores no prior record/index; the fresh context may suggest its current Windows defaults.
 - Transcription and separation of the user's speech from the contact's speech.
-- English, Hebrew, and per-utterance Auto transcription, with Auto constrained to English/Hebrew only for the current product.
+- English-only transcription. Hebrew and Auto are excluded until a future free local model passes a representative real-speech accuracy comparison.
 - Multimodal tone hypotheses such as possibly happy, sad, angry/tense, emotionally intense, neutral, or unclear.
 - Contact-specific memories, relationship-specific interaction style, and shared context across imported text and calls.
 - Live replies, reminders, and follow-up suggestions.
@@ -80,7 +80,7 @@ These are preferred starting points, not permanent choices. Each feature plan mu
 | Facial observations | MediaPipe Face Landmarker in live-stream mode | ONNX Runtime/DirectML model after evaluation proves landmarks are insufficient |
 | Remote face selection | Largest detected face plus **Switch face** correction; six-second loss lock plus **Continue tracking** | Saved per-app crop/layout |
 | Audio capture | Explicit PyAudioWPatch microphone plus explicit WASAPI playback-endpoint loopback | Warn that endpoint scope includes every routed sound; close/quiet Chrome and other non-call audio during WhatsApp/Zoom |
-| Speech transcription | Local `faster-whisper`; fixed English/Hebrew plus per-utterance Auto constrained to those two languages | Current low-cost OpenAI transcription/realtime model |
+| Speech transcription | Local `faster-whisper`; English only | Re-evaluate free local Hebrew models later; any cloud audio path needs explicit approval |
 | Structured interpretation | Current low-cost OpenAI model with enforced structured output | Stronger OpenAI model for post-call analysis only when quality requires it |
 | Local application core | Reuse the POC's Python/FastAPI/Pydantic path where useful | Select the smallest Windows shell during the foundation feature |
 | Durable storage and search | SQLite plus FTS5 baseline | Compare Mem0 and Graphiti during the memory feature; adopt only if they win against the acceptance criteria |

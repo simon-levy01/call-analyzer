@@ -63,6 +63,8 @@ def show_window(summary: str) -> None:
         device_labels,
         local_model_available,
         prepare_transcription_runtime,
+        production_transcription_language,
+        transcription_language_labels,
     )
     from .models import ConversationTurn
     audio_runtime_error = ""
@@ -99,7 +101,7 @@ def show_window(summary: str) -> None:
     language_box = ttk.Combobox(
         audio_controls,
         state="readonly",
-        values=("English", "Hebrew", "Auto"),
+        values=transcription_language_labels(),
         width=16,
     )
     language_box.current(0)
@@ -293,7 +295,7 @@ def show_window(summary: str) -> None:
         if audio_ready:
             try:
                 assert audio_catalog is not None
-                language = {"English": "en", "Hebrew": "he", "Auto": None}[language_box.get()]
+                language = production_transcription_language(language_box.get())
                 audio_session = AudioCallSession(
                     audio_catalog,
                     audio_catalog.microphones[microphone_box.current()],

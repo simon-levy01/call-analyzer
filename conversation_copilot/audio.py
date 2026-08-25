@@ -17,7 +17,26 @@ import numpy as np
 from .models import SpeakerRole
 
 MODEL_CACHE = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "ConversationCopilot" / "models"
-MODEL_NAME = "small"
+MODEL_NAME = "mobiuslabsgmbh/faster-whisper-large-v3-turbo"
+MODEL_REVISION = "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf"
+MODEL_CACHE_DIRECTORY = "models--" + MODEL_NAME.replace("/", "--")
+PINNED_MODEL_FILES = {
+    "config.json",
+    "model.bin",
+    "preprocessor_config.json",
+    "tokenizer.json",
+    "vocabulary.json",
+}
+SUPPORTED_TRANSCRIPTION_LANGUAGES = {"English": "en"}
+TRANSCRIBE_OPTIONS = {
+    "beam_size": 1,
+    "best_of": 1,
+    "temperature": 0.0,
+    "chunk_length": 15,
+    "word_timestamps": True,
+    "vad_filter": True,
+    "condition_on_previous_text": False,
+}
 SAMPLE_RATE = 16_000
 SAMPLE_WIDTH = 2
 FRAMES_PER_BUFFER = 1_024
@@ -33,6 +52,14 @@ START_VOICE_SAMPLES = int(0.1 * SAMPLE_RATE)
 END_SILENCE_SAMPLES = int(0.6 * SAMPLE_RATE)
 MAX_UTTERANCE_SAMPLES = MAX_UTTERANCE_SECONDS * SAMPLE_RATE
 LOGGER = logging.getLogger(__name__)
+
+
+def transcription_language_labels() -> tuple[str, ...]:
+    return tuple(SUPPORTED_TRANSCRIPTION_LANGUAGES)
+
+
+def production_transcription_language(label: str) -> str:
+    return SUPPORTED_TRANSCRIPTION_LANGUAGES[label]
 
 
 class AudioUnavailable(RuntimeError):
@@ -501,17 +528,23 @@ def install_local_model() -> None:
         device="cuda",
         compute_type="float16",
         download_root=str(MODEL_CACHE),
+        revision=MODEL_REVISION,
     )
     del model
+    if not local_model_available():
+        snapshot = MODEL_CACHE / MODEL_CACHE_DIRECTORY / "snapshots" / MODEL_REVISION
+        missing = sorted(
+            name for name in PINNED_MODEL_FILES if not snapshot.joinpath(name).is_file()
+        )
+        raise RuntimeError(
+            f"Installed transcription model is incomplete at {snapshot} "
+            f"(missing: {', '.join(missing)})"
+        )
 
 
 def local_model_available() -> bool:
-    model_root = MODEL_CACHE / "models--Systran--faster-whisper-small" / "snapshots"
-    required = {"config.json", "model.bin", "tokenizer.json"}
-    return any(
-        all(path.joinpath(name).is_file() for name in required)
-        for path in model_root.glob("*")
-    )
+    model_root = MODEL_CACHE / MODEL_CACHE_DIRECTORY / "snapshots" / MODEL_REVISION
+    return all(model_root.joinpath(name).is_file() for name in PINNED_MODEL_FILES)
 
 
 def _load_local_model():
@@ -524,6 +557,7 @@ def _load_local_model():
         compute_type="float16",
         download_root=str(MODEL_CACHE),
         local_files_only=True,
+        revision=MODEL_REVISION,
     )
 
 
@@ -573,13 +607,7 @@ def run_audio_replay() -> str:
                     str(fixture_dir / name),
                     language=expected["language"],
                     task="transcribe",
-                    beam_size=1,
-                    best_of=1,
-                    temperature=0.0,
-                    chunk_length=15,
-                    word_timestamps=True,
-                    vad_filter=True,
-                    condition_on_previous_text=False,
+                    **TRANSCRIBE_OPTIONS,
                 )
                 materialized = list(segments)
                 elapsed = time.perf_counter() - started
@@ -608,13 +636,7 @@ def run_audio_replay() -> str:
                     samples,
                     language=language,
                     task="transcribe",
-                    beam_size=1,
-                    best_of=1,
-                    temperature=0.0,
-                    chunk_length=15,
-                    word_timestamps=True,
-                    vad_filter=True,
-                    condition_on_previous_text=False,
+                    **TRANSCRIBE_OPTIONS,
                 )
                 text = " ".join(segment.text.strip() for segment in segments).strip()
                 if _validation_wer(expected["text"], text, expected["language"]):
@@ -624,13 +646,7 @@ def run_audio_replay() -> str:
                 np.zeros(5 * 60 * SAMPLE_RATE, dtype=np.float32),
                 language="en",
                 task="transcribe",
-                beam_size=1,
-                best_of=1,
-                temperature=0.0,
-                chunk_length=15,
-                word_timestamps=True,
-                vad_filter=True,
-                condition_on_previous_text=False,
+                **TRANSCRIBE_OPTIONS,
             )
             if _accepted_text(silence):
                 raise RuntimeError("digital silence produced a transcript")
@@ -642,13 +658,7 @@ def run_audio_replay() -> str:
                 room_noise / 32768.0,
                 language="en",
                 task="transcribe",
-                beam_size=1,
-                best_of=1,
-                temperature=0.0,
-                chunk_length=15,
-                word_timestamps=True,
-                vad_filter=True,
-                condition_on_previous_text=False,
+                **TRANSCRIBE_OPTIONS,
             )
             if _accepted_text(noise_segments):
                 raise RuntimeError("non-speech noise produced a transcript")
@@ -994,7 +1004,7 @@ def run_audio_benchmark(seconds: float) -> str:
         min(len(overlap_ordered) - 1, round((len(overlap_ordered) - 1) * 0.95))
     ]
     maximum = max(overlap_latencies)
-    if single_p95 > 3.0 or overlap_p95 > 5.0 or maximum > 8.0 or saturations:
+    if single_p95 > 3.0 or maximum > 5.0 or saturations:
         raise RuntimeError(
             "audio benchmark latency/queue threshold failed "
             f"(single_p95={single_p95:.3f}s, overlap_p95={overlap_p95:.3f}s, "
@@ -1084,7 +1094,7 @@ def _validation_words(text: str, language: str) -> list[str]:
     return result
 
 
-def _validation_wer(reference: str, hypothesis: str, language: str) -> float:
+def _validation_error_counts(reference: str, hypothesis: str, language: str) -> tuple[int, int]:
     left = _validation_words(reference, language)
     right = _validation_words(hypothesis, language)
     row = list(range(len(right) + 1))
@@ -1093,7 +1103,12 @@ def _validation_wer(reference: str, hypothesis: str, language: str) -> float:
         for j, actual in enumerate(right, 1):
             next_row.append(min(next_row[-1] + 1, row[j] + 1, row[j - 1] + (expected != actual)))
         row = next_row
-    return row[-1] / max(1, len(left))
+    return row[-1], len(left)
+
+
+def _validation_wer(reference: str, hypothesis: str, language: str) -> float:
+    edits, words = _validation_error_counts(reference, hypothesis, language)
+    return edits / max(1, words)
 
 
 def _validation_keyword_recall(text: str, keywords: list[str], language: str) -> float:
@@ -1454,13 +1469,7 @@ class AudioCallSession:
                     samples,
                     language=language,
                     task="transcribe",
-                    beam_size=1,
-                    best_of=1,
-                    temperature=0.0,
-                    chunk_length=15,
-                    word_timestamps=True,
-                    vad_filter=True,
-                    condition_on_previous_text=False,
+                    **TRANSCRIBE_OPTIONS,
                 )
                 content = _accepted_text(segments)
                 if not content or content.casefold() in {"[blank_audio]", "[silence]", "[music]"}:
