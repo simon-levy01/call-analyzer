@@ -411,6 +411,7 @@ class LiveSnapshot:
     max_landmark_count: int
     max_blendshape_count: int
     last_processed_callback_index: int
+    current_signal: FacialSignal | None
 
 
 class LiveVideoSession:
@@ -567,4 +568,5 @@ class LiveVideoSession:
                 max_landmark_count=self._max_landmark_count,
                 max_blendshape_count=self._max_blendshape_count,
                 last_processed_callback_index=self._last_processed_callback_index,
+                current_signal=signal,
             )

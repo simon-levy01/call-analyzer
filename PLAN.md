@@ -17,9 +17,9 @@ By October 1, the application must demonstrate a complete one-to-one call loop o
 1. The user starts the assistant, selects a visible WhatsApp, Zoom, or dedicated Chrome-hosted Google Meet call window, and confirms or corrects the suggested contact.
 2. The app follows the largest remote face and processes visual signals without recording video. A brief miss may reacquire automatically; after six seconds without the selected face it pauses without silently choosing another face, and the user explicitly resumes with **Continue tracking**.
 3. It captures the user's microphone and one explicitly selected Windows playback endpoint, producing attributed conversation turns while clearly warning that every sound routed to that endpoint is in scope. Chrome and other non-call audio must be closed or kept silent during WhatsApp/Zoom capture. Once that audio session is healthy, visual capture loss pauses only facial signals: the empty face area collapses, the existing transcript and audio state remain visible, transcription continues until explicit Stop/close, and no replacement video or audio source is selected silently. A clean Stop may retain the two selections only inside the same live enumeration context; Refresh, fault, or in-process rebuild clears them. App restart never restores prior choices, though its fresh initial enumeration may suggest current defaults.
-4. It combines visual observations, conversation context, and approved contact memory into structured, evidence-backed tone hypotheses and social cues.
+4. F04 first combines bounded recent turns with compact local visual/vocal observations into structured, evidence-backed tone hypotheses and social cues. After F05, bounded approved contact memories may enrich the same interpretation.
 5. It can offer up to three items in each guidance category: possible tones, important cues, replies, remembered details to mention, and follow-up questions. The interface may show fewer.
-6. It uses `low`, `medium`, `high`, or `unclear` confidence and never presents emotion or intent as certain.
+6. Each interpretation item uses `low`, `medium`, or `high` confidence. The complete update may instead report insufficient or conflicting evidence, and it never presents emotion or intent as certain.
 7. It creates post-call summaries and memory proposals. Approved memories remain available across future text and voice/video interactions.
 8. Repeatable evaluation shows that the system is useful, responsive, contact-specific, and willing to abstain when evidence is weak.
 9. The Windows demo works live, with a recorded fallback available.
@@ -30,7 +30,7 @@ By October 1, the application must demonstrate a complete one-to-one call loop o
 - **Evidence first:** each output identifies the words, vocal behavior, visible movement, or remembered context that influenced it.
 - **Contact-aware, user-controlled:** the app may suggest a contact, but the user confirms the identity before memory is used or updated.
 - **Long-lived memory:** approved memories do not expire automatically. Corrections supersede old memories while preserving history; the user can still delete them.
-- **Local ownership:** memories, transcripts, and settings live on the user's computer. Relevant audio, transcript excerpts, derived visual signals, and selected memories may be sent to OpenAI when required for transcription or analysis.
+- **Local ownership:** memories, transcripts, and settings live on the user's computer. F04 sends only bounded transcript excerpts and compact derived vocal/visual observations to OpenAI. Sending raw audio later requires a separate explicit privacy and cost decision.
 - **No video retention:** captured frames are processed in memory and are not written to disk or sent to an external vision service in the planned MVP.
 - **Low cognitive load:** guidance changes only after meaningful new evidence, not on every frame or token.
 - **One feature at a time:** finish, test, and review the active feature before beginning another.
@@ -49,7 +49,7 @@ By October 1, the application must demonstrate a complete one-to-one call loop o
 - Session-scoped audio selection convenience: a clean Stop/Start retains the exact microphone/playback records in the still-live enumeration context, while Refresh, fault, rebuild, and shutdown failure clear both and require explicit reselection. App restart restores no prior record/index; the fresh context may suggest its current Windows defaults.
 - Transcription and separation of the user's speech from the contact's speech.
 - English-only transcription. Hebrew and Auto are excluded until a future free local model passes a representative real-speech accuracy comparison.
-- Multimodal tone hypotheses such as possibly happy, sad, angry/tense, emotionally intense, neutral, or unclear.
+- Multimodal conversation-atmosphere hypotheses limited initially to positive/warm, neutral/calm, sad/low-energy, tense/negative, energetic/high-energy, and emotionally intense; insufficient or conflicting evidence is an explicit abstention rather than a tone label.
 - Contact-specific memories, relationship-specific interaction style, and shared context across imported text and calls.
 - Live replies, reminders, and follow-up suggestions.
 - Post-call summary and reviewed memory proposals.
@@ -81,10 +81,10 @@ These are preferred starting points, not permanent choices. Each feature plan mu
 | Remote face selection | Largest detected face plus **Switch face** correction; six-second loss lock plus **Continue tracking** | Saved per-app crop/layout |
 | Audio capture | Explicit PyAudioWPatch microphone plus explicit WASAPI playback-endpoint loopback | Warn that endpoint scope includes every routed sound; close/quiet Chrome and other non-call audio during WhatsApp/Zoom |
 | Speech transcription | Local `faster-whisper`; English only | Re-evaluate free local Hebrew models later; any cloud audio path needs explicit approval |
-| Structured interpretation | Current low-cost OpenAI model with enforced structured output | Stronger OpenAI model for post-call analysis only when quality requires it |
+| Structured interpretation | Evaluated `gpt-5.6-luna` profile with enforced structured output, bounded stateless requests, and spend limits | One user-triggered `gpt-5.6-terra` check at an evaluated reasoning level; never automatic |
 | Local application core | Reuse the POC's Python/FastAPI/Pydantic path where useful | Select the smallest Windows shell during the foundation feature |
 | Durable storage and search | SQLite plus FTS5 baseline | Compare Mem0 and Graphiti during the memory feature; adopt only if they win against the acceptance criteria |
-| Optional voice emotion signal | Simple local prosody features | Hume only if the paid experiment materially improves measured results |
+| Vocal observations | Simple local remote-speaker energy/rate/pause/overlap features from existing samples/timing | Add a vocal-analysis dependency only after measured uplift failure and an approved plan revision |
 
 GPU acceleration is allowed and should be used when it improves the demo, but the basic MediaPipe path should remain CPU-capable. The supported release target is Windows; the lecturer's MacBook is not a packaging target.
 
@@ -98,7 +98,7 @@ Preserve:
 - deterministic parsing for known transcript formats and AI only where ambiguity requires it;
 - recent analysis windows for latency and cost;
 - timestamps, source, display order, and contact attribution;
-- evidence-backed social cues, clarification suggestions, and an explicit `unclear` outcome;
+- evidence-backed social cues, clarification suggestions, and an explicit abstention outcome;
 - import previews, demo transcripts, and useful parser/storage/API tests.
 
 Correct or redesign:
@@ -119,7 +119,7 @@ Target dates are completion targets. If one slips, apply the trimming order inst
 | F01 — Foundation and selective POC reuse | Aug 14 | Runnable project, chosen desktop approach, imported tests/fixtures, shared event/contact vocabulary |
 | F02 — WhatsApp/Zoom/Chrome Meet window capture and facial signals | Aug 23 | Stable selected-window frames, largest-face tracking, explicit loss recovery, local observations, no frame retention |
 | F03 — Two-sided audio and transcription | Aug 31 | Microphone and system audio become attributed transcript turns with acceptable latency |
-| F04 — Multimodal tone and cue interpretation | Sep 9 | Structured, uncertainty-aware tones/cues combine visual, vocal, and language evidence |
+| F04 — Multimodal tone and cue interpretation | Sep 9 | Stable English-only conversation-atmosphere hypotheses and remote social cues combine bounded language, local vocal, and local visual evidence |
 | F05 — Contact memory and personalization | Sep 16 | Approved long-term memory, aliases, provenance, retrieval, supersession, and relationship-specific style |
 | F06 — Live guidance and post-call review | Sep 22 | Replies, reminders, follow-ups, summaries, and memory proposals work in the call loop |
 | F07 — Evaluation and calibration | Sep 27 | Repeatable scenarios, measured errors/latency/abstention, and tuned update behavior |
@@ -128,6 +128,8 @@ Target dates are completion targets. If one slips, apply the trimming order inst
 F02 completed on 2026-08-19 under the explicit validation exception below: real WhatsApp passed, real Zoom/Meet were user-waived and remain documented risks, and the final tool-disabled Claude Opus 5 review passed after correcting two-face **Continue tracking** recovery.
 
 F02's completed standalone contract still stops its visual-only session when the selected window closes or becomes ineligible. Beginning with F03, the combined Assisted Call follows the audio-led rule above: a healthy explicit microphone/playback-endpoint session survives visual-target loss, while F02 signals stop, its empty thumbnail area collapses so the live transcript/audio state stays visible, and no replacement window is captured. Future feature plans must preserve this distinction. F03 also owns cross-source priority: while an eligible WhatsApp call exists, Chrome/Meet is not offered as a source; an already-running Meet session fails closed if a WhatsApp call appears.
+
+F04 is approved as a memory-free interpretation feature. It analyzes the remote participant's possible social cues and may describe the recent conversation atmosphere; the user's finalized words provide context only, and the user's face/prosody are not analyzed. Automatic live analysis uses the cheapest passing Luna `none`/`low` profile. Terra `none`/`low` is available only through an explicit one-request user action, with visible estimated cost and the same hard session budget. Detailed cadence, schema, evaluation, and privacy gates live in `plans/F04-multimodal-tone-cues.md`.
 
 ## Per-Feature Workflow
 
@@ -169,17 +171,23 @@ The memory feature plan must compare SQLite/FTS5, Mem0, and Graphiti using a sma
 - approved memories persist indefinitely unless the user changes or deletes them;
 - current retrieval excludes superseded facts but preserves their history;
 - retrieval is fast enough for live guidance and does not flood the model with irrelevant history;
+- retrieval handles indirect or euphemistic references such as `the event last week` by combining the confirmed contact, recent conversation turns, temporal metadata, importance/sensitivity, lexical matching, and locally computed semantic similarity rather than relying on shared keywords alone;
+- the F05 retrieval test includes a sensitive-event case in which a later conversation refers indirectly to an earlier tragedy, plus a competing-event case that must return low confidence or abstain instead of selecting an ambiguous memory;
+- local retrieval produces a bounded candidate set. A low-cost model may disambiguate only those candidates when local evidence is insufficient; the complete contact history or memory store is never sent merely to find a match;
 - export and deletion are testable.
 
 No memory framework is adopted merely because it is popular. If SQLite/FTS5 passes the test, use it.
+
+F05 must integrate memory only after F04 is complete. It may add a bounded set of locally retrieved, approved memories to interpretation so indirect references such as a later mention of `the event` can be understood. That change must preserve F04's abstention/privacy rules and rerun the interpretation and modality comparisons; F04 contains no placeholder memory hook.
 
 ## Evaluation and Quality Gates
 
 The project is not finished because a demo looks plausible. Evaluation must include:
 
-- controlled one-to-one scenarios covering happiness, sadness, tension/anger, emotional intensity, neutrality, sarcasm, uncertainty, and changing engagement;
-- comparisons of transcript-only, current multimodal context, and multimodal context plus contact memory;
-- useful cue rate, incorrect cue rate, `unclear`/abstention behavior, latency, stability, and API cost;
+- controlled one-to-one scenarios covering positive/warm, sad/low-energy, tense/negative, energetic/high-energy, emotional intensity, neutrality, humor, sarcasm, uncertainty, discomfort, and changing engagement;
+- F04 comparisons of transcript only, transcript plus vocal observations, transcript plus visual observations, and all available F04 modalities; contact memory is excluded until F05 and then evaluated separately;
+- the user-approved basic fictional two-person fixture remains the exact, speaker-separated F02-F05 replay; the approved HeyGen render adds a realistic compressed-video, neural-lip-sync, face-motion, and semantic-audio stress fixture, but its single animated voice, static Alex tile, watermark, and omitted opening line prevent it from replacing the basic fixture or a consenting live call;
+- useful cue rate, incorrect cue rate, insufficient/conflicting abstention behavior, calibration, latency, stability, and API cost;
 - wrong-contact, stale-memory, contradicted-memory, and no-face/no-audio cases, including six-second face loss without silent reselection, explicit visual continuation, visible uninterrupted audio transcription when visual capture ends mid-call, clean-stop selection retention versus fault/rebuild clearing, truthful endpoint-wide audio warnings/operating rules, and WhatsApp-over-Chrome source priority;
 - checks that raw frames are not retained and local conversations/memories can be deleted;
 - user correction of tone, contact selection, and memory proposals;
@@ -194,7 +202,9 @@ The project is not finished because a demo looks plausible. Evaluation must incl
 - Set a development budget alert at **$30** through October 1.
 - Prefer replayable transcripts, audio samples, and derived visual fixtures during development.
 - Use local MediaPipe and local transcription when reliable enough.
-- Use a low-cost OpenAI model for repeated structured analysis and a stronger model only for targeted evaluation or post-call quality.
+- For F04, target about 1,000 transcript and 1,500 total input tokens, cap output at 400 tokens, warn at `$0.15`, and stop automatic/manual interpretation at a `$0.25` session hard limit while local F02/F03 continue.
+- Use the cheapest Luna `none`/`low` profile that passes for repeated structured analysis. Terra is limited to evaluation and explicit one-request user checks; it never activates automatically.
+- Keep F04 real-model comparison under `$1.50`; the approved staged set is about `$0.62` once or `$1.25` including one full rerun at the conservative input ceiling.
 - Do not add a second paid provider without evidence that the current stack blocks an acceptance criterion.
 
 ## Trimming Order

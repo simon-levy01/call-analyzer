@@ -62,7 +62,8 @@ multilingual large-v3-turbo checkpoint pinned at revision
 .\.venv\Scripts\python -m conversation_copilot --install-transcription-model
 ```
 
-Choose a microphone and playback device explicitly. Duplicate names show a temporary
+Choose a microphone and playback device explicitly. The microphone threshold defaults
+to 100; lower values are more sensitive if quiet speech is missed. Duplicate names show a temporary
 `[WASAPI #index]` suffix; it is not a persistent identity. Playback capture is
 endpoint-wide: every sound routed to the selected device can enter the contact
 transcript. Close or silence Chrome and every other non-call audio app during
@@ -86,6 +87,30 @@ Validate the cached offline path with:
 ```powershell
 .\.venv\Scripts\python -m conversation_copilot --check-audio
 .\.venv\Scripts\python -m conversation_copilot --benchmark-audio --seconds 600
+```
+
+## Multimodal interpretation
+
+The app sends only bounded English transcript excerpts and compact derived remote
+vocal/visual observations to OpenAI. It never sends raw audio, video frames,
+landmarks, or full blendshape history. Automatic Luna requests stop at the session
+hard limit; Terra runs only after **Check with Terra** and a per-request cost
+confirmation. Live Luna uses low reasoning with up to 16 complete turns from the
+last three minutes; repeated speaker labels are omitted and old visual rows are
+trimmed before conversation text when the request needs shortening.
+
+When an API key is approved, place it in `.env.local` at the project root:
+
+```text
+OPENAI_API_KEY=replace-with-the-approved-key
+```
+
+`.env.local` and `.env` are ignored by Git. Do not commit, paste into source code,
+or include the key in logs. The fixed paid comparison is an explicit command and
+has a shared $1.50 hard limit:
+
+```powershell
+.\.venv\Scripts\python -m conversation_copilot --evaluate-f04
 ```
 
 ## Compare transcription accuracy
@@ -135,3 +160,16 @@ corpus from a JSON manifest containing `media`, `reference`, and `language` fiel
 ```powershell
 .\.venv\Scripts\python -m pytest
 ```
+
+The permanent `conversation_copilot/assets/f04/basic-video-chat` bundle is a
+fictional two-person call used for basic F02-F05 replay. It includes the preview
+video, separate microphone/contact audio stems, exact turns, expected cues and
+future memory cases. It does not replace the controlled model evaluation or a
+consenting live WhatsApp validation.
+
+`heygen-video-chat.mp4` is the additional realistic-media stress fixture. Its
+automated replay checks compressed 720p decoding, persistent remote-face
+tracking, landmarks, and changing blendshapes. Keep the basic fixture for exact
+speaker timing and indirect-memory tests: the HeyGen render uses one animated
+voice, a static Alex tile, visible free-tier watermarks, and omits the opening
+`the event` line.

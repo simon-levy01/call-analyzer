@@ -5,6 +5,7 @@ import logging
 import os
 import queue
 import site
+import statistics
 import threading
 import time
 from dataclasses import dataclass
@@ -46,11 +47,15 @@ MAX_RAW_BYTES = 12 * 1024 * 1024
 MAX_JOBS = 4
 MAX_RESULTS = 512
 LOOPBACK_THRESHOLD = 100.0
+DEFAULT_MICROPHONE_THRESHOLD = 100.0
 WATERMARK_SAFETY_SECONDS = 0.25
 MIN_VOICE_SAMPLES = int(0.3 * SAMPLE_RATE)
 START_VOICE_SAMPLES = int(0.1 * SAMPLE_RATE)
 END_SILENCE_SAMPLES = int(0.6 * SAMPLE_RATE)
 MAX_UTTERANCE_SAMPLES = MAX_UTTERANCE_SECONDS * SAMPLE_RATE
+REMOTE_ENERGY_BASELINE_UTTERANCES = 2
+REMOTE_ENERGY_BASELINE_LIMIT = 20
+MAX_CLIPPED_SAMPLE_RATIO = 0.01
 LOGGER = logging.getLogger(__name__)
 
 
@@ -249,6 +254,19 @@ class UtteranceJob:
     started_utc: datetime
     speech_ended_monotonic: float
     queued_monotonic: float
+    voiced_samples: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteVocalDraft:
+    available: bool
+    duration_seconds: float | None = None
+    relative_energy: float | None = None
+    voiced_ratio: float | None = None
+    words_per_voiced_second: float | None = None
+    gap_seconds: float | None = None
+    overlaps_user: bool | None = None
+    unavailable_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -258,6 +276,7 @@ class TurnDraft:
     source: str
     content: str
     timestamp: datetime
+    vocal: RemoteVocalDraft | None = None
 
 
 class TurnOrderer:
@@ -454,6 +473,7 @@ class SpeechSegmenter:
                 started_utc=self._started_utc,
                 speech_ended_monotonic=self._speech_ended_monotonic,
                 queued_monotonic=time.perf_counter(),
+                voiced_samples=self._voiced_samples,
             )
         self._blocks.clear()
         self._key = None
@@ -1145,7 +1165,7 @@ class AudioCallSession:
         language: str | None,
         *,
         contact_name: str = "Selected contact",
-        microphone_threshold: float = 250.0,
+        microphone_threshold: float = DEFAULT_MICROPHONE_THRESHOLD,
         model_factory: Callable[[], object] = _load_local_model,
         require_installed_model: bool = True,
         source_guard: Callable[[], bool] | None = None,
@@ -1173,7 +1193,13 @@ class AudioCallSession:
         self._state_lock = threading.Lock()
         self._shutdown_lock = threading.Lock()
         self._sequence_lock = threading.Lock()
+        self._capture_lock = threading.Lock()
         self._sequence = 0
+        self._capture_intervals: dict[
+            tuple[float, int], tuple[str, float, float | None]
+        ] = {}
+        self._remote_energy_baseline: list[float] = []
+        self._last_remote_end: float | None = None
         self._streams: dict[str, object] = {}
         self._workers: list[threading.Thread] = []
         self._finalizer: threading.Thread | None = None
@@ -1329,8 +1355,8 @@ class AudioCallSession:
         )
         segmenter = SpeechSegmenter(
             threshold,
-            lambda started, utc: self._register(started, utc),
-            self._orderer.cancel,
+            lambda started, utc: self._register(started, utc, source),
+            self._cancel,
         )
         resampler = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
         last_voice = self._monotonic_clock()
@@ -1425,6 +1451,12 @@ class AudioCallSession:
     def _submit(self, source: str, jobs: list[UtteranceJob]) -> None:
         for job in jobs:
             job.source = source
+            with self._capture_lock:
+                interval = self._capture_intervals.get(job.key)
+                if interval:
+                    self._capture_intervals[job.key] = (
+                        interval[0], interval[1], job.speech_ended_monotonic
+                    )
             try:
                 self._jobs.put_nowait((job.key, job))
                 with self._sequence_lock:
@@ -1433,7 +1465,7 @@ class AudioCallSession:
             except queue.Full:
                 with self._sequence_lock:
                     self._job_saturations += 1
-                self._orderer.cancel(job.key)
+                self._cancel(job.key)
                 self._fault("Audio processing cannot keep up")
 
     def _advance_source(
@@ -1460,10 +1492,11 @@ class AudioCallSession:
                 except queue.Empty:
                     continue
                 if time.perf_counter() - job.queued_monotonic > 30:
-                    self._orderer.cancel(job.key)
+                    self._cancel(job.key)
                     self._fault("Audio processing cannot keep up")
                     break
                 samples = job.samples.astype(np.float32) / 32768.0
+                job.samples = np.empty(0, dtype=np.int16)
                 language = self.language or _auto_language(model, samples)
                 segments, _info = model.transcribe(
                     samples,
@@ -1472,10 +1505,20 @@ class AudioCallSession:
                     **TRANSCRIBE_OPTIONS,
                 )
                 content = _accepted_text(segments)
-                if not content or content.casefold() in {"[blank_audio]", "[silence]", "[music]"}:
-                    self._orderer.cancel(job.key)
+                discarded = not content or content.casefold() in {
+                    "[blank_audio]", "[silence]", "[music]"
+                }
+                if discarded:
+                    del samples
+                    self._cancel(job.key)
                 else:
                     microphone = job.source == "microphone"
+                    vocal = (
+                        self._remote_vocal_draft(job, content, samples)
+                        if not microphone
+                        else None
+                    )
+                    del samples
                     self._orderer.complete(
                         job.key,
                         TurnDraft(
@@ -1484,6 +1527,7 @@ class AudioCallSession:
                             source=job.source,
                             content=content,
                             timestamp=job.started_utc,
+                            vocal=vocal,
                         ),
                         job.speech_ended_monotonic,
                     )
@@ -1494,12 +1538,82 @@ class AudioCallSession:
         finally:
             self._model = None
 
-    def _register(self, started: float, _utc: datetime) -> tuple[float, int]:
+    def _register(
+        self, started: float, _utc: datetime, source: str = ""
+    ) -> tuple[float, int]:
         with self._sequence_lock:
             self._sequence += 1
             key = (started, self._sequence)
+        if source:
+            with self._capture_lock:
+                cutoff = started - 90
+                self._capture_intervals = {
+                    item_key: interval
+                    for item_key, interval in self._capture_intervals.items()
+                    if interval[2] is None or interval[2] >= cutoff
+                }
+                self._capture_intervals[key] = (source, started, None)
         self._orderer.register(key)
         return key
+
+    def _cancel(self, key: tuple[float, int]) -> None:
+        with self._capture_lock:
+            self._capture_intervals.pop(key, None)
+        self._orderer.cancel(key)
+
+    def _remote_vocal_draft(
+        self, job: UtteranceJob, content: str, samples: np.ndarray
+    ) -> RemoteVocalDraft:
+        duration = job.speech_ended_monotonic - job.started_monotonic
+        voiced_seconds = job.voiced_samples / SAMPLE_RATE
+        rms = _rms(samples)
+        clipped_ratio = float(np.mean(np.abs(samples) >= 0.999)) if len(samples) else 1.0
+        with self._capture_lock:
+            overlaps_user = any(
+                source == "microphone"
+                and started < job.speech_ended_monotonic
+                and (ended is None or ended > job.started_monotonic)
+                for source, started, ended in self._capture_intervals.values()
+            )
+            self._capture_intervals.pop(job.key, None)
+        previous_end = self._last_remote_end
+        if duration > 0:
+            self._last_remote_end = job.speech_ended_monotonic
+        reliable = (
+            duration > 0
+            and job.voiced_samples >= MIN_VOICE_SAMPLES
+            and voiced_seconds <= duration + END_SILENCE_SAMPLES / SAMPLE_RATE
+            and rms > 0
+            and clipped_ratio <= MAX_CLIPPED_SAMPLE_RATIO
+        )
+        baseline = self._remote_energy_baseline
+        if reliable:
+            reason = (
+                "Too little reliable remote speech for a session baseline"
+                if len(baseline) < REMOTE_ENERGY_BASELINE_UTTERANCES
+                else ("No earlier reliable remote turn for gap timing" if previous_end is None else "")
+            )
+            if not reason:
+                result = RemoteVocalDraft(
+                    available=True,
+                    duration_seconds=duration,
+                    relative_energy=rms / statistics.median(baseline),
+                    voiced_ratio=min(1.0, job.voiced_samples / len(samples)),
+                    words_per_voiced_second=len(content.split()) / voiced_seconds,
+                    gap_seconds=max(0.0, job.started_monotonic - previous_end),
+                    overlaps_user=overlaps_user,
+                )
+            else:
+                result = RemoteVocalDraft(False, unavailable_reason=reason)
+            baseline.append(rms)
+            del baseline[:-REMOTE_ENERGY_BASELINE_LIMIT]
+            return result
+        reason = (
+            "Remote audio was clipped"
+            if clipped_ratio > MAX_CLIPPED_SAMPLE_RATIO
+            else "Remote vocal timing or speech activity was unreliable"
+        )
+        return RemoteVocalDraft(False, unavailable_reason=reason)
 
     def _set_source_status(self, source: str, status: str) -> None:
         with self._state_lock:
@@ -1661,6 +1775,8 @@ class AudioCallSession:
                     item.get_nowait()
                 except queue.Empty:
                     break
+        with self._capture_lock:
+            self._capture_intervals.clear()
 
     def stop(self, timeout: float = 5.0) -> None:
         self.request_stop()

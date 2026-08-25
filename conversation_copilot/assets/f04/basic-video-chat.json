@@ -1,0 +1,196 @@
+{
+  "fixture_id": "f04-basic-video-chat-v1",
+  "approval": "user-approved basic replay fixture",
+  "fixture_date": "2026-08-25",
+  "assets": {
+    "video": {
+      "file": "basic-video-chat.mp4",
+      "sha256": "082a066268dd033b5fb3ec1b6c50cf7fe165be41f894da3dd653076e2f6eb6d9"
+    },
+    "user_audio": {
+      "file": "basic-video-chat-user.wav",
+      "sha256": "422f0446c66b012eada3d84119c98d52986ce2395630a9d3e9f66b1ab8138a0a"
+    },
+    "contact_audio": {
+      "file": "basic-video-chat-contact.wav",
+      "sha256": "e6e7e0410bbe3e5dbb2933c3e75da5581db893d331e901f07d667e9937b6a096"
+    }
+  },
+  "limitations": [
+    "Generated fictional faces and synthetic voices are a repeatable basic integration input, not evidence of real-call quality.",
+    "Expression names describe authored visual poses; the application must still present interpretations as uncertain hypotheses.",
+    "The mouth animation is approximate rather than phoneme-accurate neural lip sync.",
+    "The small self-view is visible but may fall below the face detector threshold; only the large remote face is an analysis subject."
+  ],
+  "participants": {
+    "user": "Alex",
+    "selected_contact": "Maya"
+  },
+  "seed_memories": [
+    {
+      "date": "2026-08-18",
+      "content": "Maya's dog Pepper died; Maya prefers indirect wording such as 'the event' when the loss feels painful.",
+      "sensitive": true
+    },
+    {
+      "date": "2026-07-20",
+      "content": "Alex joked that the smoke alarm was applauding his cooking, and Maya and Nora found it funny.",
+      "sensitive": false
+    }
+  ],
+  "expected_cues": [
+    "sad or low-energy atmosphere with reluctance to discuss a painful event",
+    "concern and uncertainty around Nora's surgery",
+    "playful humor about the yellow socks",
+    "explicit sarcasm about being completely calm",
+    "shared-joke recall around the smoke alarm",
+    "a relationship preference: silence usually means thinking rather than ending the call",
+    "warm relief after Alex acknowledges that preference"
+  ],
+  "expected_memory_proposals": [
+    "Nora's surgery is Tuesday 2026-09-01 at 09:00",
+    "Maya wants a reminder about Nora's yellow socks",
+    "Maya's job interview is Friday 2026-08-28 at 10:00",
+    "Alex and Maya plan to practise the interview on Wednesday evening",
+    "When Maya goes quiet, she usually wants thinking time rather than the call to end"
+  ],
+  "sample_rate": 16000,
+  "duration_seconds": 86.55525,
+  "turns": [
+    {
+      "speaker": "alex",
+      "text": "Hey Maya, how are you doing after the event last week?",
+      "remote_expression": "sad",
+      "self_expression": "concerned",
+      "post_pause_seconds": 0.55,
+      "start_seconds": 0.0,
+      "end_seconds": 4.1038125
+    },
+    {
+      "speaker": "maya",
+      "text": "A little better. I still don't want to name it out loud, but thanks for checking.",
+      "remote_expression": "sad",
+      "self_expression": "concerned",
+      "post_pause_seconds": 0.55,
+      "start_seconds": 4.6538125,
+      "end_seconds": 11.91225
+    },
+    {
+      "speaker": "alex",
+      "text": "We can talk about something lighter.",
+      "remote_expression": "sad",
+      "self_expression": "concerned",
+      "post_pause_seconds": 0.45,
+      "start_seconds": 12.46225,
+      "end_seconds": 15.0561875
+    },
+    {
+      "speaker": "maya",
+      "text": "Please. Nora's surgery is next Tuesday, September first, at nine. I'm nervous, although the doctor sounded optimistic.",
+      "remote_expression": "concerned",
+      "self_expression": "concerned",
+      "post_pause_seconds": 0.55,
+      "start_seconds": 15.5061875,
+      "end_seconds": 27.0193125
+    },
+    {
+      "speaker": "alex",
+      "text": "Would you like me to message afterward?",
+      "remote_expression": "concerned",
+      "self_expression": "concerned",
+      "post_pause_seconds": 0.45,
+      "start_seconds": 27.5693125,
+      "end_seconds": 30.34325
+    },
+    {
+      "speaker": "maya",
+      "text": "Yes, and remind me about her ridiculous yellow socks. She calls them medically necessary.",
+      "remote_expression": "amused",
+      "self_expression": "amused",
+      "post_pause_seconds": 0.45,
+      "start_seconds": 30.79325,
+      "end_seconds": 36.871875
+    },
+    {
+      "speaker": "alex",
+      "text": "Scientifically proven by absolutely nobody.",
+      "remote_expression": "amused",
+      "self_expression": "amused",
+      "post_pause_seconds": 0.4,
+      "start_seconds": 37.321875,
+      "end_seconds": 40.795625
+    },
+    {
+      "speaker": "maya",
+      "text": "Exactly. My job interview also moved to Friday at ten. If I say I'm completely calm, that is definitely not sarcasm.",
+      "remote_expression": "uncertain",
+      "self_expression": "neutral",
+      "post_pause_seconds": 0.55,
+      "start_seconds": 41.195625,
+      "end_seconds": 51.9185
+    },
+    {
+      "speaker": "alex",
+      "text": "So, not calm. Practice tomorrow evening?",
+      "remote_expression": "uncertain",
+      "self_expression": "friendly",
+      "post_pause_seconds": 0.45,
+      "start_seconds": 52.4685,
+      "end_seconds": 57.0325
+    },
+    {
+      "speaker": "maya",
+      "text": "Please. Your smoke alarm joke from last month still makes Nora laugh.",
+      "remote_expression": "warm",
+      "self_expression": "amused",
+      "post_pause_seconds": 0.45,
+      "start_seconds": 57.4825,
+      "end_seconds": 63.196125
+    },
+    {
+      "speaker": "alex",
+      "text": "The alarm was applauding my cooking.",
+      "remote_expression": "amused",
+      "self_expression": "amused",
+      "post_pause_seconds": 0.35,
+      "start_seconds": 63.646125,
+      "end_seconds": 66.2451875
+    },
+    {
+      "speaker": "maya",
+      "text": "Sure. A standing ovation from the entire building.",
+      "remote_expression": "amused",
+      "self_expression": "amused",
+      "post_pause_seconds": 0.6,
+      "start_seconds": 66.5951875,
+      "end_seconds": 70.5590625
+    },
+    {
+      "speaker": "maya",
+      "text": "One more thing. When I go quiet, I'm usually thinking, not asking you to end the call.",
+      "remote_expression": "tense",
+      "self_expression": "concerned",
+      "post_pause_seconds": 0.55,
+      "start_seconds": 71.1590625,
+      "end_seconds": 77.3024375
+    },
+    {
+      "speaker": "alex",
+      "text": "Thanks for telling me. I'll check instead of assuming.",
+      "remote_expression": "uncertain",
+      "self_expression": "concerned",
+      "post_pause_seconds": 0.45,
+      "start_seconds": 77.8524375,
+      "end_seconds": 82.24125
+    },
+    {
+      "speaker": "maya",
+      "text": "That makes me feel much less pressured.",
+      "remote_expression": "warm",
+      "self_expression": "friendly",
+      "post_pause_seconds": 1.0,
+      "start_seconds": 82.69125,
+      "end_seconds": 85.55525
+    }
+  ]
+}

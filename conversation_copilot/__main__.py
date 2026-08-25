@@ -1,5 +1,6 @@
 import argparse
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -34,6 +35,25 @@ def _conversation_turn_from_audio(draft, display_order: int):
     )
 
 
+def _vocal_observation_from_audio(draft, display_order: int):
+    if draft.vocal is None:
+        return None
+    from .interpretation import VocalObservation
+
+    vocal = draft.vocal
+    return VocalObservation(
+        turn_display_order=display_order,
+        available=vocal.available,
+        duration_seconds=vocal.duration_seconds,
+        relative_energy=vocal.relative_energy,
+        voiced_ratio=vocal.voiced_ratio,
+        words_per_voiced_second=vocal.words_per_voiced_second,
+        gap_seconds=vocal.gap_seconds,
+        overlaps_user=vocal.overlaps_user,
+        unavailable_reason=vocal.unavailable_reason,
+    )
+
+
 def _needs_audio_selection(
     catalog, microphone_index: int, playback_index: int
 ) -> bool:
@@ -60,11 +80,28 @@ def show_window(summary: str) -> None:
         AudioCallSession,
         AudioDeviceCatalog,
         AudioUnavailable,
+        DEFAULT_MICROPHONE_THRESHOLD,
         device_labels,
         local_model_available,
         prepare_transcription_runtime,
         production_transcription_language,
         transcription_language_labels,
+    )
+    from .interpretation import (
+        CoordinatorEventKind,
+        InterpretationAuthenticationUnavailable,
+        InterpretationBudgetExceeded,
+        InterpretationCoordinator,
+        LUNA_MODEL,
+        OpenAIInterpreter,
+        StableInterpretationCard,
+        TERRA_MODEL,
+        UsageLedger,
+        VisualAggregator,
+        VocalObservation,
+        build_snapshot,
+        conservative_request_cost,
+        prepare_interpretation_request,
     )
     from .models import ConversationTurn
     audio_runtime_error = ""
@@ -106,9 +143,9 @@ def show_window(summary: str) -> None:
     )
     language_box.current(0)
     language_box.grid(row=3, column=1, sticky="w", padx=6, pady=4)
-    tk.Label(audio_controls, text="Mic sensitivity").grid(row=4, column=0, sticky="w", padx=6, pady=4)
+    tk.Label(audio_controls, text="Mic threshold (lower = more sensitive)").grid(row=4, column=0, sticky="w", padx=6, pady=4)
     sensitivity = tk.Scale(audio_controls, from_=50, to=2_000, resolution=50, orient="horizontal")
-    sensitivity.set(250)
+    sensitivity.set(DEFAULT_MICROPHONE_THRESHOLD)
     sensitivity.grid(row=4, column=1, sticky="ew", padx=6, pady=4)
     audio_controls.columnconfigure(1, weight=1)
     controls = tk.Frame(root)
@@ -127,6 +164,41 @@ def show_window(summary: str) -> None:
     metrics_label.pack(anchor="w", padx=12)
     audio_status_label = tk.Label(root, text="Audio devices loading", anchor="w")
     audio_status_label.pack(fill="x", padx=12)
+    interpretation_frame = tk.LabelFrame(root, text="Conversation interpretation")
+    interpretation_frame.pack(fill="x", padx=12, pady=6)
+    interpretation_status_label = tk.Label(
+        interpretation_frame,
+        text="Waiting for a call",
+        anchor="w",
+        font=("TkDefaultFont", 10, "bold"),
+    )
+    interpretation_status_label.pack(fill="x", padx=8, pady=(6, 2))
+    interpretation_body_label = tk.Label(
+        interpretation_frame,
+        text="Hypotheses only — never a claim about true emotion or intention.",
+        anchor="w",
+        justify="left",
+        wraplength=710,
+    )
+    interpretation_body_label.pack(fill="x", padx=8)
+    interpretation_meta_label = tk.Label(
+        interpretation_frame,
+        text="This call's estimated interpretation spend: $0.0000",
+        anchor="w",
+    )
+    interpretation_meta_label.pack(fill="x", padx=8, pady=(2, 4))
+    terra_controls = tk.Frame(interpretation_frame)
+    terra_controls.pack(fill="x", padx=8, pady=(0, 6))
+    tk.Label(terra_controls, text="Terra reasoning").pack(side="left")
+    terra_reasoning = ttk.Combobox(
+        terra_controls, state="disabled", values=("none", "low"), width=8
+    )
+    terra_reasoning.current(0)
+    terra_reasoning.pack(side="left", padx=6)
+    terra_button = tk.Button(
+        terra_controls, text="Check with Terra", state="disabled"
+    )
+    terra_button.pack(side="left")
     thumbnail_label = tk.Label(root, text="No selected face", width=160, height=120)
     transcript_title = tk.Label(root, text="Final transcript", anchor="w")
     transcript_title.pack(fill="x", padx=12)
@@ -138,10 +210,252 @@ def show_window(summary: str) -> None:
     audio_catalog: AudioDeviceCatalog | None = None
     audio_session: AudioCallSession | None = None
     turns: list[ConversationTurn] = []
+    vocal_observations: list[VocalObservation] = []
+    visual_aggregator = VisualAggregator()
+    usage_ledger: UsageLedger | None = None
+    stable_interpretation = StableInterpretationCard()
+    interpretation_coordinator: InterpretationCoordinator | None = None
+    interpretation_generation = 0
+    next_interpretation_snapshot_id = 0
+    latest_interpretation_snapshot = None
+    interpretation_updated_at = ""
+    manual_terra_running = False
+    manual_terra_results: queue.SimpleQueue[tuple] = queue.SimpleQueue()
     stopping = False
     stop_started = 0.0
     shutdown_handoff: queue.SimpleQueue[str] = queue.SimpleQueue()
     thumbnail_photo = None
+
+    def render_interpretation(*, replaced: bool = False, note: str = "") -> None:
+        nonlocal interpretation_updated_at
+        if replaced:
+            interpretation_updated_at = datetime.now().astimezone().strftime("%H:%M:%S")
+        update = stable_interpretation.update
+        if update is None:
+            interpretation_status_label.configure(
+                text=(
+                    "Waiting for interpretation"
+                    if stable_interpretation.message.startswith("Waiting")
+                    else "Interpretation unavailable"
+                )
+            )
+            interpretation_body_label.configure(text=stable_interpretation.message)
+        else:
+            interpretation_status_label.configure(
+                text=update.status.value.replace("_", " ").title()
+            )
+            if update.explanation:
+                body = update.explanation
+            else:
+                lines = []
+                for heading, items in (
+                    ("Conversation tone", update.tones),
+                    ("Possible remote cues", update.social_cues),
+                ):
+                    if not items:
+                        continue
+                    lines.append(f"{heading}:")
+                    for item in items:
+                        modalities = ", ".join(
+                            value.value for value in item.evidence.modalities
+                        )
+                        label = item.kind.value.replace("_", " ")
+                        lines.append(
+                            f"• {label} ({item.confidence.value}) — {item.hypothesis}\n"
+                            f"  Evidence: {item.evidence.explanation} [{modalities}]"
+                        )
+                body = "\n".join(lines)
+            interpretation_body_label.configure(text=body)
+        spend = usage_ledger.total_dollars if usage_ledger else 0.0
+        warning = " · Warning threshold reached" if usage_ledger and usage_ledger.warning_reached else ""
+        updated = f" · Updated {interpretation_updated_at}" if interpretation_updated_at else ""
+        extra = f" · {note}" if note else ""
+        interpretation_meta_label.configure(
+            text=f"This call's estimated interpretation spend: ${spend:.4f}{updated}{warning}{extra}"
+        )
+
+    def begin_interpretation_session() -> None:
+        nonlocal usage_ledger, interpretation_coordinator
+        nonlocal interpretation_generation, next_interpretation_snapshot_id
+        nonlocal latest_interpretation_snapshot, interpretation_updated_at
+        nonlocal manual_terra_running
+        interpretation_generation += 1
+        next_interpretation_snapshot_id = 0
+        latest_interpretation_snapshot = None
+        interpretation_updated_at = ""
+        manual_terra_running = False
+        stable_interpretation.reset()
+        usage_ledger = None
+        try:
+            usage_ledger = UsageLedger()
+            luna = OpenAIInterpreter(
+                model=LUNA_MODEL,
+                reasoning="low",
+                ledger=usage_ledger,
+                is_current=lambda item: item.generation == interpretation_generation,
+            )
+            interpretation_coordinator = InterpretationCoordinator(
+                luna, generation=interpretation_generation
+            )
+        except InterpretationAuthenticationUnavailable:
+            interpretation_coordinator = None
+            stable_interpretation.show_unavailable(
+                "OpenAI key not configured — local capture and transcription continue",
+                time.perf_counter(),
+            )
+        except ValueError:
+            interpretation_coordinator = None
+            stable_interpretation.show_unavailable(
+                "Interpretation budget configuration is invalid — local processing continues",
+                time.perf_counter(),
+            )
+        except (ImportError, OSError):
+            interpretation_coordinator = None
+            stable_interpretation.show_unavailable(
+                "Cloud interpretation unavailable — local processing continues",
+                time.perf_counter(),
+            )
+        render_interpretation(replaced=True)
+
+    def offer_interpretation_snapshot() -> None:
+        nonlocal next_interpretation_snapshot_id, latest_interpretation_snapshot
+        if stopping or len(turns) < 2:
+            return
+        next_interpretation_snapshot_id += 1
+        try:
+            latest_interpretation_snapshot = build_snapshot(
+                turns,
+                snapshot_id=next_interpretation_snapshot_id,
+                generation=interpretation_generation,
+                vocal_observations=vocal_observations,
+                visual_buckets=visual_aggregator.buckets(),
+            )
+        except ValueError:
+            stable_interpretation.show_unavailable(
+                "Recent conversation exceeds the safe interpretation input limit",
+                time.perf_counter(),
+            )
+            render_interpretation(replaced=True)
+            return
+        if interpretation_coordinator:
+            interpretation_coordinator.offer(
+                latest_interpretation_snapshot, time.perf_counter()
+            )
+            if not manual_terra_running:
+                terra_reasoning.configure(state="readonly")
+                terra_button.configure(state="normal")
+
+    def interpretation_error_message(error_type: str | None) -> str:
+        if error_type == InterpretationBudgetExceeded.__name__:
+            return "Interpretation session budget reached — local processing continues"
+        if error_type == InterpretationAuthenticationUnavailable.__name__:
+            return "OpenAI authentication unavailable — local processing continues"
+        return "Cloud interpretation unavailable — local processing continues"
+
+    def check_with_terra() -> None:
+        nonlocal manual_terra_running
+        item = latest_interpretation_snapshot
+        ledger = usage_ledger
+        if stopping or item is None or ledger is None:
+            render_interpretation(note="Two finalized turns are required for Terra")
+            return
+        if manual_terra_running:
+            return
+        try:
+            prepared = prepare_interpretation_request(item)
+        except ValueError:
+            stable_interpretation.show_unavailable(
+                "Recent conversation exceeds the safe Terra input limit",
+                time.perf_counter(),
+            )
+            render_interpretation(replaced=True)
+            return
+        maximum = conservative_request_cost(
+            TERRA_MODEL, prepared.estimated_input_tokens
+        )
+        if ledger.total_dollars + maximum > ledger.limits.hard_dollars:
+            render_interpretation(note="Session budget reached — Terra unavailable")
+            return
+        if not messagebox.askyesno(
+            "Check with Terra",
+            f"Run one Terra {terra_reasoning.get()} request on the newest snapshot?\n\n"
+            f"Conservative maximum: ${maximum:.4f}\n"
+            f"This call's estimated interpretation spend: ${ledger.total_dollars:.4f}",
+        ):
+            return
+        manual_terra_running = True
+        terra_reasoning.configure(state="disabled")
+        terra_button.configure(state="disabled")
+        generation = interpretation_generation
+        reasoning = terra_reasoning.get()
+
+        def run() -> None:
+            try:
+                result = OpenAIInterpreter(
+                    model=TERRA_MODEL,
+                    reasoning=reasoning,
+                    ledger=ledger,
+                    is_current=lambda snapshot: snapshot.generation == interpretation_generation,
+                )(item)
+            except Exception as exc:
+                manual_terra_results.put(
+                    (generation, item.snapshot_id, None, type(exc).__name__)
+                )
+            else:
+                manual_terra_results.put(
+                    (generation, item.snapshot_id, result, None)
+                )
+
+        threading.Thread(
+            target=run, name="manual-terra-interpretation", daemon=True
+        ).start()
+
+    def poll_interpretation(now: float) -> None:
+        nonlocal manual_terra_running
+        if interpretation_coordinator:
+            for event in interpretation_coordinator.poll(now):
+                if event.kind == CoordinatorEventKind.ACCEPTED:
+                    assert event.update is not None
+                    if stable_interpretation.offer(event.update, now) == "replaced":
+                        render_interpretation(replaced=True)
+                elif event.kind == CoordinatorEventKind.ERROR:
+                    stable_interpretation.show_unavailable(
+                        interpretation_error_message(event.error_type), now
+                    )
+                    render_interpretation(replaced=True)
+                else:
+                    render_interpretation()
+        if stable_interpretation.tick(now):
+            render_interpretation(replaced=True)
+        while True:
+            try:
+                generation, snapshot_id, result, error_type = (
+                    manual_terra_results.get_nowait()
+                )
+            except queue.Empty:
+                break
+            manual_terra_running = False
+            current = latest_interpretation_snapshot
+            if current is not None and not stopping:
+                terra_reasoning.configure(state="readonly")
+                terra_button.configure(state="normal")
+            if (
+                generation != interpretation_generation
+                or current is None
+                or snapshot_id != current.snapshot_id
+            ):
+                render_interpretation(note="Terra result expired after newer context")
+            elif error_type:
+                stable_interpretation.show_unavailable(
+                    interpretation_error_message(error_type), now
+                )
+                render_interpretation(replaced=True, note="Terra check failed")
+            elif stable_interpretation.offer(result, now, manual=True) == "unchanged":
+                render_interpretation(note="Terra found no meaningful change")
+            else:
+                render_interpretation(replaced=True, note="Checked with Terra")
+
+    terra_button.configure(command=check_with_terra)
 
     def set_running(running: bool) -> None:
         window_list.configure(state="disabled" if running else "normal")
@@ -157,6 +471,15 @@ def show_window(summary: str) -> None:
         )
         switch_button.configure(
             text="Switch face", state="normal" if running else "disabled"
+        )
+        terra_state = (
+            "readonly"
+            if running and latest_interpretation_snapshot and not manual_terra_running
+            else "disabled"
+        )
+        terra_reasoning.configure(state=terra_state)
+        terra_button.configure(
+            state="normal" if terra_state == "readonly" else "disabled"
         )
 
     def populate_audio_choices(*, initial: bool) -> None:
@@ -226,13 +549,20 @@ def show_window(summary: str) -> None:
         refresh_audio(initial=initial_audio)
 
     def stop() -> None:
-        nonlocal stopping, stop_started
+        nonlocal stopping, stop_started, interpretation_generation
+        nonlocal latest_interpretation_snapshot
         if stopping:
             return
         stopping = True
+        interpretation_generation += 1
+        latest_interpretation_snapshot = None
+        if interpretation_coordinator:
+            interpretation_coordinator.reset(interpretation_generation)
         stop_started = time.perf_counter()
         stop_button.configure(state="disabled")
         switch_button.configure(state="disabled")
+        terra_reasoning.configure(state="disabled")
+        terra_button.configure(state="disabled")
         status_label.configure(text="Stopping")
         if audio_session:
             audio_session.request_stop()
@@ -268,6 +598,9 @@ def show_window(summary: str) -> None:
             return
         window = windows[selection[0]]
         turns.clear()
+        vocal_observations.clear()
+        visual_aggregator.reset()
+        begin_interpretation_session()
         transcript.configure(state="normal")
         transcript.delete("1.0", tk.END)
         transcript.configure(state="disabled")
@@ -343,6 +676,10 @@ def show_window(summary: str) -> None:
                 break
             turn = _conversation_turn_from_audio(draft, len(turns) + 1)
             turns.append(turn)
+            vocal = _vocal_observation_from_audio(draft, turn.display_order)
+            if vocal is not None:
+                vocal_observations.append(vocal)
+            offer_interpretation_snapshot()
             transcript.configure(state="normal")
             transcript.insert(tk.END, f"{turn.speaker_name}: {turn.content}\n")
             transcript.configure(state="disabled")
@@ -360,6 +697,7 @@ def show_window(summary: str) -> None:
         current = session
         if current:
             snapshot = current.snapshot()
+            visual_aggregator.add(snapshot.current_signal, datetime.now(timezone.utc))
             status_label.configure(text=snapshot.status)
             switch_button.configure(
                 text=(
@@ -398,6 +736,8 @@ def show_window(summary: str) -> None:
                     )
                 else:
                     stop()
+        elif audio_session and audio_session.snapshot().running:
+            visual_aggregator.add(None, datetime.now(timezone.utc))
         current_audio = audio_session
         if current_audio:
             snapshot = current_audio.snapshot()
@@ -420,6 +760,7 @@ def show_window(summary: str) -> None:
                     audio_status_label.configure(text=snapshot.fault)
                 if session is None:
                     stop()
+        poll_interpretation(time.perf_counter())
         if stopping and not shutdown_handoff.empty():
             error = shutdown_handoff.get()
             audio_snapshot = audio_session.snapshot() if audio_session else None
@@ -537,6 +878,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="benchmark two-source transcription with the F02 loop",
     )
+    actions.add_argument(
+        "--evaluate-f04",
+        action="store_true",
+        help="run the capped paid F04 model comparison",
+    )
     arg_parser.add_argument("--seconds", type=float, default=600)
     args = arg_parser.parse_args(argv)
 
@@ -605,6 +951,17 @@ def main(argv: list[str] | None = None) -> int:
             print(run_audio_benchmark(args.seconds))
         except Exception as exc:
             print(f"Audio benchmark failed ({type(exc).__name__}): {exc}", file=sys.stderr)
+            return 1
+    elif args.evaluate_f04:
+        try:
+            from .f04_evaluation import run_real_evaluation
+
+            print(run_real_evaluation())
+        except Exception as exc:
+            print(
+                f"F04 evaluation stopped safely ({type(exc).__name__})",
+                file=sys.stderr,
+            )
             return 1
     else:
         show_window(summary)

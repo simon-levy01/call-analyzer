@@ -48,24 +48,40 @@ _Avoid_: facial identity, biometric recognition, remembered face
 A local, time-bounded measurement of visible geometry or movement from the Remote Face Region before any interpretation.
 _Avoid_: detected emotion, facial truth, self-analysis
 
+**Vocal Signal**:
+A local, time-bounded measurement of vocal behavior, such as relative energy, speaking rate, pauses, or overlap, derived from in-memory audio before any interpretation.
+_Avoid_: voice emotion, emotion score, vocal truth
+
 **Observation**:
 A time-bounded piece of visible, vocal, or linguistic information produced during an assisted call before interpretation.
 _Avoid_: emotion, conclusion
 
 **Tone Hypothesis**:
-A cautious possible description of the current affective tone, such as happy, sad, angry or tense, emotionally intense, neutral, or unclear.
+A cautious possible description of the recent conversation atmosphere using the controlled F04 kinds positive/warm, neutral/calm, sad/low-energy, tense/negative, energetic/high-energy, or emotionally intense.
 _Avoid_: detected emotion, emotional truth
+
+**Conversation Atmosphere**:
+A cautious description of the recent exchange supported by the remote participant's words and local vocal/visual observations, with the user's words used only as context. It is not an interpretation of the user's emotion or social cues.
+_Avoid_: both people's emotion, user analysis, shared emotional truth
 
 **Social Cue**:
 A possible conversational meaning or change in engagement supported by current observations and context.
 _Avoid_: intent, diagnosis, proof
+
+**Interpretation Update**:
+A stable current result containing up to three Tone Hypotheses and three Social Cues, or an explicit abstention when evidence is insufficient or conflicting.
+_Avoid_: emotion verdict, analysis feed, card refresh
+
+**Interpretation Status**:
+The outcome of an interpretation attempt: updated, insufficient evidence, or conflicting evidence. It is separate from an individual hypothesis or cue's Confidence Level.
+_Avoid_: confidence, emotion state, system error
 
 **Evidence**:
 The observable words, vocal behavior, facial movement, or remembered context that influenced a tone hypothesis or social cue.
 _Avoid_: certainty, proof
 
 **Confidence Level**:
-The qualitative strength of support for an interpretation: low, medium, high, or unclear.
+The qualitative strength of support for an emitted F04 interpretation item: low, medium, or high. Insufficient or conflicting evidence is an Interpretation Status, not an item confidence.
 _Avoid_: certainty percentage, probability
 
 **Live Guidance**:

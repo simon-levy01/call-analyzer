@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import queue
 import sys
 import threading
@@ -15,6 +16,7 @@ from conversation_copilot.__main__ import (
     _conversation_turn_from_audio,
     _keep_audio_after_video_end,
     _needs_audio_selection,
+    _vocal_observation_from_audio,
 )
 from conversation_copilot.audio import (
     AudioCallSession,
@@ -359,6 +361,20 @@ def test_segmenter_ignores_silence_and_bounds_voiced_utterances():
     assert len(cancelled) == 1
 
 
+def test_default_microphone_gate_keeps_quiet_speech():
+    threshold = inspect.signature(AudioCallSession).parameters[
+        "microphone_threshold"
+    ].default
+    segmenter = SpeechSegmenter(
+        threshold, lambda started, _utc: (started, 1), lambda _key: None
+    )
+    now = datetime.now(timezone.utc)
+    segmenter.feed(MonoBlock(np.full(6_400, 150, dtype=np.int16), 0.0, now))
+    jobs = segmenter.feed(MonoBlock(np.zeros(9_600, dtype=np.int16), 0.4, now))
+
+    assert len(jobs) == 1
+
+
 def test_turn_orderer_waits_for_the_older_source():
     output = queue.Queue(maxsize=4)
     faults = []
@@ -607,6 +623,67 @@ def test_final_results_keep_physical_source_roles_and_capture_order():
     ]
     assert drafts[0].speaker_name == "You"
     assert drafts[1].speaker_name == "Contact"
+
+
+def test_remote_vocal_features_join_final_turns_without_retaining_samples():
+    class Model:
+        def transcribe(self, *_args, **_kwargs):
+            return iter((SimpleNamespace(text="one two three four"),)), None
+
+    devices = catalog()
+    session = AudioCallSession(
+        devices,
+        devices.microphones[0],
+        devices.playbacks[0],
+        "en",
+        model_factory=Model,
+        require_installed_model=False,
+    )
+    session._model = Model()
+    for done in session._source_done.values():
+        done.set()
+    now = datetime.now(timezone.utc)
+    specifications = (
+        (1.0, "system_audio_loopback"),
+        (2.0, "system_audio_loopback"),
+        (3.0, "system_audio_loopback"),
+        (3.2, "microphone"),
+    )
+    jobs = []
+    for started, source in specifications:
+        key = session._register(started, now, source)
+        jobs.append(
+            UtteranceJob(
+                key,
+                source,
+                np.full(16_000, 1_000, dtype=np.int16),
+                started,
+                now,
+                started + 0.5,
+                time.perf_counter(),
+                voiced_samples=8_000,
+            )
+        )
+    for job in jobs:
+        session._submit(job.source, [job])
+    session._orderer.advance("microphone", 5.0)
+    session._orderer.advance("system_audio_loopback", 5.0)
+    worker = threading.Thread(target=session._transcription_worker)
+    worker.start()
+    worker.join(1)
+    wait_until(lambda: session.results.qsize() == 4)
+    drafts = [session.results.get() for _ in range(4)]
+
+    remote = [draft for draft in drafts if draft.source == "system_audio_loopback"]
+    assert [draft.vocal.available for draft in remote] == [False, False, True]
+    assert remote[2].vocal.relative_energy == pytest.approx(1.0)
+    assert remote[2].vocal.voiced_ratio == pytest.approx(0.5)
+    assert remote[2].vocal.words_per_voiced_second == pytest.approx(8.0)
+    assert remote[2].vocal.gap_seconds == pytest.approx(0.5)
+    assert remote[2].vocal.overlaps_user is True
+    assert next(draft for draft in drafts if draft.source == "microphone").vocal is None
+    assert _vocal_observation_from_audio(remote[2], 3).turn_display_order == 3
+    assert all(job.samples.size == 0 for job in jobs)
 
 
 def test_audio_drafts_construct_valid_conversation_turns():

@@ -1,0 +1,58 @@
+{
+  "fixture_id": "f04-heygen-video-chat-v1",
+  "approval": "user-approved realistic integration fixture",
+  "fixture_date": "2026-08-25",
+  "asset": {
+    "file": "heygen-video-chat.mp4",
+    "sha256": "c8c9308f836dc854c5b9ae29df9b31f53b1eefcc9154adcc98f30ae642b948d6"
+  },
+  "media": {
+    "duration_seconds": 53.847,
+    "width": 1280,
+    "height": 720,
+    "fps": 25,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_sample_rate": 48000,
+    "audio_channels": 2
+  },
+  "participants": {
+    "user": "Alex",
+    "selected_contact": "Maya"
+  },
+  "expected_cues": [
+    "reluctance to discuss a painful subject",
+    "concern and uncertainty around Nora's surgery",
+    "playful humor about yellow socks",
+    "explicit sarcasm about being completely calm",
+    "a relationship preference: silence usually means thinking rather than ending the call",
+    "warm relief after that preference is acknowledged"
+  ],
+  "expected_memory_proposals": [
+    "Nora's surgery is next Tuesday at 09:00",
+    "Maya wants a reminder about Nora's yellow socks",
+    "Maya's interview is Friday at 10:00",
+    "Alex and Maya plan to practise the interview tomorrow",
+    "When Maya goes quiet, she usually wants thinking time rather than the call to end"
+  ],
+  "validation": {
+    "face_sample_seconds": [8.0, 28.0, 46.0],
+    "minimum_blendshape_delta": 0.1,
+    "production_transcription_recovered": [
+      "Nora's surgery",
+      "yellow socks",
+      "interview moved to Friday at 10",
+      "definitely not sarcasm",
+      "when I go quiet",
+      "thinking",
+      "less pressured"
+    ]
+  },
+  "limitations": [
+    "HeyGen rendered Maya as the only animated narrator and voice; Alex is a static self-view, so this fixture does not validate speaker separation or two-person turn attribution.",
+    "The generated cut omitted Alex's opening question containing the phrase 'the event', so the basic fixture remains the indirect-memory-retrieval test.",
+    "Free-tier HeyGen watermarks are visible throughout.",
+    "The 53.847-second result is 1.153 seconds below the requested 55-to-60-second range.",
+    "Facial outputs are test signals, not ground-truth emotions or intentions."
+  ]
+}
