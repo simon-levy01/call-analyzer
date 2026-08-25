@@ -1,9 +1,10 @@
 # F04 — Multimodal tone and cue interpretation
 
-**Status:** Implementation, validation, and reviews complete; final commit/push pending
+**Status:** Complete
 **Prepared and approved:** 2026-08-25
 **Roadmap target:** 2026-09-09
 **Repository baseline:** local `main`, `origin/main`, and GitHub `main` verified at `96df95d8f92413efa095962768ab8b9de79a2996` before planning
+**Reviewed implementation commit:** `2ad5851710cf0328e08cd06b6d1a5a3615f07397`, pushed and pointer-verified on 2026-08-26
 
 ## Outcome
 
@@ -340,7 +341,7 @@ Before slice 1, finish and accept the English-only F03 revision. Run the full su
 - [x] Fixed real-model comparison and modality uplift.
 - [x] Manual WhatsApp validation — user explicitly approved the corrected live behavior on 2026-08-26.
 - [x] Review, corrections, reruns, and final correction review.
-- [ ] Final commit, push, and pointer reconciliation.
+- [x] Final commit, push, and pointer reconciliation.
 
 Automated evidence: 126 tests pass with no API spend; `pip check`, bytecode compilation, and diff hygiene pass. The 500-turn foundation, selected-face replay, offline audio replay, and approved basic generated call-fixture checks pass with zero network attempts and zero audio artifacts. The post-integration 600-second concurrent benchmark passes with 1.348-second single-source p95, 2.696/2.767-second overlap p95/max, queue peak/final 1/0, zero saturation, 24.99 F02 signals/second, 14.8 ms frame-age p95, -6.44 MiB/min post-warm-up growth, and 0/0 workers/results after teardown. Twelve fixed synthetic English scenarios and the capped 96+24-call comparison runner are defined; the API key is loaded only from the environment or ignored `.env.local`, and the runner shares a $1.50 hard evaluation ledger.
 
@@ -567,7 +568,7 @@ The permanent list `F04 — Multimodal tone and cue interpretation` contains car
 13. corrections, reruns, and correction review; and
 14. final commit, push, pointer verification, and completion reconciliation.
 
-Execution status is tracked above and on the permanent Trello cards. Completion remains blocked by correction review and final pointer reconciliation.
+Execution status is tracked above and on the permanent Trello cards. F04 is complete.
 
 ## Primary references checked 2026-08-25
 
