@@ -5,6 +5,7 @@
 **Roadmap target:** 2026-09-09
 **Repository baseline:** local `main`, `origin/main`, and GitHub `main` verified at `96df95d8f92413efa095962768ab8b9de79a2996` before planning
 **Reviewed implementation commit:** `2ad5851710cf0328e08cd06b6d1a5a3615f07397`, pushed and pointer-verified on 2026-08-26
+**Post-completion cadence:** user-approved 17-second automatic request interval, applied and revalidated on 2026-08-26
 
 ## Outcome
 
@@ -29,7 +30,7 @@ The minimum UI is one replace-in-place interpretation card and one explicit **Ch
 6. **Local vocal processing:** use existing NumPy/PyAV audio samples and F03 timestamps. Do not add a speech-emotion package unless the simple features fail the modality-uplift gate and the plan is revised.
 7. **Memory:** F04 consumes no contact memory and adds no dormant memory field, hook, provider, or stub. F05 must later add bounded, approved memory enrichment and rerun interpretation evaluation.
 8. **Privacy:** no raw video, video frames, raw audio, full landmark history, or full blendshape history is sent to OpenAI. Raw runtime frames and audio remain memory-only under the F02/F03 contracts.
-9. **Cadence:** start after two finalized turns; require at least one new finalized turn; allow at most one automatic request per 15 seconds; coalesce rapid turns into one latest pending request.
+9. **Cadence:** start after two finalized turns; require at least one new finalized turn; allow at most one automatic request per 17 seconds; coalesce rapid turns into one latest pending request.
 10. **Stability:** keep a normal card visible for at least 12 seconds. Replace it only for a meaningful status, label, confidence, or contributing-modality change. Suppress duplicates and stale results.
 11. **Budgets:** default session warning at `$0.15`, hard limit at `$0.25`, and real-evaluation hard limit at `$1.50`. All cloud use counts from API usage tokens and current configured prices.
 12. **Validation:** deterministic fake-model tests are the normal test path. A fixed 12-scenario project-owned real-model set and one short consenting WhatsApp call are required before completion.
@@ -202,7 +203,7 @@ Add one small F04 coordinator, not a bus or service framework:
 
 - first automatic request after two finalized turns;
 - subsequent request only after at least one new finalized turn;
-- minimum 15 seconds between automatic request starts;
+- minimum 17 seconds between automatic request starts;
 - one request in flight and at most one latest pending snapshot;
 - coalesce intervening turns into the pending snapshot;
 - discard a result older than the last accepted snapshot/session generation;
@@ -285,10 +286,10 @@ At the 1,500-input/400-output target, conservatively treating every input token
 as a cache write:
 
 - Luna request maximum: `$0.000855`;
-- Luna maximum at one request every 15 seconds: `$0.2052` per conversation hour before suppression;
+- Luna maximum at one request every 17 seconds: `$0.1811` per conversation hour before suppression;
 - Terra manual request maximum: `$0.00855`.
 
-At the approved 10% input ceiling (1,650 input/400 output), the corresponding conservative figures are `$0.0008925` per Luna request, `$0.2142` per Luna conversation hour, and `$0.008925` per manual Terra request.
+At the approved 10% input ceiling (1,650 input/400 output), the corresponding conservative figures are `$0.0008925` per Luna request, `$0.1890` per Luna conversation hour, and `$0.008925` per manual Terra request.
 
 Track input, cached-input when reported, output/reasoning, request count, model, reasoning level, and calculated dollars per session. Store no conversation content in cost records. Compare calculations to API usage in tests with fixed fake usage and in the real evaluation report.
 
@@ -301,7 +302,7 @@ Defaults:
 - interpretation becomes visibly unavailable at the limit while F02/F03 continue;
 - current model prices are explicit configuration and must be reverified before implementation/real evaluation.
 
-Terra at the automatic 15-second cadence would cost about `$1.872`/hour and is therefore prohibited. If the user later wants Terra as a live automatic model, that is a new approval covering the model and a revised session cap.
+Terra at the automatic 17-second cadence would cost about `$1.811`/hour at the target input and is therefore prohibited. If the user later wants Terra as a live automatic model, that is a new approval covering the model and a revised session cap.
 
 ## Update stability
 
@@ -312,7 +313,7 @@ Terra at the automatic 15-second cadence would cost about `$1.872`/hour and is t
 - Duplicate results never replace or reset display time.
 - Only the newest pending snapshot survives; stale completed results are discarded.
 - Status, controlled kind, confidence, or contributing modality-set change is meaningful. Rewording alone is not.
-- At 15 seconds minimum cadence, normal updates cannot exceed four per minute.
+- At 17 seconds minimum cadence, normal requests average about 3.5 per minute and cannot exceed four starts per minute.
 
 ## Implementation slices
 

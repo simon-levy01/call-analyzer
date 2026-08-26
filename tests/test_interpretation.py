@@ -524,8 +524,8 @@ def test_first_request_cadence_and_one_latest_pending_snapshot():
     wait_until(first_finished)
     assert completed[0].kind == CoordinatorEventKind.ACCEPTED
     assert calls == [1]
-    assert coordinator.poll(14) == []
-    coordinator.poll(15)
+    assert coordinator.poll(16) == []
+    coordinator.poll(17)
     wait_until(lambda: len(calls) == 2)
     assert calls == [1, 3]
 
@@ -540,9 +540,9 @@ def test_duplicate_and_stale_results_never_replace_output():
     wait_until(lambda: bool(first.extend(coordinator.poll(0)) or first))
     assert first[0].kind == CoordinatorEventKind.ACCEPTED
 
-    coordinator.offer(snapshot(2, 3), 15)
+    coordinator.offer(snapshot(2, 3), 17)
     duplicate = []
-    wait_until(lambda: bool(duplicate.extend(coordinator.poll(15)) or duplicate))
+    wait_until(lambda: bool(duplicate.extend(coordinator.poll(17)) or duplicate))
     assert duplicate[0].kind == CoordinatorEventKind.DUPLICATE
     assert duplicate[0].update is None
 
@@ -711,10 +711,10 @@ def test_cloud_failure_keeps_local_turns_and_next_final_turn_can_recover():
     assert [turn.content for turn in local_turns] == ["hello 1", "hello 2", "hello 3"]
 
     assert coordinator.offer(
-        build_snapshot(local_turns, snapshot_id=2, generation=1), 15
+        build_snapshot(local_turns, snapshot_id=2, generation=1), 17
     )
     recovered = []
-    wait_until(lambda: bool(recovered.extend(coordinator.poll(15)) or recovered))
+    wait_until(lambda: bool(recovered.extend(coordinator.poll(17)) or recovered))
     assert recovered[0].kind == CoordinatorEventKind.ACCEPTED
 
 

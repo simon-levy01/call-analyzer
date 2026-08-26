@@ -97,7 +97,8 @@ landmarks, or full blendshape history. Automatic Luna requests stop at the sessi
 hard limit; Terra runs only after **Check with Terra** and a per-request cost
 confirmation. Live Luna uses low reasoning with up to 16 complete turns from the
 last three minutes; repeated speaker labels are omitted and old visual rows are
-trimmed before conversation text when the request needs shortening.
+trimmed before conversation text when the request needs shortening. Automatic
+request starts are separated by at least 17 seconds.
 
 When an API key is approved, place it in `.env.local` at the project root:
 

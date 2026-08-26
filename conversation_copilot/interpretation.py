@@ -1172,7 +1172,7 @@ class InterpretationCoordinator:
         interpreter: Callable[[InterpretationSnapshot], InterpretationUpdate],
         *,
         generation: int = 1,
-        minimum_interval_seconds: float = 15.0,
+        minimum_interval_seconds: float = 17.0,
     ) -> None:
         if generation < 1 or minimum_interval_seconds < 0:
             raise ValueError("generation must be positive and cadence non-negative")
