@@ -146,6 +146,125 @@ def test_progressive_indirect_employment_reference_reaches_f04_before_explicit_n
         ).matches[0].contact_id == other.id
 
 
+def test_progressive_grief_phrases_retrieve_tragedy_memory_cautiously(
+    tmp_path, monkeypatch
+):
+    def fake_vectors(texts, _cache_dir):
+        vectors = np.zeros((len(texts), 384), dtype=np.float32)
+        for index, text in enumerate(texts):
+            lowered = text.casefold()
+            grief = any(
+                phrase in lowered
+                for phrase in (
+                    "pepper died", "the tragedy", "recent sad event",
+                    "meant a lot", "meant everything", "miss her", "miss him",
+                    "miss them", "thinking about her",
+                )
+            )
+            vectors[index, 0 if grief else 1] = 1
+        return vectors
+
+    monkeypatch.setattr(semantic_module, "embed_texts_if_ready", fake_vectors)
+    scenarios = (
+        [
+            ("user", "How have the last few days been?"),
+            ("selected_contact", "Harder than usual."),
+            ("user", "Do you feel up to talking?"),
+            ("selected_contact", "Maybe."),
+            ("user", "Could this be about the tragedy?"),
+            ("selected_contact", "She meant a lot to me and I miss her."),
+        ],
+        [
+            ("user", "How are things?"),
+            ("selected_contact", "Not great."),
+            ("user", "What has been on your mind?"),
+            ("selected_contact", "A lot."),
+            ("user", "Is this about the recent sad event?"),
+            ("selected_contact", "He meant a lot to me. I miss him all the time."),
+        ],
+        [
+            ("user", "How have you been?"),
+            ("selected_contact", "I have been quieter."),
+            ("user", "Do you want to talk?"),
+            ("selected_contact", "A little."),
+            ("user", "Is this connected to the event?"),
+            ("selected_contact", "They meant everything to me, and I miss them."),
+        ],
+        [
+            ("user", "How are you?"),
+            ("selected_contact", "I keep thinking about her."),
+            ("user", "Do you want to tell me more?"),
+            ("selected_contact", "She meant so much to me, and I miss her every day."),
+        ],
+    )
+    with MemoryStore(tmp_path / "progressive-grief.sqlite3") as store:
+        selected = store.create_contact("Maya")
+        other = store.create_contact("Other Maya")
+        pepper = store.create_memory(
+            selected.id,
+            "Maya's dog Pepper died on August 18, 2026",
+            memory_type="event_date",
+        )
+        store.create_memory(selected.id, "Maya is learning pottery", memory_type="recurring_topic")
+        store.create_memory(
+            other.id,
+            "Other Maya's dog Pepper died on August 20, 2026",
+            memory_type="event_date",
+        )
+        store.backfill_semantic_embeddings()
+
+        for raw in scenarios:
+            turns = _turns(raw)
+            cue_at = 4 if len(raw) == 4 else 5
+            query, date_query = _memory_retrieval_inputs(turns[: cue_at - 1])
+            before = store.retrieve(
+                selected.id,
+                query,
+                for_cloud=True,
+                date_query=date_query,
+                semantic_query=_memory_semantic_input(turns[: cue_at - 1]),
+            )
+            assert pepper not in {item.memory_id for item in before.matches}
+
+            query, date_query = _memory_retrieval_inputs(turns)
+            result = store.retrieve(
+                selected.id,
+                query,
+                for_cloud=True,
+                date_query=date_query,
+                semantic_query=_memory_semantic_input(turns),
+            )
+            assert not result.ambiguous
+            assert result.matches[0].memory_id == pepper
+            context = result.matches[0]
+            snapshot = build_snapshot(
+                turns,
+                snapshot_id=1,
+                generation=1,
+                contact_id=selected.id,
+                retrieved_memories=[RetrievedMemoryContext(
+                    memory_id=context.memory_id,
+                    revision_id=context.revision_id,
+                    excerpt=context.content,
+                    memory_type=context.memory_type,
+                    confidence=context.confidence,
+                    sensitivity_safe=context.cloud_eligible,
+                    rank=context.rank,
+                    relevance=context.reason,
+                )],
+            )
+            assert "Pepper died" in prepare_interpretation_request(snapshot).input_text
+
+            wrong = store.retrieve(
+                other.id,
+                query,
+                for_cloud=True,
+                date_query=date_query,
+                semantic_query=_memory_semantic_input(turns),
+            )
+            assert pepper not in {item.memory_id for item in wrong.matches}
+
+
 def _turns(raw_turns):
     started = datetime(2026, 8, 29, 12, tzinfo=timezone.utc)
     return [

@@ -45,7 +45,7 @@ reservation. At the absolute 17-second cadence that is about **$0.195/hour** ord
 about **$0.0103**. Real cost is normally lower because outputs are usually shorter than
 400 tokens and automatic requests require a new finalized turn.
 
-- 194 tests passed with fake models and zero cloud cost after review corrections and
+- 195 tests passed with fake models and zero cloud cost after review corrections and
   manual-call usability fixes.
 - `pip check` passed.
 - Migration creation/reopen, backup restoration, injected rollback, corruption,
@@ -469,7 +469,7 @@ routine activities unless they establish a durable preference, commitment, miles
 or recurring topic; a real `store=false` spot-check for “I took a normal walk after
 lunch” returned zero proposals.
 
-Current local gates: **194 passed**, `pip check` clean, Recall@4 **1.00**, MRR **1.00**,
+Current local gates: **195 passed**, `pip check` clean, Recall@4 **1.00**, MRR **1.00**,
 safety **11/11**, and unsupported high-confidence memory results **0**. The
 1,000-contact/100,000-revision database is **42,729,472 bytes**, integrity-clean, with
 warm retrieval p95 **150.116 ms**, open-plus-retrieve p95 **126.283 ms**, and temporal
@@ -481,7 +481,7 @@ at the first three employment checkpoints; the fourth relied on the explicit cur
 conversation. The captured rerun cost **$0.0020198**. The routine-activity extraction
 spot-check cost **$0.0001108**. Including an equivalent completed four-call run whose
 reporter failed before serializing the ledger, total known measured F05 spend is
-**$0.01554395** and total estimated F05 spend is **$0.01794735**, below the $2.00 cap.
+**$0.01631595** and total estimated F05 spend is **$0.01871935**, below the $2.00 cap.
 Fresh tool-disabled Claude Opus 5 session
 `64681e39-7835-4629-8283-d3b86b64511c` reviewed the complete diff and initially
 found that pre-score `LIMIT 12` made an older semantic memory unreachable after 12
@@ -491,9 +491,29 @@ also stopped adding artificial question marks. Its stable-card concern was withd
 after tracing the public displayed update versus private queued update and the existing
 5/11.9/12-second regression. The disposable semantic gate remains beside the installed
 model cache by design and deletes its seven fictional rows in `finally`; moving it would
-require an otherwise-unused cache override. After the 194-test and measured reruns, the
+require an otherwise-unused cache override. After the measured reruns, the
 same session returned **CLEAN REVIEW** with no unresolved material finding. No review or
 release waiver is claimed.
+
+## Grief-language verification
+
+On 2026-09-01, the production local BGE model was replayed progressively against four
+fictional ways of referring to an approved Pepper-loss memory: “the tragedy,” “the
+recent sad event,” “the event” followed by “they meant everything to me,” and pronoun-only
+“she meant so much to me, and I miss her every day.” Each target ranked first. The
+tragedy/event cases stayed absent through their neutral preambles and appeared on the
+first indirect cue; the pronoun-only case appeared when the complete grief statement
+arrived. An unrelated pottery exchange excluded Pepper, another contact never received
+Maya's revision, and two plausible losses returned possibilities rather than a silent
+choice. A permanent fake-vector regression locks the production query/retrieval/request
+seam; the full suite is **195 passed**.
+
+Two additional real `store=false` Luna checks cost **$0.000772** total. The tragedy case
+used current language for the grief/tone result while the visible panel cautiously said
+the words may refer to Pepper. The pronoun-only case cited conversation words plus
+approved memory and explicitly said that the Pepper link was tentative because “her”
+was not identified. A memory marked sensitive must still have its per-memory cloud
+permission enabled before it can enter F04 interpretation.
 
 ## Release audit
 
