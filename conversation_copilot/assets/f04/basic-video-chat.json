@@ -30,11 +30,13 @@
     {
       "date": "2026-08-18",
       "content": "Maya's dog Pepper died; Maya prefers indirect wording such as 'the event' when the loss feels painful.",
+      "type": "event_date",
       "sensitive": true
     },
     {
       "date": "2026-07-20",
       "content": "Alex joked that the smoke alarm was applauding his cooking, and Maya and Nora found it funny.",
+      "type": "shared_reference",
       "sensitive": false
     }
   ],
@@ -191,6 +193,58 @@
       "post_pause_seconds": 1.0,
       "start_seconds": 82.69125,
       "end_seconds": 85.55525
+    }
+  ],
+  "progressive_checkpoints": [
+    {
+      "through_turn": 2,
+      "status": "updated",
+      "tone": "sad_low_energy",
+      "memory_contains": ["Pepper died"],
+      "memory_excludes": ["smoke alarm"],
+      "evidence_modalities": ["language", "memory"]
+    },
+    {
+      "through_turn": 4,
+      "status": "updated",
+      "social_cue": "uncertainty",
+      "memory_contains": [],
+      "memory_excludes": ["Pepper died", "smoke alarm"],
+      "evidence_modalities": ["language"]
+    },
+    {
+      "through_turn": 7,
+      "status": "updated",
+      "tone": "positive_warm",
+      "social_cue": "humor",
+      "memory_contains": [],
+      "memory_excludes": ["Pepper died", "smoke alarm"],
+      "evidence_modalities": ["language"]
+    },
+    {
+      "through_turn": 9,
+      "status": "updated",
+      "social_cue": "sarcasm",
+      "memory_contains": [],
+      "memory_excludes": ["Pepper died", "smoke alarm"],
+      "evidence_modalities": ["language"]
+    },
+    {
+      "through_turn": 13,
+      "status": "updated",
+      "tone": "tense_negative",
+      "social_cue": "uncertainty",
+      "memory_contains": [],
+      "memory_excludes": ["Pepper died", "smoke alarm"],
+      "evidence_modalities": ["language"]
+    },
+    {
+      "through_turn": 15,
+      "status": "updated",
+      "tone": "positive_warm",
+      "memory_contains": [],
+      "memory_excludes": ["Pepper died", "smoke alarm"],
+      "evidence_modalities": ["language"]
     }
   ]
 }

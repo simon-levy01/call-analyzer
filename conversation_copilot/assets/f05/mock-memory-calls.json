@@ -1,0 +1,296 @@
+{
+  "fixture_id": "f05-mock-memory-calls-v1",
+  "fictional_data_only": true,
+  "replay_video": "../f04/basic-video-chat.mp4",
+  "scenarios": [
+    {
+      "id": "pepper-indirect-event-tone",
+      "contacts": [
+        {
+          "name": "Maya",
+          "selected": true,
+          "memories": [
+            {
+              "content": "Maya's dog Pepper died on August 18",
+              "type": "event_date",
+              "confidence": "high",
+              "sensitivity": "normal",
+              "date": "2026-08-18"
+            }
+          ]
+        }
+      ],
+      "turns": [
+        ["user", "How are you doing after the event last week?"],
+        ["selected_contact", "A little better. I still don't want to name it out loud, but thanks for checking."]
+      ],
+      "expected": {
+        "ambiguous": false,
+        "request_memory_rows": 1,
+        "display_contains": ["Possible remembered context (not proof)", "Pepper died", "Evidence sources: conversation words, approved memory"]
+      }
+    },
+    {
+      "id": "pepper-indirect-after-that",
+      "contacts": [
+        {
+          "name": "Maya",
+          "selected": true,
+          "memories": [
+            {
+              "content": "Maya's dog Pepper died on August 18",
+              "type": "event_date",
+              "confidence": "high",
+              "sensitivity": "normal",
+              "date": "2026-08-18"
+            }
+          ]
+        }
+      ],
+      "turns": [
+        ["user", "How have you been after that?"],
+        ["selected_contact", "I'm feeling better, but I still miss her a lot."]
+      ],
+      "expected": {
+        "ambiguous": false,
+        "request_memory_rows": 1,
+        "display_contains": ["Pepper died"]
+      }
+    },
+    {
+      "id": "competing-event-ambiguity",
+      "contacts": [
+        {
+          "name": "Maya",
+          "selected": true,
+          "memories": [
+            {
+              "content": "Maya's dog Pepper died on August 18",
+              "type": "event_date",
+              "confidence": "high",
+              "sensitivity": "normal",
+              "date": "2026-08-18"
+            },
+            {
+              "content": "Maya moved apartment on August 18",
+              "type": "event_date",
+              "confidence": "high",
+              "sensitivity": "normal",
+              "date": "2026-08-18"
+            }
+          ]
+        }
+      ],
+      "turns": [
+        ["user", "How have you been since the event?"],
+        ["selected_contact", "It has been difficult."]
+      ],
+      "expected": {
+        "ambiguous": true,
+        "request_memory_rows": 0,
+        "display_contains": ["Pepper died", "moved apartment"]
+      }
+    },
+    {
+      "id": "wrong-contact-isolation",
+      "contacts": [
+        {
+          "name": "Maya",
+          "selected": false,
+          "memories": [
+            {
+              "content": "Maya's dog Pepper died on August 18",
+              "type": "event_date",
+              "confidence": "high",
+              "sensitivity": "normal",
+              "date": "2026-08-18"
+            }
+          ]
+        },
+        {"name": "Sam", "selected": true, "memories": []}
+      ],
+      "turns": [
+        ["user", "How are you doing after the event?"],
+        ["selected_contact", "I'm doing okay."]
+      ],
+      "expected": {
+        "ambiguous": false,
+        "request_memory_rows": 0,
+        "display_excludes": ["Pepper"]
+      }
+    },
+    {
+      "id": "sensitive-cloud-permission-blocked",
+      "contacts": [
+        {
+          "name": "Maya",
+          "selected": true,
+          "memories": [
+            {
+              "content": "Maya's dog Pepper died on August 18",
+              "type": "event_date",
+              "confidence": "high",
+              "sensitivity": "sensitive",
+              "cloud_allowed": false,
+              "date": "2026-08-18"
+            }
+          ]
+        }
+      ],
+      "turns": [
+        ["user", "How are you doing after the event?"],
+        ["selected_contact", "It has been difficult."]
+      ],
+      "expected": {
+        "ambiguous": false,
+        "request_memory_rows": 0,
+        "display_excludes": ["Pepper"]
+      }
+    },
+    {
+      "id": "sensitive-cloud-permission-allowed",
+      "contacts": [
+        {
+          "name": "Maya",
+          "selected": true,
+          "memories": [
+            {
+              "content": "Maya's dog Pepper died on August 18",
+              "type": "event_date",
+              "confidence": "high",
+              "sensitivity": "sensitive",
+              "cloud_allowed": true,
+              "date": "2026-08-18"
+            }
+          ]
+        }
+      ],
+      "turns": [
+        ["user", "How are you doing after the event?"],
+        ["selected_contact", "It has been difficult."]
+      ],
+      "expected": {
+        "ambiguous": false,
+        "request_memory_rows": 1,
+        "display_contains": ["Pepper died"]
+      }
+    },
+    {
+      "id": "unrelated-conversation-abstains",
+      "contacts": [
+        {
+          "name": "Maya",
+          "selected": true,
+          "memories": [
+            {
+              "content": "Maya's dog Pepper died on August 18",
+              "type": "event_date",
+              "confidence": "high",
+              "sensitivity": "normal",
+              "date": "2026-08-18"
+            }
+          ]
+        }
+      ],
+      "turns": [
+        ["user", "How is pottery class going?"],
+        ["selected_contact", "I made a blue bowl today."]
+      ],
+      "expected": {
+        "ambiguous": false,
+        "request_memory_rows": 0,
+        "display_excludes": ["Pepper"]
+      }
+    },
+    {
+      "id": "no-confirmed-contact",
+      "contacts": [
+        {
+          "name": "Maya",
+          "selected": false,
+          "memories": [
+            {
+              "content": "Maya's dog Pepper died on August 18",
+              "type": "event_date",
+              "confidence": "high",
+              "sensitivity": "normal",
+              "date": "2026-08-18"
+            }
+          ]
+        }
+      ],
+      "turns": [
+        ["user", "How are you doing after the event?"],
+        ["selected_contact", "It has been difficult."]
+      ],
+      "expected": {
+        "ambiguous": false,
+        "request_memory_rows": 0,
+        "display_excludes": ["Pepper"]
+      }
+    }
+  ],
+  "longitudinal_workflow": {
+    "contacts": [
+      {"key": "pepper_maya", "name": "Maya", "disambiguator": "Pepper's owner"},
+      {"key": "other_maya", "name": "Maya", "disambiguator": "pottery friend"}
+    ],
+    "first_call": {
+      "contact": "pepper_maya",
+      "turns": [
+        ["user", "What should I order for you?"],
+        ["selected_contact", "Mint tea, no sugar, please."],
+        ["user", "How have things been this week?"],
+        ["selected_contact", "My dog Pepper died on August 18, and I still don't like naming the event."],
+        ["user", "Anything practical I should remember?"],
+        ["selected_contact", "My phone is 050-555-0101. I bought a red scarf today, and I may visit Nora on Sunday."]
+      ],
+      "proposals": [
+        {"content": "Maya prefers mint tea without sugar", "type": "preference", "confidence": "high", "evidence_turns": [2], "evidence_terms": ["Mint tea", "no sugar"], "decision": "approve"},
+        {"content": "Maya's dog Pepper died on August 18", "type": "event_date", "confidence": "high", "evidence_turns": [4], "evidence_terms": ["Pepper died", "August 18"], "decision": "approve"},
+        {"content": "Maya's phone number is 050-555-0101", "type": "person", "confidence": "high", "evidence_turns": [6], "evidence_terms": ["050-555-0101"], "decision": "approve"},
+        {"content": "Maya bought a red scarf", "type": "other", "confidence": "medium", "evidence_turns": [6], "evidence_terms": ["red scarf"], "decision": "reject"},
+        {"content": "Maya may visit Nora on Sunday", "type": "follow_up", "confidence": "low", "evidence_turns": [6], "evidence_terms": ["Nora", "Sunday"], "decision": "reject"}
+      ]
+    },
+    "correction": {
+      "from": "Maya prefers mint tea without sugar",
+      "to": "Maya prefers mint tea without sugar and with lemon"
+    },
+    "later_calls": [
+      {
+        "id": "same-contact-preference",
+        "contact": "pepper_maya",
+        "turns": [
+          ["user", "Should I bring the tea you like?"],
+          ["selected_contact", "Yes, mint tea without sugar would be nice."]
+        ],
+        "expected": "mint tea without sugar and with lemon"
+      },
+      {
+        "id": "same-contact-indirect-event",
+        "contact": "pepper_maya",
+        "turns": [
+          ["user", "How are you doing since the event?"],
+          ["selected_contact", "Better, but I still miss her."]
+        ],
+        "expected": "Pepper died"
+      },
+      {
+        "id": "same-name-other-contact",
+        "contact": "other_maya",
+        "seed_memory": "Maya's dog Pepper won a prize",
+        "turns": [
+          ["user", "How is Pepper doing after the prize?"],
+          ["selected_contact", "She is still very excited."]
+        ],
+        "expected": "won a prize",
+        "must_not_contain": "died"
+      }
+    ],
+    "bulk_delete": {
+      "delete": ["mint tea", "Pepper died"],
+      "keep": ["050-555-0101"]
+    }
+  }
+}

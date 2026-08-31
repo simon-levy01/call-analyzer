@@ -63,7 +63,7 @@ By October 1, the application must demonstrate a complete one-to-one call loop o
 ### Explicitly Deferred
 
 - Group calls and group chats.
-- Facial recognition or biometric identity.
+- Facial recognition or biometric identity during F01-F08. After the October 1 MVP, revisit opt-in contact face enrollment as a separate feature only with explicit consent, user-controlled deletion, multiple reference samples, measured false-match/false-reject behavior, and confirmation before a suggested match becomes the Selected Contact. F05 uses aliases and explicit contact selection; one saved screenshot is not treated as reliable identity evidence.
 - Hidden capture, employee/student scoring, or definitive emotion detection.
 - Native/private Zoom, WhatsApp, or Google Meet integrations when selected-window capture is sufficient.
 - macOS packaging.
@@ -83,7 +83,7 @@ These are preferred starting points, not permanent choices. Each feature plan mu
 | Speech transcription | Local `faster-whisper`; English only | Re-evaluate free local Hebrew models later; any cloud audio path needs explicit approval |
 | Structured interpretation | Evaluated `gpt-5.6-luna` profile with enforced structured output, bounded stateless requests, and spend limits | One user-triggered `gpt-5.6-terra` check at an evaluated reasoning level; never automatic |
 | Local application core | Reuse the POC's Python/FastAPI/Pydantic path where useful | Select the smallest Windows shell during the foundation feature |
-| Durable storage and search | SQLite plus FTS5 baseline | Compare Mem0 and Graphiti during the memory feature; adopt only if they win against the acceptance criteria |
+| Durable storage and search | SQLite/FTS5 plus bounded local BGE-small similarity | Exact lifecycle/contact filtering remains SQL-first; vectors stay in the same database and are scored locally |
 | Vocal observations | Simple local remote-speaker energy/rate/pause/overlap features from existing samples/timing | Add a vocal-analysis dependency only after measured uplift failure and an approved plan revision |
 
 GPU acceleration is allowed and should be used when it improves the demo, but the basic MediaPipe path should remain CPU-capable. The supported release target is Windows; the lecturer's MacBook is not a packaging target.
@@ -120,16 +120,48 @@ Target dates are completion targets. If one slips, apply the trimming order inst
 | F02 — WhatsApp/Zoom/Chrome Meet window capture and facial signals | Aug 23 | Stable selected-window frames, largest-face tracking, explicit loss recovery, local observations, no frame retention |
 | F03 — Two-sided audio and transcription | Aug 31 | Microphone and system audio become attributed transcript turns with acceptable latency |
 | F04 — Multimodal tone and cue interpretation | Sep 9 | Stable English-only conversation-atmosphere hypotheses and remote social cues combine bounded language, local vocal, and local visual evidence |
-| F05 — Contact memory and personalization | Sep 16 | Approved long-term memory, aliases, provenance, retrieval, supersession, and relationship-specific style |
-| F06 — Live guidance and post-call review | Sep 22 | Replies, reminders, follow-ups, summaries, and memory proposals work in the call loop |
+| [F05 — Contact memory and personalization](plans/F05-contact-memory-personalization.md) | Sep 16 | Approved long-term memory, aliases, provenance, retrieval, supersession, and relationship-specific style |
+| F06 — Live guidance, Ask Memory, and post-call review | Sep 22 | Replies, reminders, follow-ups, summaries, memory proposals, and natural-language questions over contact history work through one bounded guidance experience |
 | F07 — Evaluation and calibration | Sep 27 | Repeatable scenarios, measured errors/latency/abstention, and tuned update behavior |
 | F08 — Windows packaging and final demonstration | Oct 1 | Reliable live Windows demo, clean setup, limitations, and recorded fallback |
+
+### Post-MVP Candidate
+
+| Candidate | Timing | Outcome |
+|---|---:|---|
+| Opt-in contact face recognition | After F08; no current deadline | Suggest a contact from explicitly enrolled local reference images while still requiring user confirmation. This requires its own feature plan, privacy/biometric ADR, deletion controls, and false-match/false-reject evaluation before implementation. |
 
 F02 completed on 2026-08-19 under the explicit validation exception below: real WhatsApp passed, real Zoom/Meet were user-waived and remain documented risks, and the final tool-disabled Claude Opus 5 review passed after correcting two-face **Continue tracking** recovery.
 
 F02's completed standalone contract still stops its visual-only session when the selected window closes or becomes ineligible. Beginning with F03, the combined Assisted Call follows the audio-led rule above: a healthy explicit microphone/playback-endpoint session survives visual-target loss, while F02 signals stop, its empty thumbnail area collapses so the live transcript/audio state stays visible, and no replacement window is captured. Future feature plans must preserve this distinction. F03 also owns cross-source priority: while an eligible WhatsApp call exists, Chrome/Meet is not offered as a source; an already-running Meet session fails closed if a WhatsApp call appears.
 
 F04 is approved as a memory-free interpretation feature. It analyzes the remote participant's possible social cues and may describe the recent conversation atmosphere; the user's finalized words provide context only, and the user's face/prosody are not analyzed. Automatic live analysis uses the cheapest passing Luna `none`/`low` profile with at least 17 seconds between request starts. Terra `none`/`low` is available only through an explicit one-request user action, with visible estimated cost and the same hard session budget. Detailed cadence, schema, evaluation, and privacy gates live in `plans/F04-multimodal-tone-cues.md`.
+
+F05 planning was approved on 2026-08-27 and completed on 2026-09-01 after the consenting call, measured retrieval/performance/safety gates, full suite, and clean Opus 5 correction review passed. It uses explicit contact selection, aliases/disambiguation, local attributed-text Conversation Records, review-only AI proposals, immutable approved revisions, exact-contact lifecycle filtering, SQLite/FTS5 retrieval plus bounded local BGE-small similarity, and bounded memory enrichment of F04. The semantic dependency was selected only after the live indirect-employment case scored 0/3 with lexical retrieval and 3/3 locally at ranks 1, 2, and 2. Face recognition remains a separate post-MVP candidate. Detailed scope, storage, lifecycle, evaluation, and implementation evidence live in `plans/F05-contact-memory-personalization.md` and `docs/F05-VALIDATION.md`.
+
+F06 must include an **Ask Memory** experience for natural-language questions over
+the selected contact's approved memories and F06 conversation summaries, such as
+`What time did Yaheli say his appointment was?`. It must reuse F05's exact-contact,
+lifecycle-safe bounded retrieval rather than sending complete history to a model.
+Answers show supporting contact/date/source context and must say that nothing was
+found, present low-confidence alternatives, ask for clarification, or abstain when
+the stored evidence is missing or ambiguous. Rejected, superseded, deleted,
+unassigned, wrong-contact, or cloud-ineligible sensitive content cannot become
+answer evidence.
+
+The F06 grilling and feature plan must explicitly decide the smallest useful
+interaction model (one-shot search versus short conversational follow-ups), how
+the user selects one-contact versus explicit all-contact scope, what summary
+records are searchable, whether query history is retained, how citations open
+their memory/summary provenance, the local-retrieval versus bounded-model split,
+token/cost limits, sensitive-memory permission, stale-result invalidation, and
+missing/ambiguous-answer behavior. The MVP starts from contact-scoped question and
+answer with provenance; a general autonomous chatbot is not implied. Prefer the
+lightest local design that passes the fixed Ask Memory evaluation: first F05
+metadata/FTS5 plus a small semantic embedding model and deterministic answers,
+then an on-demand quantized sub-1B or roughly 1B local model only if it materially
+improves query rewriting or grounded answer phrasing. A model must never replace
+contact/lifecycle filtering or invent an answer when retrieval found no evidence.
 
 ## Per-Feature Workflow
 
@@ -176,9 +208,11 @@ The memory feature plan must compare SQLite/FTS5, Mem0, and Graphiti using a sma
 - local retrieval produces a bounded candidate set. A low-cost model may disambiguate only those candidates when local evidence is insufficient; the complete contact history or memory store is never sent merely to find a match;
 - export and deletion are testable.
 
-No memory framework is adopted merely because it is popular. If SQLite/FTS5 passes the test, use it.
+No memory framework is adopted merely because it is popular. Keep SQLite/FTS5 unless the measured indirect-reference gate requires the plan's bounded local embedding candidates; do not add a vector database.
 
 F05 must integrate memory only after F04 is complete. It may add a bounded set of locally retrieved, approved memories to interpretation so indirect references such as a later mention of `the event` can be understood. That change must preserve F04's abstention/privacy rules and rerun the interpretation and modality comparisons; F04 contains no placeholder memory hook.
+
+Memory-free F04 requests retain their existing 1,500-token target and 1,650 estimated-input-token hard ceiling. An F05 memory-aware request may add up to 700 estimated tokens for at most four short Approved Memory excerpts, giving a 2,200-token hard ceiling. The higher ceiling is activated only when memory context survives trimming; it does not increase the 1,000-token transcript target or the 400-token output cap. User-visible remembered-detail suggestions remain limited to three.
 
 ## Evaluation and Quality Gates
 
@@ -187,6 +221,7 @@ The project is not finished because a demo looks plausible. Evaluation must incl
 - controlled one-to-one scenarios covering positive/warm, sad/low-energy, tense/negative, energetic/high-energy, emotional intensity, neutrality, humor, sarcasm, uncertainty, discomfort, and changing engagement;
 - F04 comparisons of transcript only, transcript plus vocal observations, transcript plus visual observations, and all available F04 modalities; contact memory is excluded until F05 and then evaluated separately;
 - the user-approved basic fictional two-person fixture remains the exact, speaker-separated F02-F05 replay; the approved HeyGen render adds a realistic compressed-video, neural-lip-sync, face-motion, and semantic-audio stress fixture, but its single animated voice, static Alex tile, watermark, and omitted opening line prevent it from replacing the basic fixture or a consenting live call;
+- Ask Memory tests covering a correctly answered dated appointment, a follow-up question, no matching memory, two plausible appointments, wrong-contact isolation, corrected/superseded information, deleted evidence, sensitive cloud exclusion, provenance display, and bounded token/cost behavior;
 - useful cue rate, incorrect cue rate, insufficient/conflicting abstention behavior, calibration, latency, stability, and API cost;
 - wrong-contact, stale-memory, contradicted-memory, and no-face/no-audio cases, including six-second face loss without silent reselection, explicit visual continuation, visible uninterrupted audio transcription when visual capture ends mid-call, clean-stop selection retention versus fault/rebuild clearing, truthful endpoint-wide audio warnings/operating rules, and WhatsApp-over-Chrome source priority;
 - checks that raw frames are not retained and local conversations/memories can be deleted;
@@ -205,6 +240,7 @@ The project is not finished because a demo looks plausible. Evaluation must incl
 - For F04, target about 1,000 transcript and 1,500 total input tokens, cap output at 400 tokens, warn at `$0.15`, and stop automatic/manual interpretation at a `$0.25` session hard limit while local F02/F03 continue.
 - Use the cheapest Luna `none`/`low` profile that passes for repeated structured analysis. Terra is limited to evaluation and explicit one-request user checks; it never activates automatically.
 - Keep F04 real-model comparison under `$1.50`; the approved staged set is about `$0.62` once or `$1.25` including one full rerun at the conservative input ceiling.
+- F05 post-call extraction shares F04's `$0.25` Assisted Call hard limit; when insufficient budget remains, the retained Conversation Record waits for manual retry. A large text import shows its estimate before analysis and has a separate `$0.25` per-run hard limit. F05's controlled real-model extraction/retrieval evaluation stops at `$2.00`. These caps may be revised only from recorded quality, token, and cost evidence.
 - Do not add a second paid provider without evidence that the current stack blocks an acceptance criterion.
 
 ## Trimming Order

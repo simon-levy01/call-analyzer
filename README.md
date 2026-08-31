@@ -98,7 +98,9 @@ hard limit; Terra runs only after **Check with Terra** and a per-request cost
 confirmation. Live Luna uses low reasoning with up to 16 complete turns from the
 last three minutes; repeated speaker labels are omitted and old visual rows are
 trimmed before conversation text when the request needs shortening. Automatic
-request starts are separated by at least 17 seconds.
+request starts are separated by at least 17 seconds. The compact cloud payload uses
+`u` and `c` for the user and confirmed contact; the visible transcript continues to
+show `You` and the confirmed contact's name.
 
 When an API key is approved, place it in `.env.local` at the project root:
 
@@ -113,6 +115,56 @@ has a shared $1.50 hard limit:
 ```powershell
 .\.venv\Scripts\python -m conversation_copilot --evaluate-f04
 ```
+
+## Contact memory and personalization
+
+Contact memory is local and off until you explicitly confirm a contact. Use the
+Selected Contact control to search, select, create, change, or clear a contact.
+Names and aliases are suggestions only; ambiguous aliases show candidates and
+never select automatically. Calls that stop without a confirmed contact remain
+under **Unassigned** and cannot retrieve or extract memory.
+
+The app stores normalized attributed text in
+`%LOCALAPPDATA%\ConversationCopilot\memory.sqlite3`. When the optional local model
+is installed, the same database also stores regenerable memory vectors. It never
+stores call audio, PCM, video, frames, landmarks, blendshapes, or face screenshots. After
+an assigned call stops, bounded attributed-text chunks may be sent to OpenAI with
+`store=false` to create proposals for review. Model output is never approved
+automatically. **Manage memory** supports user-created
+approved items with an optional `DD/MM/YYYY` event date, proposal approval/rejection/reopen, immutable correction,
+sensitivity permission, search, merge/delete previews, and contact-scoped JSON
+export. Approved sensitive memory is excluded from later cloud interpretation
+unless cloud use is enabled for that exact current revision; changing or revoking
+it clears affected guidance.
+
+Deleting a memory scrubs its full revision chain and search data. Deleting a
+conversation previews derived memories with deletion selected by default. Kept
+items retain only minimal source-deleted provenance. Deleting a contact removes
+its records, proposal history, memories, aliases, and deletion tombstones. Exported
+JSON files are outside the application's later deletion control.
+
+If migration or integrity verification fails, memory opens read-disabled and the
+app does not replace the database with an empty one. A retained
+`.migration-backup` file can be restored after closing the app. Capture and local
+transcription may continue without writable memory.
+
+Run the zero-cost local quality/performance gate and the explicitly paid fictional
+extraction comparison with:
+
+```powershell
+.\.venv\Scripts\python -m conversation_copilot --install-memory-model
+.\.venv\Scripts\python -m conversation_copilot --evaluate-f05-local
+.\.venv\Scripts\python -m conversation_copilot --evaluate-f05-real
+```
+
+The explicit install downloads about 67 MB once. Call startup never downloads a
+model. If it is absent, exact/date/FTS5 retrieval remains available and the UI says
+that indirect recall is reduced.
+
+The local gate uses a temporary 100,000-revision database and deletes it after the
+run. The paid comparison has a $2.00 hard cap; normal tests use fake models and
+make no cloud calls. Current evidence and remaining manual validation are recorded
+in `docs/F05-VALIDATION.md`.
 
 ## Compare transcription accuracy
 
@@ -164,9 +216,9 @@ corpus from a JSON manifest containing `media`, `reference`, and `language` fiel
 
 The permanent `conversation_copilot/assets/f04/basic-video-chat` bundle is a
 fictional two-person call used for basic F02-F05 replay. It includes the preview
-video, separate microphone/contact audio stems, exact turns, expected cues and
-future memory cases. It does not replace the controlled model evaluation or a
-consenting live WhatsApp validation.
+video, separate microphone/contact audio stems, exact turns, progressive 17-second
+tone/memory checkpoints, expected cues, and future memory cases. It does not replace
+the controlled model evaluation or a consenting live WhatsApp validation.
 
 `heygen-video-chat.mp4` is the additional realistic-media stress fixture. Its
 automated replay checks compressed 720p decoding, persistent remote-face

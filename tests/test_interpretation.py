@@ -190,7 +190,7 @@ def test_compact_payload_omits_repeated_speaker_and_prioritizes_text():
     payload = json.loads(prepared.input_text)
 
     assert len(payload["t"]) == 8
-    assert payload["t"][0][0] == "selected_contact"
+    assert payload["t"][0][0] == "c"
     assert all(row[0] is None for row in payload["t"][1:])
     assert payload["v"][0][0] == 2
 
@@ -316,6 +316,41 @@ def test_openai_request_is_bounded_stateless_structured_text_and_accounted():
     assert ledger.records[0].cache_write_input_tokens == 300
     assert ledger.total_dollars == pytest.approx(0.000299)
     assert not hasattr(ledger.records[0], "content")
+
+
+def test_openai_discards_evidence_modalities_missing_from_the_request():
+    def interpret(output):
+        return OpenAIInterpreter(
+            client=SimpleNamespace(
+                responses=SimpleNamespace(
+                    parse=lambda **_kwargs: SimpleNamespace(
+                        output_parsed=output,
+                        usage=SimpleNamespace(input_tokens=100, output_tokens=20),
+                    )
+                )
+            )
+        )(snapshot(1, 2))
+
+    unsupported = SocialCue(
+        kind="interest_engagement",
+        confidence="medium",
+        hypothesis="Possible remembered interest",
+        evidence=Evidence(
+            explanation="Only a claimed memory",
+            modalities=["memory"],
+        ),
+    )
+    mixed = interpret(InterpretationUpdate(
+        status="updated", tones=update().tones, social_cues=[unsupported]
+    ))
+    assert len(mixed.tones) == 1 and mixed.social_cues == []
+
+    result = interpret(InterpretationUpdate(status="updated", social_cues=[unsupported]))
+    assert result.status.value == "insufficient_evidence"
+    assert result.tones == result.social_cues == []
+
+    valid = interpret(update())
+    assert valid.tones[0].evidence.modalities == ["language"]
 
 
 def test_cautious_multimodal_policies_override_model_variance():

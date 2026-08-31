@@ -17,7 +17,7 @@ The visible WhatsApp Desktop, Zoom, or dedicated Google Chrome window with an ac
 _Avoid_: desktop recording, hidden capture, automatic window target
 
 **Selected Contact**:
-The person whom the user confirms as the other participant before contact memory is used or changed.
+The person whom the user confirms as the other participant before or during a conversation. Contact memory is not used or changed until that confirmation.
 _Avoid_: detected person, target, subject
 
 **Contact Suggestion**:
@@ -25,12 +25,36 @@ A proposed match derived from visible window text, saved aliases, or conversatio
 _Avoid_: automatic identity, facial recognition
 
 **Contact Alias**:
-A platform name or other identifier linked to one selected contact with the user's confirmation.
+A platform name, nickname, or other non-biometric identifier linked to one contact with the user's confirmation. One contact may have many aliases, and ambiguous aliases never select a contact automatically.
 _Avoid_: username identity, biometric match
+
+**Contact Association**:
+The user-confirmed link between a Conversation Record and one Selected Contact, established before or during the conversation and correctable by the user.
+_Avoid_: automatic identity, face match, inferred ownership
+
+**Contact Merge**:
+The user-confirmed consolidation of two contact records that represent the same person. One contact survives and receives the other's aliases, Conversation Records, and memory history; similar memories remain separate until reviewed.
+_Avoid_: alias match, automatic deduplication, memory merge
+
+**Contact Reassignment**:
+The user-confirmed correction that moves a Conversation Record to a different contact. Derived memories are reviewed rather than silently transferred, and extraction reruns for the corrected contact.
+_Avoid_: contact merge, automatic memory transfer
 
 **Conversation Turn**:
 A bounded spoken or written contribution attributed either to the user or the selected contact.
 _Avoid_: audio chunk, message blob
+
+**Conversation Record**:
+A locally retained sequence of normalized Conversation Turns from one confirmed text import or Assisted Call, associated with a Selected Contact and kept as memory provenance until the user deletes it. It contains no raw audio or video.
+_Avoid_: recording, raw call archive, conversation memory
+
+**Unassigned Conversation**:
+A retained Conversation Record whose contact has not yet been confirmed. It cannot retrieve or produce contact memory until the user associates it with an existing or newly created contact.
+_Avoid_: unknown contact, guessed contact, anonymous memory
+
+**Temporal Reference**:
+A date or time expression retained with its original wording, source time zone, and a normalized instant or interval only when the context supports one. Windows local time is the default; explicit contact/location context may override it, while ambiguity remains unresolved.
+_Avoid_: guessed date, silent time-zone conversion
 
 **Speaker Role**:
 The attribution of a Conversation Turn to the user, the selected contact, or unclear when attribution is not reliable.
@@ -92,17 +116,73 @@ _Avoid_: dashboard feed, instruction
 Long-lived, locally stored context associated with a selected contact and available across imported text and assisted calls.
 _Avoid_: transcript archive, cloud profile
 
+**Atomic Memory**:
+One independently reviewable and correctable fact, preference, event, commitment, follow-up, shared reference, relationship preference, or communication-style observation. It may be connected to related Atomic Memories without combining their content or lifecycle.
+_Avoid_: contact profile, compound summary, conversation dump
+
+**Useful Memory**:
+An Atomic Memory that is contact-specific, actionable, relationship-specific, or meaningfully useful in a later conversation. Generic human behavior, temporary small talk, and unsupported emotion or intention inferences are not Useful Memories.
+_Avoid_: conversation summary, trivia dump, inferred personality
+
+**Memory Type**:
+The controlled category of an Atomic Memory: person, preference, event/date, commitment, follow-up, recurring topic, shared joke/reference, relationship preference, communication style, or other. The user may correct the category; custom category systems are outside F05.
+_Avoid_: free-form tag hierarchy, personality category
+
+**Memory Connection**:
+A bounded link between related Atomic Memories, including an explicit supersession link. Shared provenance connects memories from the same source without turning the memory store into a general-purpose knowledge graph.
+_Avoid_: inferred social graph, graph database edge
+
 **Memory Proposal**:
-A candidate addition, correction, supersession, or removal that requires user review before changing conversation memory.
+A model-generated candidate addition, correction, supersession, or removal that requires user review before changing conversation memory. A memory explicitly created or corrected by the user does not need a second approval step.
 _Avoid_: automatic memory, inferred fact
 
+**Proposal Batch**:
+A bounded group of Memory Proposals extracted after a confirmed text import or Assisted Call ends. It is reviewed as a stable set rather than updated continuously during the conversation.
+_Avoid_: live memory feed, automatically approved analysis
+
 **Approved Memory**:
-A memory proposal accepted or edited by the user and retained until corrected, superseded, or deleted by the user.
+A memory explicitly created or corrected by the user, or a Memory Proposal accepted or edited by the user, retained until corrected, superseded, or deleted.
 _Avoid_: model belief, permanent truth
+
+**Memory Confidence**:
+The qualitative strength of support for a memory: low, medium, or high. Approval means the memory should be retained and does not automatically increase its confidence.
+_Avoid_: certainty, approval status, probability
+
+**Memory Relevance**:
+The query-time fit between an Approved Memory and the current confirmed contact, words, dates, and conversational context. Relevance may change over time without changing the memory's lifecycle state or confidence.
+_Avoid_: approval, memory confidence, automatic expiration
+
+**Memory Match**:
+A bounded Approved Memory candidate retrieved locally for the confirmed contact and current context. A match is not proof that the current words refer to that memory.
+_Avoid_: selected truth, confirmed reference, cross-contact result
+
+**Retrieval Ambiguity**:
+The state in which multiple Memory Matches remain plausible after bounded retrieval and optional reranking. It produces low-confidence alternatives, a clarification request, or abstention rather than a silent choice.
+_Avoid_: closest match, inferred certainty
+
+**Sensitive Memory**:
+A memory marked as sensitive by the model or user. It remains available to local search but is excluded from cloud requests unless the user explicitly permits bounded cloud use for that memory.
+_Avoid_: hidden memory, automatically shared memory
 
 **Superseded Memory**:
 An approved memory kept as history but excluded from current guidance because newer approved information replaced it.
 _Avoid_: deleted memory, current fact
+
+**Memory Revision**:
+One immutable version in the correction history of an Approved Memory. Correcting a memory creates a new approved revision and supersedes the previous one; deleting the memory erases the complete revision chain.
+_Avoid_: in-place edit, duplicate memory
+
+**Potential Duplicate**:
+A Memory Proposal marked as similar to one or more Approved Memories or proposals in the same review batch. It remains available for user review and is never automatically discarded or merged.
+_Avoid_: confirmed duplicate, suppressed proposal
+
+**Rejected Proposal**:
+A Memory Proposal the user declined. It remains only in local review history, never participates in retrieval or guidance, and may be reopened or permanently deleted.
+_Avoid_: deleted memory, negative evidence, approved memory
+
+**Deleted Memory**:
+A memory whose content, evidence, and search derivatives have been erased at the user's request. A content-free identifier and deletion time may remain to prevent accidental restoration; deleting the contact removes that tombstone too.
+_Avoid_: archived memory, hidden memory, soft-deleted content
 
 **Interaction Style**:
 The reviewed pattern of how the user and a particular contact communicate with each other, used to tailor suggestions for that relationship.
