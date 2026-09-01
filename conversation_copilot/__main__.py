@@ -122,7 +122,7 @@ def show_window(summary: str) -> None:
         format_interpretation_body,
         prepare_interpretation_request,
     )
-    from .models import ConversationTurn
+    from .models import ConversationTurn, SpeakerRole
     from .memory import (
         AmbiguousContact,
         MEMORY_TYPES,
@@ -1247,6 +1247,10 @@ def show_window(summary: str) -> None:
                             for_cloud=True,
                             date_query=date_query,
                             semantic_query=memory_semantic_input(captured_turns),
+                            contact_cue_query=memory_semantic_input(
+                                captured_turns,
+                                speaker_role=SpeakerRole.SELECTED_CONTACT,
+                            ),
                         )
                     ambiguous = result.ambiguous
                     semantic_available = result.semantic_available

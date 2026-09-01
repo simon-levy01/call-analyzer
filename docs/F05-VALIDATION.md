@@ -480,8 +480,9 @@ Four paid progressive interpretation checkpoints used the correct job memory cau
 at the first three employment checkpoints; the fourth relied on the explicit current
 conversation. The captured rerun cost **$0.0020198**. The routine-activity extraction
 spot-check cost **$0.0001108**. Including an equivalent completed four-call run whose
-reporter failed before serializing the ledger, total known measured F05 spend is
-**$0.01631595** and total estimated F05 spend is **$0.01871935**, below the $2.00 cap.
+reporter failed before serializing the ledger, total known measured F05 spend after the
+implicit-grief follow-ups below is **$0.01721345** and total estimated F05 spend is
+**$0.02003265**, below the $2.00 cap.
 Fresh tool-disabled Claude Opus 5 session
 `64681e39-7835-4629-8283-d3b86b64511c` reviewed the complete diff and initially
 found that pre-score `LIMIT 12` made an older semantic memory unreachable after 12
@@ -514,6 +515,34 @@ the words may refer to Pepper. The pronoun-only case cited conversation words pl
 approved memory and explicitly said that the Pepper link was tentative because “her”
 was not identified. A memory marked sensitive must still have its per-memory cloud
 permission enabled before it can enter F04 interpretation.
+
+A follow-up replay used no explicit dog, death, tragedy, event, or Pepper wording. The
+user asked only “How are you feeling after the whole thing?”; retrieval stayed empty
+through “Honestly, it has been difficult,” selected only Pepper at “She meant a lot to
+me,” and retained only Pepper at “I miss her every day.” Real BGE distractors included
+job loss, moving, tea, pottery, a dead laptop, death metal, a connected tea memory, and
+another contact. User-spoken copies of the grief phrases and mundane “I missed her
+call / that meant a lot” wording retrieved nothing. Two undated plausible losses
+returned possibilities; two normalized losses selected only the uniquely newest one
+indirectly while the older remained directly retrievable. Sensitive loss context stayed
+out of cloud retrieval without permission, and missing embeddings failed closed.
+
+The final real `store=false` F04 check retrieved only Pepper and used conversation words
+for the high sadness/low-energy tone. Its memory-aware cue said the words indicate an
+ongoing loss and that approved memory only tentatively links the reference to Pepper;
+the visible panel repeated that the memory was possible context, not proof. It used
+1,011 input tokens, 178 output tokens, no reasoning tokens, cost **$0.00041580**, and
+took **5.668 seconds**. One equivalent request completed before a reporter-signature
+error prevented ledger serialization, so **$0.00041580** is included conservatively in
+estimated rather than measured spend. The immediately preceding implicit check cost
+**$0.00048170**. All calls used `store=false`.
+
+Five focused tool-disabled Claude Opus review passes found and drove root corrections
+for unrelated semantic/date candidates, speaker attribution, mundane phrase matches,
+two-loss ambiguity, sensitive and degraded paths, explicit-topic preservation, dated
+newest-event selection, and both directions of connected-memory leakage. The closing
+session `5ab72da1-4949-4223-9776-28b2bd4a8bdd` returned **CLEAN** with no unresolved
+material finding. The full suite remained **195 passed** with `pip check` clean.
 
 ## Release audit
 

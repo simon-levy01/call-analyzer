@@ -161,10 +161,31 @@ def test_progressive_grief_phrases_retrieve_tragedy_memory_cautiously(
                     "miss them", "thinking about her",
                 )
             )
-            vectors[index, 0 if grief else 1] = 1
+            if "robin died" in lowered:
+                vectors[index, 0] = 0.93
+                vectors[index, 1] = (1 - 0.93**2) ** 0.5
+            elif grief:
+                vectors[index, 0] = 1
+            else:
+                vectors[index, 0] = 0.46
+                vectors[index, 1] = (1 - 0.46**2) ** 0.5
         return vectors
 
     monkeypatch.setattr(semantic_module, "embed_texts_if_ready", fake_vectors)
+
+    def retrieve(store, contact_id, turns, *, for_cloud=True):
+        query, date_query = _memory_retrieval_inputs(turns)
+        return store.retrieve(
+            contact_id,
+            query,
+            for_cloud=for_cloud,
+            date_query=date_query,
+            semantic_query=_memory_semantic_input(turns),
+            contact_cue_query=_memory_semantic_input(
+                turns, speaker_role=SpeakerRole.SELECTED_CONTACT
+            ),
+        )
+
     scenarios = (
         [
             ("user", "How have the last few days been?"),
@@ -205,37 +226,31 @@ def test_progressive_grief_phrases_retrieve_tragedy_memory_cautiously(
             "Maya's dog Pepper died on August 18, 2026",
             memory_type="event_date",
         )
-        store.create_memory(selected.id, "Maya is learning pottery", memory_type="recurring_topic")
+        pottery = store.create_memory(
+            selected.id, "Maya is learning pottery", memory_type="recurring_topic"
+        )
+        tea = store.create_memory(selected.id, "Maya prefers mint tea", memory_type="preference")
+        store.create_memory(selected.id, "Maya recently lost her job", memory_type="event_date")
+        store.create_memory(selected.id, "Maya moved apartment recently", memory_type="event_date")
+        store.create_memory(selected.id, "Maya's laptop died last week", memory_type="event_date")
+        store.create_memory(selected.id, "Maya's friend loves death metal", memory_type="preference")
         store.create_memory(
             other.id,
             "Other Maya's dog Pepper died on August 20, 2026",
             memory_type="event_date",
         )
+        store.connect_memories(pepper, tea)
         store.backfill_semantic_embeddings()
 
         for raw in scenarios:
             turns = _turns(raw)
             cue_at = 4 if len(raw) == 4 else 5
-            query, date_query = _memory_retrieval_inputs(turns[: cue_at - 1])
-            before = store.retrieve(
-                selected.id,
-                query,
-                for_cloud=True,
-                date_query=date_query,
-                semantic_query=_memory_semantic_input(turns[: cue_at - 1]),
-            )
+            before = retrieve(store, selected.id, turns[: cue_at - 1])
             assert pepper not in {item.memory_id for item in before.matches}
 
-            query, date_query = _memory_retrieval_inputs(turns)
-            result = store.retrieve(
-                selected.id,
-                query,
-                for_cloud=True,
-                date_query=date_query,
-                semantic_query=_memory_semantic_input(turns),
-            )
+            result = retrieve(store, selected.id, turns)
             assert not result.ambiguous
-            assert result.matches[0].memory_id == pepper
+            assert [item.memory_id for item in result.matches] == [pepper]
             context = result.matches[0]
             snapshot = build_snapshot(
                 turns,
@@ -255,14 +270,152 @@ def test_progressive_grief_phrases_retrieve_tragedy_memory_cautiously(
             )
             assert "Pepper died" in prepare_interpretation_request(snapshot).input_text
 
-            wrong = store.retrieve(
-                other.id,
-                query,
-                for_cloud=True,
-                date_query=date_query,
-                semantic_query=_memory_semantic_input(turns),
-            )
+            wrong = retrieve(store, other.id, turns)
             assert pepper not in {item.memory_id for item in wrong.matches}
+
+        implicit = _turns([
+            ("user", "Hey, how have you been?"),
+            ("selected_contact", "I have been trying to manage."),
+            ("user", "How are you feeling after the whole thing?"),
+            ("selected_contact", "Honestly, it has been difficult."),
+            ("selected_contact", "She meant a lot to me."),
+            ("selected_contact", "I miss her every day."),
+        ])
+        for length, expected in ((4, []), (5, [pepper]), (6, [pepper])):
+            visible = implicit[:length]
+            result = retrieve(store, selected.id, visible)
+            assert not result.ambiguous
+            assert [item.memory_id for item in result.matches] == expected
+            if length == 4:
+                assert result.status == "none"
+
+        grief_only = _turns([
+            ("user", "Hey, how have you been?"),
+            ("selected_contact", "I have been trying to manage."),
+            ("user", "How are you feeling after the whole thing?"),
+            ("selected_contact", "I miss her every day."),
+        ])
+        result = retrieve(store, selected.id, grief_only)
+        assert [item.memory_id for item in result.matches] == [pepper]
+
+        dated_vague = _turns([
+            ("user", "Hey, how have you been?"),
+            ("selected_contact", "I have been trying to manage."),
+            ("user", "How are you feeling after the whole thing?"),
+            ("selected_contact", "It has been difficult since August 18, 2026."),
+        ])
+        result = retrieve(store, selected.id, dated_vague)
+        assert not result.matches and result.status == "abstain"
+
+        user_spoken_cues = _turns([
+            ("user", "Hey, how have you been?"),
+            ("selected_contact", "I have been trying to manage."),
+            ("user", "After the whole thing, she meant a lot and I miss her."),
+            ("selected_contact", "It has been difficult."),
+        ])
+        result = retrieve(store, selected.id, user_spoken_cues)
+        assert not result.matches and result.status == "none"
+
+        mundane_cues = _turns([
+            ("user", "Hey, how have you been after the whole thing?"),
+            ("selected_contact", "I missed her call."),
+            ("user", "Did it matter?"),
+            ("selected_contact", "That really meant a lot."),
+        ])
+        result = retrieve(store, selected.id, mundane_cues)
+        assert not result.matches and result.status == "none"
+
+        mixed_topic = _turns([
+            ("user", "Hey, how have you been?"),
+            ("selected_contact", "I have been trying to manage."),
+            ("user", "How are you feeling after the whole thing?"),
+            ("selected_contact", "Honestly, it has been difficult."),
+            ("selected_contact", "She meant a lot to me."),
+            ("selected_contact", "I miss her every day."),
+            ("user", "How is the pottery class going?"),
+        ])
+        result = retrieve(store, selected.id, mixed_topic)
+        assert {item.memory_id for item in result.matches} == {pepper, pottery}
+
+        direct_loss = store.retrieve(
+            selected.id,
+            "Pepper dog",
+            for_cloud=True,
+            semantic_query="",
+            contact_cue_query="",
+        )
+        assert [item.memory_id for item in direct_loss.matches] == [pepper]
+        direct_tea = store.retrieve(
+            selected.id,
+            "mint tea",
+            for_cloud=True,
+            semantic_query="",
+            contact_cue_query="",
+        )
+        assert [item.memory_id for item in direct_tea.matches] == [tea]
+
+        robin = store.create_memory(
+            selected.id,
+            "Maya's cat Robin died two weeks ago",
+            memory_type="event_date",
+        )
+        store.backfill_semantic_embeddings()
+        result = retrieve(store, selected.id, implicit)
+        assert result.ambiguous and result.status == "possibilities"
+        assert {item.memory_id for item in result.matches} == {pepper, robin}
+
+        private = store.create_contact("Private Maya")
+        private_loss = store.create_memory(
+            private.id,
+            "Private Maya's dog Clover died last month",
+            memory_type="event_date",
+            sensitivity="sensitive",
+        )
+        store.backfill_semantic_embeddings()
+        denied = retrieve(store, private.id, implicit)
+        local = retrieve(store, private.id, implicit, for_cloud=False)
+        assert not denied.matches
+        assert [item.memory_id for item in local.matches] == [private_loss]
+
+        dated = store.create_contact("Dated Maya")
+        older = store.create_memory(
+            dated.id,
+            "Dated Maya's grandfather died years ago",
+            memory_type="event_date",
+            normalized_date_start=datetime(2011, 5, 1, tzinfo=timezone.utc),
+        )
+        newest = store.create_memory(
+            dated.id,
+            "Dated Maya's dog Pepper died recently",
+            memory_type="event_date",
+            normalized_date_start=datetime(2026, 8, 18, tzinfo=timezone.utc),
+        )
+        store.backfill_semantic_embeddings()
+        result = retrieve(store, dated.id, implicit)
+        assert not result.ambiguous
+        assert [item.memory_id for item in result.matches] == [newest]
+        direct_old = store.retrieve(
+            dated.id,
+            "grandfather",
+            for_cloud=True,
+            semantic_query="",
+            contact_cue_query="",
+        )
+        assert [item.memory_id for item in direct_old.matches] == [older]
+
+    monkeypatch.setattr(
+        semantic_module, "embed_texts_if_ready", lambda *_args, **_kwargs: None
+    )
+    with MemoryStore(tmp_path / "progressive-grief-no-model.sqlite3") as store:
+        selected = store.create_contact("Maya")
+        store.create_memory(
+            selected.id,
+            "Maya's dog Pepper died on August 18, 2026",
+            memory_type="event_date",
+        )
+        result = retrieve(store, selected.id, implicit)
+        assert not result.matches and result.status == "none"
+        assert not result.semantic_available
 
 
 def _turns(raw_turns):

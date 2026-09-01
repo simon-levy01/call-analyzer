@@ -130,6 +130,18 @@ def _fts_token_set(value: str) -> set[str]:
     return set(re.findall(r"[\w]+", folded, flags=re.UNICODE))
 
 
+def _is_bereavement_memory(value: str) -> bool:
+    # ponytail: animate allowlist favors abstention over false bereavement matches.
+    return bool(
+        re.search(r"\b(?:died|passed away|euthanized|death of)\b", value, re.IGNORECASE)
+        and re.search(
+            r"\b(?:dog|cat|pet|puppy|kitten|mother|father|mom|dad|parent|sister|brother|sibling|friend|wife|husband|partner|grandmother|grandfather|grandparent|person|woman|man|child|baby)\b",
+            value,
+            re.IGNORECASE,
+        )
+    )
+
+
 _MONTHS = {
     name: index for index, name in enumerate(
         ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"), 1
@@ -182,7 +194,11 @@ _TOPIC_BOUNDARY = re.compile(
 )
 
 
-def memory_semantic_input(turns: Sequence[ConversationTurn]) -> str:
+def memory_semantic_input(
+    turns: Sequence[ConversationTurn],
+    *,
+    speaker_role: SpeakerRole | None = None,
+) -> str:
     window = list(turns[-20:])
     for index in range(len(window) - 1, -1, -1):
         if _TOPIC_BOUNDARY.search(window[index].content):
@@ -190,6 +206,8 @@ def memory_semantic_input(turns: Sequence[ConversationTurn]) -> str:
             break
     if len(window) < 4:
         return ""
+    if speaker_role is not None:
+        window = [item for item in window if item.speaker_role == speaker_role]
     text = " ".join(item.content for item in window)
     if len(text) <= 350:
         return text
@@ -1506,6 +1524,7 @@ class MemoryStore:
         memory_types: Sequence[str] = (),
         sensitivity: Literal["normal", "sensitive"] | None = None,
         semantic_query: str | None = None,
+        contact_cue_query: str | None = None,
         limit: int = 4,
     ) -> RetrievalResult:
         if contact_id is None:
@@ -1605,8 +1624,28 @@ class MemoryStore:
                 str(row["id"]): float(row["relevance"]) for row in lexical_rows
             }
         metadata_ids: list[str] = []
+        semantic_source = query if semantic_query is None else semantic_query
+        cue_source = f"{query}\n{semantic_source}"
+        contact_cue_source = contact_cue_query or ""
+        # ponytail: fixed English grief cues; expand only from observed false negatives.
+        attachment_cue = re.search(
+            r"\b(?:she|he|they|(?:my|our) (?:dog|cat|pet|mother|father|mom|dad|parent|sister|brother|sibling|friend|wife|husband|partner|grandmother|grandfather|grandparent)) (?:meant (?:a lot|so much|everything|the world)|was everything to me)\b",
+            contact_cue_source,
+            re.IGNORECASE,
+        )
+        grief_cue = re.search(
+            r"\bmiss(?:ed|es|ing)? (?:her|him|them)(?=\s*(?:[.,!?;]|$)|\s+(?:so|very|every|already|terribly|all|a lot)\b)",
+            contact_cue_source,
+            re.IGNORECASE,
+        )
+        vague_event_cue = re.search(
+            r"\b(?:after|since) (?:(?:the )?whole thing|it happened)\b",
+            cue_source,
+            re.IGNORECASE,
+        )
+        vague_only = bool(vague_event_cue and not attachment_cue and not grief_cue)
         semantic_ids, semantic_relevance, semantic_available = self._semantic_candidates(
-            query if semantic_query is None else semantic_query, eligible_sql, params
+            semantic_source, eligible_sql, params
         )
         if requested_date:
             semantic_ids = []
@@ -1625,6 +1664,8 @@ class MemoryStore:
                                 coalesce(r.normalized_date_start,r.approved_at) DESC LIMIT 12""", metadata_params
                 ).fetchall()
             metadata_ids = [str(row["id"]) for row in metadata_rows]
+            if vague_only and not lexical_ids:
+                metadata_ids = []
             if (
                 not requested_date
                 and not lexical_ids
@@ -1644,6 +1685,41 @@ class MemoryStore:
                     metadata_ids = []
                 elif not metadata_ids:
                     return RetrievalResult((), False, "abstain", semantic_available)
+        if vague_only:
+            semantic_ids = []
+            metadata_ids = []
+        grief_reference = bool(
+            attachment_cue and grief_cue
+            or vague_event_cue and (attachment_cue or grief_cue)
+        )
+        candidate_ids = list(set(lexical_ids) | set(metadata_ids) | set(semantic_ids))
+        loss_rows = [
+            row
+            for row in self._connection.execute(
+                f"SELECT id,content,normalized_date_start FROM memory_revisions WHERE id IN ({','.join('?' for _ in candidate_ids)})",
+                candidate_ids,
+            )
+            if _is_bereavement_memory(str(row["content"]))
+        ] if candidate_ids else []
+        loss_ids = {str(row["id"]) for row in loss_rows}
+        loss_lexical_ids = [item for item in lexical_ids if item in loss_ids]
+        if grief_reference:
+            dated_losses = sorted(
+                (
+                    str(row["normalized_date_start"]),
+                    str(row["id"]),
+                )
+                for row in loss_rows
+                if row["normalized_date_start"]
+            )
+            if (
+                not loss_lexical_ids
+                and len(dated_losses) == len(loss_ids) > 1
+                and dated_losses[-1][0] > dated_losses[-2][0]
+            ):
+                loss_ids = {dated_losses[-1][1]}
+            metadata_ids = [item for item in metadata_ids if item in loss_ids]
+            semantic_ids = [item for item in semantic_ids if item in loss_ids]
         if not lexical_ids and not metadata_ids and not semantic_ids:
             return RetrievalResult((), False, "none", semantic_available)
         scores: dict[str, float] = {}
@@ -1665,7 +1741,11 @@ class MemoryStore:
                 ranked_ids,
             )
         ]
-        if base_memory_ids and len(ranked_ids) < 12:
+        if (
+            base_memory_ids
+            and len(ranked_ids) < 12
+            and not any(item in loss_ids for item in ranked_ids)
+        ):
             placeholders = ",".join("?" for _ in base_memory_ids)
             related_memory_ids = {
                 related
@@ -1680,12 +1760,14 @@ class MemoryStore:
             if related_memory_ids:
                 related_params = [*params, *related_memory_ids]
                 related = self._connection.execute(
-                    f"""SELECT r.id FROM memory_revisions r JOIN memories m ON m.id=r.memory_id
+                    f"""SELECT r.id,r.content FROM memory_revisions r JOIN memories m ON m.id=r.memory_id
                        WHERE {eligible_sql} AND m.id IN ({','.join('?' for _ in related_memory_ids)})
                        ORDER BY r.approved_at DESC,r.id LIMIT ?""",
                     [*related_params, 12 - len(ranked_ids)],
                 ).fetchall()
                 for row in related:
+                    if _is_bereavement_memory(str(row["content"])):
+                        continue
                     revision_id = str(row[0])
                     if revision_id not in scores:
                         ranked_ids.append(revision_id)
@@ -1697,9 +1779,16 @@ class MemoryStore:
             )
         }
         ambiguous = bool(
-            temporal
-            and len(metadata_ids) > 1
-            and not any(revision_id in lexical_ids for revision_id in metadata_ids)
+            (
+                grief_reference
+                and len({rows[item]["memory_id"] for item in ranked_ids if item in loss_ids}) > 1
+                and not loss_lexical_ids
+            )
+            or (
+                temporal
+                and len(metadata_ids) > 1
+                and not any(revision_id in lexical_ids for revision_id in metadata_ids)
+            )
         )
         if not ambiguous and len(ranked_ids) > 1:
             first, second = ranked_ids[:2]
