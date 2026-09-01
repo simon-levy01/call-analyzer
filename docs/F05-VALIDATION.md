@@ -620,6 +620,31 @@ The corrected complete-diff re-review session
 `c0c623aa-ce96-4aee-89d3-64f641e8969d` returned **CLEAN** with no unresolved material
 finding.
 
+### End-to-end synthetic media replay
+
+Five additional fictional calls were generated transiently with the same local Windows
+voices and FFmpeg media pattern as the approved fixtures. Each call produced separate
+user/contact PCM tracks plus a mixed MP4, passed real pinned faster-whisper
+transcription, opened as playable video, and produced a detected synthetic contact
+face. The attributed recognized lines, rather than the authored reference text, were
+persisted and sent through the real `store=false` extraction path.
+
+- Routine-only walk/television: two pending proposals, both `likely_generic=true`.
+- Mixed groceries/preference/commitment: groceries flagged; mint tea and Friday draft
+  commitment not flagged.
+- Recurring morning walk: retained as a useful recurring habit, not flagged.
+- Happy apartment move plus boxes/walk: move not flagged; boxes and walk flagged.
+- Weather small-talk control: zero proposals.
+
+All five contacts remained isolated by ID. The run used five OpenAI requests, 2,814
+input tokens, 812 output tokens, zero reasoning tokens, and an estimated **$0.0015372**.
+Temporary videos, audio, database, and helper scripts were removed after the run. The
+cumulative known F05 ledger sum is now **$0.02268745** and the conservative project
+estimate is **$0.02550665**. The production offline audio replay also passed with
+English/Hebrew WER **0.000/0.000**, pipeline attribution **4/4**, 11 turns, no silence
+turns, and no network or audio artifact; the video check produced six selected-face
+signals, and the focused video/memory-call suite passed **14/14**.
+
 ## Release audit
 
 The complete diff contains no API key/secret pattern, raw-media or database/model
