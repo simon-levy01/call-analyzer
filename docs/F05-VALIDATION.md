@@ -544,6 +544,47 @@ newest-event selection, and both directions of connected-memory leakage. The clo
 session `5ab72da1-4949-4223-9776-28b2bd4a8bdd` returned **CLEAN** with no unresolved
 material finding. The full suite remained **195 passed** with `pip check` clean.
 
+## Happy and mixed-event indirect-reference verification
+
+The moving-apartment case was replayed with the installed offline BGE model one
+finalized turn at a time and without the words `move`, `apartment`, or a direct event
+name in the conversation. Retrieval stayed empty through turns 2 and 3. At turn 4,
+after the confirmed contact said they were happy but exhausted and had carried a lot
+of weight upstairs, only the approved move memory was selected; it remained the sole
+match through back soreness and having everything in place. The prepared F04 request
+contained that one excerpt. No OpenAI request or cost was incurred.
+
+A wider same-contact matrix also exercised indirect engagement, promotion, job loss,
+failed-exam, and breakup language plus a second contact with a similar move. Clear
+engagement, promotion, and exam cases selected the expected memory. Crowded weak/close
+cases abstained or used the visible possibilities path rather than silently choosing;
+no memory ID crossed contacts. The routine-activity rule remains extraction-only:
+mundane present speech may retrieve an important approved memory, while the existing
+walk/routine extraction gate still requires no proposal.
+
+The vague-reference path now embeds only bounded selected-contact speech after the
+latest vague cue. Its production and evaluation floor is the shared cosine constant
+**0.525**. The optional real-model gate selects the move at **0.5341** and tests seven
+unrelated mundane controls whose maximum is **0.5173**; every control returns no
+memory. Cross-type near ties are withheld from F04 and shown as possibilities. A
+bereavement top hit without eligible grief evidence causes abstention instead of
+promoting a runner-up, and related-but-unscored connected memories are not expanded
+from this weakest path. Final SQLite emission rechecks current revision, deletion,
+contact ID, sensitivity, and cloud eligibility; a regression deletes a semantic
+candidate between scoring and emission and confirms that nothing is returned.
+
+The corrected suite is **197 passed** and `pip check` is clean. The semantic gate keeps
+Recall@4 **1.00**, MRR **1.00**, safety **11/11**, zero unsupported high-confidence
+memory results, and warm semantic retrieval p95 **95.740 ms**. The final
+1,000-contact/100,000-revision store remained integrity-clean with warm retrieval p95
+**149.819 ms**, open-plus-retrieve p95 **124.740 ms**, and temporal p95 **0.838 ms**.
+Claude Opus review
+session `986c92e1-cd10-4a40-8ff9-b72e6f84daf4` ran four material-finding passes. It
+drove removal of the word-count gate, runner-up promotion, cross-type ambiguity gaps,
+the redundant semantic scan, stale eligibility at final emission, the weaker threshold
+alternative, and vague related-memory expansion, then returned **CLEAN**. No waiver is
+used.
+
 ## Release audit
 
 The complete diff contains no API key/secret pattern, raw-media or database/model

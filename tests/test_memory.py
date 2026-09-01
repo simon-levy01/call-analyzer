@@ -162,6 +162,46 @@ def test_semantic_candidates_are_contact_first_and_embeddings_follow_lifecycle(
         assert store._connection.execute("SELECT count(*) FROM memory_embeddings").fetchone()[0] == 1
 
 
+def test_retrieve_rechecks_deletion_before_emitting_a_semantic_candidate(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        semantic_module,
+        "embed_texts_if_ready",
+        lambda texts, _cache: np.pad(
+            np.ones((len(texts), 1), dtype=np.float32), ((0, 0), (0, 383))
+        ),
+    )
+    path = tmp_path / "memory.sqlite3"
+    with MemoryStore(path) as store:
+        contact = store.create_contact("Test Contact")
+        memory_id = store.create_memory(
+            contact.id, "Test Contact moved apartment", memory_type="event_date"
+        )
+        store.backfill_semantic_embeddings()
+        original = store._semantic_candidates
+        deleted = False
+
+        def delete_after_candidates(query, eligible_sql, params):
+            nonlocal deleted
+            result = original(query, eligible_sql, params)
+            if result[0] and not deleted:
+                with MemoryStore(path, verify=False) as writer:
+                    writer.delete_memory(memory_id)
+                deleted = True
+            return result
+
+        monkeypatch.setattr(store, "_semantic_candidates", delete_after_candidates)
+        result = store.retrieve(
+            contact.id,
+            "carrying everything upstairs",
+            semantic_query="carrying everything upstairs",
+        )
+
+        assert deleted is True
+        assert result.matches == ()
+
+
 def test_semantic_scoring_reaches_an_old_memory_past_twelve_newer_items(
     tmp_path, monkeypatch
 ):

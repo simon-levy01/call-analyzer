@@ -34,6 +34,8 @@ MEMORY_TYPES = (
     "communication_style",
     "other",
 )
+VAGUE_SEMANTIC_MIN_SIMILARITY = 0.525
+VAGUE_SEMANTIC_NEAR_TIE = 0.02
 _Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 _ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=280)]
 
@@ -192,6 +194,10 @@ _TOPIC_BOUNDARY = re.compile(
     r"^\s*(?:anyway|besides that|moving on|on another note|different topic)\b",
     re.IGNORECASE,
 )
+_VAGUE_EVENT_REFERENCE = re.compile(
+    r"\b(?:after|since) (?:(?:the )?whole thing|it happened)\b",
+    re.IGNORECASE,
+)
 
 
 def memory_semantic_input(
@@ -207,6 +213,11 @@ def memory_semantic_input(
     if len(window) < 4:
         return ""
     if speaker_role is not None:
+        if speaker_role == SpeakerRole.SELECTED_CONTACT:
+            for index in range(len(window) - 1, -1, -1):
+                if _VAGUE_EVENT_REFERENCE.search(window[index].content):
+                    window = window[index + 1 :]
+                    break
         window = [item for item in window if item.speaker_role == speaker_role]
     text = " ".join(item.content for item in window)
     if len(text) <= 350:
@@ -1638,15 +1649,17 @@ class MemoryStore:
             contact_cue_source,
             re.IGNORECASE,
         )
-        vague_event_cue = re.search(
-            r"\b(?:after|since) (?:(?:the )?whole thing|it happened)\b",
-            cue_source,
-            re.IGNORECASE,
-        )
+        vague_event_cue = _VAGUE_EVENT_REFERENCE.search(cue_source)
         vague_only = bool(vague_event_cue and not attachment_cue and not grief_cue)
-        semantic_ids, semantic_relevance, semantic_available = self._semantic_candidates(
-            semantic_source, eligible_sql, params
-        )
+        if vague_only:
+            from .semantic import model_ready
+
+            semantic_ids, semantic_relevance = [], {}
+            semantic_available = model_ready(self.semantic_cache_dir)
+        else:
+            semantic_ids, semantic_relevance, semantic_available = self._semantic_candidates(
+                semantic_source, eligible_sql, params
+            )
         if requested_date:
             semantic_ids = []
         if temporal and (requested_date or indirect_temporal and not lexical_ids):
@@ -1686,8 +1699,22 @@ class MemoryStore:
                 elif not metadata_ids:
                     return RetrievalResult((), False, "abstain", semantic_available)
         if vague_only:
-            semantic_ids = []
             metadata_ids = []
+            semantic_ids = []
+            if not lexical_ids:
+                cue_ids, cue_relevance, semantic_available = self._semantic_candidates(
+                    contact_cue_source, eligible_sql, params
+                )
+                if cue_ids:
+                    best = cue_relevance[cue_ids[0]]
+                    if best >= VAGUE_SEMANTIC_MIN_SIMILARITY:
+                        near_ties = [
+                            item for item in cue_ids
+                            if best - cue_relevance[item] <= VAGUE_SEMANTIC_NEAR_TIE
+                        ]
+                        semantic_ids = near_ties if len(near_ties) > 1 else cue_ids[:1]
+                        semantic_relevance = cue_relevance
+        vague_semantic_ambiguous = len(semantic_ids) > 1 if vague_only else False
         grief_reference = bool(
             attachment_cue and grief_cue
             or vague_event_cue and (attachment_cue or grief_cue)
@@ -1702,6 +1729,12 @@ class MemoryStore:
             if _is_bereavement_memory(str(row["content"]))
         ] if candidate_ids else []
         loss_ids = {str(row["id"]) for row in loss_rows}
+        if vague_only:
+            if semantic_ids and semantic_ids[0] in loss_ids:
+                semantic_ids = []
+                vague_semantic_ambiguous = False
+            else:
+                semantic_ids = [item for item in semantic_ids if item not in loss_ids]
         loss_lexical_ids = [item for item in lexical_ids if item in loss_ids]
         if grief_reference:
             dated_losses = sorted(
@@ -1745,6 +1778,7 @@ class MemoryStore:
             base_memory_ids
             and len(ranked_ids) < 12
             and not any(item in loss_ids for item in ranked_ids)
+            and not vague_only
         ):
             placeholders = ",".join("?" for _ in base_memory_ids)
             related_memory_ids = {
@@ -1775,11 +1809,16 @@ class MemoryStore:
         rows = {
             row["id"]: row for row in self._connection.execute(
                 f"""SELECT r.*,m.id memory_id,m.contact_id FROM memory_revisions r JOIN memories m ON m.id=r.memory_id
-                   WHERE r.id IN ({','.join('?' for _ in ranked_ids)})""", ranked_ids
+                   WHERE {eligible_sql} AND r.id IN ({','.join('?' for _ in ranked_ids)})""",
+                [*params, *ranked_ids],
             )
         }
+        ranked_ids = [item for item in ranked_ids if item in rows]
+        if not ranked_ids:
+            return RetrievalResult((), False, "none", semantic_available)
         ambiguous = bool(
-            (
+            vague_semantic_ambiguous
+            or (
                 grief_reference
                 and len({rows[item]["memory_id"] for item in ranked_ids if item in loss_ids}) > 1
                 and not loss_lexical_ids

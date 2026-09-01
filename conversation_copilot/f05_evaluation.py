@@ -25,6 +25,7 @@ from .memory import (
     MemoryProposalInput,
     MemoryStore,
     OpenAIMemoryExtractor,
+    VAGUE_SEMANTIC_MIN_SIMILARITY,
     default_database_path,
     memory_retrieval_inputs,
     memory_semantic_input,
@@ -352,6 +353,7 @@ def _semantic_gate() -> dict[str, object]:
         with MemoryStore(gate_path) as store:
             contact = store.create_contact("Semantic Gate Contact")
             target = None
+            move_target = None
             for index, content in enumerate(memories):
                 memory_id = store.create_memory(
                     contact.id,
@@ -360,6 +362,8 @@ def _semantic_gate() -> dict[str, object]:
                 )
                 if index == 0:
                     target = memory_id
+                elif index == 4:
+                    move_target = memory_id
             store.backfill_semantic_embeddings()
             lexical_hits = 0
             ranks = []
@@ -369,6 +373,106 @@ def _semantic_gate() -> dict[str, object]:
                 semantic = store.retrieve(contact.id, query, semantic_query=query)
                 ids = [item.memory_id for item in semantic.matches]
                 ranks.append(ids.index(target) + 1 if target in ids else 0)
+
+            started = datetime(2026, 9, 1, 12, tzinfo=timezone.utc)
+
+            def vague_turns(raw: list[tuple[SpeakerRole, str]]) -> list[ConversationTurn]:
+                return [
+                    ConversationTurn(
+                        speaker_name="You" if role == SpeakerRole.USER else "Test Contact",
+                        speaker_role=role,
+                        source="semantic_gate",
+                        content=content,
+                        timestamp=started + timedelta(seconds=index * 9),
+                        display_order=index + 1,
+                    )
+                    for index, (role, content) in enumerate(raw)
+                ]
+
+            positive_turns = vague_turns([
+                (SpeakerRole.USER, "How are you feeling after the whole thing?"),
+                (SpeakerRole.SELECTED_CONTACT, "Honestly, really happy, but completely exhausted."),
+                (SpeakerRole.USER, "I am listening."),
+                (
+                    SpeakerRole.SELECTED_CONTACT,
+                    "I spent all day carrying so much weight up the stairs. My back is sore, but it feels good to have everything in place.",
+                ),
+            ])
+            mundane_lines = [
+                "The weather was warm, traffic was slow, and I folded laundry.",
+                "I made breakfast, answered a few messages, and cleaned the kitchen.",
+                "I am okay. Nothing much happened today.",
+                "The bus was late, then I ate lunch and washed the dishes.",
+                "I bought groceries, took a shower, and went to bed early.",
+                "I watered the plants, paid a bill, and listened to the radio.",
+                "I had coffee, checked the mail, and tidied my desk.",
+            ]
+
+            def vague_result(turns: list[ConversationTurn]):
+                query, date_query = memory_retrieval_inputs(turns)
+                return store.retrieve(
+                    contact.id,
+                    query,
+                    for_cloud=True,
+                    date_query=date_query,
+                    semantic_query=memory_semantic_input(turns),
+                    contact_cue_query=memory_semantic_input(
+                        turns, speaker_role=SpeakerRole.SELECTED_CONTACT
+                    ),
+                )
+
+            positive = vague_result(positive_turns)
+            mundane_results = [
+                vague_result(vague_turns([
+                    (SpeakerRole.USER, "How are you?"),
+                    (SpeakerRole.SELECTED_CONTACT, "I am okay."),
+                    (SpeakerRole.USER, "How are you feeling after the whole thing?"),
+                    (SpeakerRole.SELECTED_CONTACT, line),
+                ]))
+                for line in mundane_lines
+            ]
+
+            from .semantic import embed_texts_if_ready
+
+            calibration_queries = [
+                memory_semantic_input(
+                    vague_turns([
+                        (SpeakerRole.USER, "How are you?"),
+                        (SpeakerRole.SELECTED_CONTACT, "I am okay."),
+                        (SpeakerRole.USER, "How are you feeling after the whole thing?"),
+                        (SpeakerRole.SELECTED_CONTACT, line),
+                    ]),
+                    speaker_role=SpeakerRole.SELECTED_CONTACT,
+                )
+                for line in mundane_lines
+            ]
+            positive_query = memory_semantic_input(
+                positive_turns, speaker_role=SpeakerRole.SELECTED_CONTACT
+            )
+            vectors = embed_texts_if_ready(
+                [positive_query, *calibration_queries, *memories], cache_dir
+            )
+            if vectors is None:
+                raise AssertionError("semantic calibration vectors are unavailable")
+            memory_offset = 1 + len(calibration_queries)
+            positive_scores = sorted(
+                float(vectors[0] @ vectors[memory_offset + index])
+                for index in range(len(memories))
+            )
+            background_scores = [
+                max(
+                    float(vectors[query_index] @ vectors[memory_offset + memory_index])
+                    for memory_index in range(len(memories))
+                )
+                for query_index in range(1, memory_offset)
+            ]
+            if (
+                [item.memory_id for item in positive.matches] != [move_target]
+                or any(item.matches for item in mundane_results)
+                or max(background_scores) >= VAGUE_SEMANTIC_MIN_SIMILARITY
+                or positive_scores[-1] < VAGUE_SEMANTIC_MIN_SIMILARITY
+            ):
+                raise AssertionError("vague-event semantic calibration gate failed")
             samples = []
             for index in range(30):
                 started = time.perf_counter()
@@ -390,6 +494,14 @@ def _semantic_gate() -> dict[str, object]:
             "semantic_hits_at_4": semantic_hits,
             "semantic_ranks": ranks,
             "semantic_recall_at_4": semantic_hits / len(queries),
+            "vague_event_move_selected": True,
+            "vague_event_min_similarity": VAGUE_SEMANTIC_MIN_SIMILARITY,
+            "vague_mundane_controls": len(mundane_results),
+            "vague_mundane_max_similarity": round(max(background_scores), 4),
+            "vague_move_similarity": round(positive_scores[-1], 4),
+            "vague_move_runner_up_gap": round(
+                positive_scores[-1] - positive_scores[-2], 4
+            ),
             "warm_retrieval_p95_ms": round(p95, 3),
             "cache_bytes": sum(path.stat().st_size for path in cache_dir.rglob("*") if path.is_file()),
             "passed": True,

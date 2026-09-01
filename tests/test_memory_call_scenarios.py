@@ -146,6 +146,211 @@ def test_progressive_indirect_employment_reference_reaches_f04_before_explicit_n
         ).matches[0].contact_id == other.id
 
 
+def test_indirect_happy_event_uses_clear_contact_cues_but_not_a_vague_prompt(
+    tmp_path, monkeypatch
+):
+    def fake_vectors(texts, _cache_dir):
+        vectors = np.zeros((len(texts), 384), dtype=np.float32)
+        for index, text in enumerate(texts):
+            lowered = text.casefold()
+            if "moved into" in lowered or "carrying so much weight" in lowered:
+                vectors[index, 0] = 1
+            elif "strength-training class" in lowered:
+                vectors[index, 0] = 0.99
+                vectors[index, 3] = (1 - 0.99**2) ** 0.5
+            elif "pepper died" in lowered or "meant a lot to me" in lowered:
+                vectors[index, 4] = 1
+            elif "pottery course" in lowered:
+                vectors[index, 4] = 0.99
+                vectors[index, 5] = (1 - 0.99**2) ** 0.5
+            elif "lost her job" in lowered:
+                vectors[index, 1] = 1
+            elif "blue walls" in lowered:
+                vectors[index, 6] = 1
+            else:
+                vectors[index, 2] = 1
+        return vectors
+
+    monkeypatch.setattr(semantic_module, "embed_texts_if_ready", fake_vectors)
+    turns = _turns([
+        ("user", "How are you feeling after the whole thing?"),
+        ("selected_contact", "Honestly, really happy, but completely exhausted."),
+        ("user", "What wore you out so much?"),
+        ("selected_contact", "I spent all day carrying so much weight up the stairs."),
+        ("selected_contact", "My back is sore, but I am glad it is finally done."),
+    ])
+    with MemoryStore(tmp_path / "indirect-happy-event.sqlite3") as store:
+        maya = store.create_contact("Maya")
+        noa = store.create_contact("Noa")
+        move = store.create_memory(
+            maya.id,
+            "Maya moved into a new apartment on August 28, 2026",
+            memory_type="event_date",
+        )
+        wall_color = store.create_memory(
+            maya.id, "Maya likes blue walls", memory_type="preference"
+        )
+        store.connect_memories(move, wall_color)
+        store.create_memory(maya.id, "Maya lost her job", memory_type="event_date")
+        store.create_memory(
+            maya.id, "Maya started a pottery course", memory_type="recurring_topic"
+        )
+        store.create_memory(
+            maya.id, "Maya's dog Pepper died", memory_type="event_date"
+        )
+        store.create_memory(
+            noa.id, "Noa moved into a new apartment", memory_type="event_date"
+        )
+        store.backfill_semantic_embeddings()
+
+        for count in (2, 3):
+            visible = turns[:count]
+            query, date_query = _memory_retrieval_inputs(visible)
+            assert store.retrieve(
+                maya.id,
+                query,
+                for_cloud=True,
+                date_query=date_query,
+                semantic_query=_memory_semantic_input(visible),
+                contact_cue_query=_memory_semantic_input(
+                    visible, speaker_role=SpeakerRole.SELECTED_CONTACT
+                ),
+            ).matches == ()
+
+        query, date_query = _memory_retrieval_inputs(turns)
+        result = store.retrieve(
+            maya.id,
+            query,
+            for_cloud=True,
+            date_query=date_query,
+            semantic_query=_memory_semantic_input(turns),
+            contact_cue_query=_memory_semantic_input(
+                turns, speaker_role=SpeakerRole.SELECTED_CONTACT
+            ),
+        )
+        assert not result.ambiguous
+        assert [item.memory_id for item in result.matches] == [move]
+        context = result.matches[0]
+        request = prepare_interpretation_request(build_snapshot(
+            turns,
+            snapshot_id=1,
+            generation=1,
+            contact_id=maya.id,
+            retrieved_memories=[RetrievedMemoryContext(
+                memory_id=context.memory_id,
+                revision_id=context.revision_id,
+                excerpt=context.content,
+                memory_type=context.memory_type,
+                confidence=context.confidence,
+                sensitivity_safe=context.cloud_eligible,
+                rank=context.rank,
+                relevance=context.reason,
+            )],
+        ))
+        assert request.memory_count == 1
+        assert "moved into a new apartment" in request.input_text
+
+        training = store.create_memory(
+            maya.id,
+            "Maya attends a weekly strength-training class",
+            memory_type="recurring_topic",
+        )
+        store.backfill_semantic_embeddings()
+        possibilities = store.retrieve(
+            maya.id,
+            query,
+            for_cloud=True,
+            date_query=date_query,
+            semantic_query=_memory_semantic_input(turns),
+            contact_cue_query=_memory_semantic_input(
+                turns, speaker_role=SpeakerRole.SELECTED_CONTACT
+            ),
+        )
+        assert possibilities.ambiguous and possibilities.status == "possibilities"
+        assert {move, training} == {
+            item.memory_id for item in possibilities.matches
+        }
+        possible_contexts = [RetrievedMemoryContext(
+            memory_id=item.memory_id,
+            revision_id=item.revision_id,
+            excerpt=item.content,
+            memory_type=item.memory_type,
+            confidence=item.confidence,
+            sensitivity_safe=item.cloud_eligible,
+            rank=item.rank,
+            relevance=item.reason,
+        ) for item in possibilities.matches]
+        withheld = prepare_interpretation_request(build_snapshot(
+            turns,
+            snapshot_id=2,
+            generation=1,
+            contact_id=maya.id,
+            retrieved_memories=[],
+        ))
+        assert withheld.memory_count == 0
+        display = format_interpretation_body(
+            InterpretationUpdate(
+                status="insufficient_evidence",
+                explanation="The current words do not identify one event.",
+            ),
+            "Waiting for interpretation",
+            possible_contexts,
+        )
+        assert "moved into a new apartment" in display
+        assert "weekly strength-training class" in display
+
+        misleading_loss = _turns([
+            ("user", "How have you been?"),
+            ("selected_contact", "I missed her call yesterday."),
+            ("user", "How are you feeling after the whole thing?"),
+            ("selected_contact", "That really meant a lot to me yesterday."),
+        ])
+        loss_query, loss_date_query = _memory_retrieval_inputs(misleading_loss)
+        assert store.retrieve(
+            maya.id,
+            loss_query,
+            for_cloud=True,
+            date_query=loss_date_query,
+            semantic_query=_memory_semantic_input(misleading_loss),
+            contact_cue_query=_memory_semantic_input(
+                misleading_loss, speaker_role=SpeakerRole.SELECTED_CONTACT
+            ),
+        ).matches == ()
+
+        wrong_query, wrong_date_query = _memory_retrieval_inputs(turns)
+        wrong = store.retrieve(
+            noa.id,
+            wrong_query,
+            for_cloud=True,
+            date_query=wrong_date_query,
+            semantic_query=_memory_semantic_input(turns),
+            contact_cue_query=_memory_semantic_input(
+                turns, speaker_role=SpeakerRole.SELECTED_CONTACT
+            ),
+        )
+        assert wrong.matches
+        assert all(item.contact_id == noa.id for item in wrong.matches)
+        assert move not in {item.memory_id for item in wrong.matches}
+
+        vague = _turns([
+            ("user", "How have you been?"),
+            ("selected_contact", "I have been getting by."),
+            ("user", "How are you feeling after the whole thing?"),
+            ("selected_contact", "It has been a lot."),
+        ])
+        query, date_query = _memory_retrieval_inputs(vague)
+        assert store.retrieve(
+            maya.id,
+            query,
+            for_cloud=True,
+            date_query=date_query,
+            semantic_query=_memory_semantic_input(vague),
+            contact_cue_query=_memory_semantic_input(
+                vague, speaker_role=SpeakerRole.SELECTED_CONTACT
+            ),
+        ).matches == ()
+
+
 def test_progressive_grief_phrases_retrieve_tragedy_memory_cautiously(
     tmp_path, monkeypatch
 ):
@@ -160,15 +365,16 @@ def test_progressive_grief_phrases_retrieve_tragedy_memory_cautiously(
                     "meant a lot", "meant everything", "miss her", "miss him",
                     "miss them", "thinking about her",
                 )
-            )
+            ) or ("died" in lowered and ("dog" in lowered or "cat" in lowered))
             if "robin died" in lowered:
                 vectors[index, 0] = 0.93
                 vectors[index, 1] = (1 - 0.93**2) ** 0.5
             elif grief:
                 vectors[index, 0] = 1
+            elif lowered.startswith("maya") or lowered.startswith("other maya"):
+                vectors[index, 1] = 1
             else:
-                vectors[index, 0] = 0.46
-                vectors[index, 1] = (1 - 0.46**2) ** 0.5
+                vectors[index, 2] = 1
         return vectors
 
     monkeypatch.setattr(semantic_module, "embed_texts_if_ready", fake_vectors)

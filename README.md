@@ -124,6 +124,14 @@ Names and aliases are suggestions only; ambiguous aliases show candidates and
 never select automatically. Calls that stop without a confirmed contact remain
 under **Unassigned** and cannot retrieve or extract memory.
 
+One-off routine activity is excluded when the app proposes new durable memories;
+it is not excluded from retrieval. For example, a confirmed contact talking about
+carrying heavy things may cautiously recall an approved apartment-move memory even
+though the carrying itself should not become a memory. Vague references use only
+the confirmed contact's bounded words after the latest vague cue. Weak matches
+abstain, close matches appear as possibilities, and unscored connected memories are
+not added to this cautious path.
+
 The app stores normalized attributed text in
 `%LOCALAPPDATA%\ConversationCopilot\memory.sqlite3`. When the optional local model
 is installed, the same database also stores regenerable memory vectors. It never
