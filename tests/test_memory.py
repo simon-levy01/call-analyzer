@@ -105,6 +105,7 @@ def test_version_one_migrates_to_semantic_table_with_backup_cleanup(tmp_path):
         contact = store.create_contact("Alex")
     old = sqlite3.connect(path)
     old.execute("DROP TABLE memory_embeddings")
+    old.execute("ALTER TABLE memory_proposals DROP COLUMN likely_generic")
     old.execute("PRAGMA user_version = 1")
     old.commit()
     old.close()
@@ -115,7 +116,62 @@ def test_version_one_migrates_to_semantic_table_with_backup_cleanup(tmp_path):
         assert migrated._connection.execute(
             "SELECT name FROM sqlite_master WHERE name='memory_embeddings'"
         ).fetchone()
+        assert "likely_generic" in {
+            row[1] for row in migrated._connection.execute("PRAGMA table_info(memory_proposals)")
+        }
     assert not path.with_suffix(".sqlite3.migration-backup").exists()
+
+
+def test_version_two_migrates_existing_proposals_with_generic_flag_defaulted(tmp_path):
+    path = tmp_path / "memory.sqlite3"
+    with MemoryStore(path) as store:
+        contact = store.create_contact("Alex")
+        record_id = record(store, contact.id)
+        batch = store.create_batch(record_id, model="fake", reasoning="none")
+        proposal_id = store.store_proposals(batch, [
+            MemoryProposalInput(
+                content="Alex prefers mint tea",
+                memory_type="preference",
+                confidence="high",
+            )
+        ])[0]
+    old = sqlite3.connect(path)
+    old.execute("ALTER TABLE memory_proposals DROP COLUMN likely_generic")
+    old.execute("PRAGMA user_version = 2")
+    old.commit()
+    old.close()
+
+    with MemoryStore(path) as migrated:
+        proposal = migrated._connection.execute(
+            "SELECT * FROM memory_proposals WHERE id=?", (proposal_id,)
+        ).fetchone()
+        assert proposal["content"] == "Alex prefers mint tea"
+        assert proposal["likely_generic"] == 0
+        assert list(proposal.keys())[-1] == "likely_generic"
+
+
+def test_generic_proposals_are_persisted_and_grouped_first_for_review(tmp_path):
+    with MemoryStore(tmp_path / "memory.sqlite3") as store:
+        contact = store.create_contact("Alex")
+        record_id = record(store, contact.id)
+        batch = store.create_batch(record_id, model="fake", reasoning="none")
+        store.store_proposals(batch, [
+            MemoryProposalInput(
+                content="Alex prefers mint tea",
+                memory_type="preference",
+                confidence="high",
+            ),
+            MemoryProposalInput(
+                content="Alex took a walk yesterday",
+                memory_type="other",
+                confidence="high",
+                likely_generic=True,
+            ),
+        ])
+
+        proposals = store.list_proposals(contact.id)
+        assert [row["likely_generic"] for row in proposals] == [1, 0]
+        assert proposals[0]["content"] == "Alex took a walk yesterday"
 
 
 def test_semantic_candidates_are_contact_first_and_embeddings_follow_lifecycle(

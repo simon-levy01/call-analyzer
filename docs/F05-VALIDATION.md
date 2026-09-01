@@ -444,8 +444,8 @@ review remains clean, but a final post-correction CLEAN response is still requir
 The consenting Yaheli WhatsApp call used fictional job-loss data and passed contact
 creation/confirmation, contact-named transcript display, proposal review, and later-call
 memory use. The user liked the proposal style and identified three improvements:
-indirect employment language needed earlier recall, one-off routine activity should not
-be proposed as durable memory, and dates should display as `DD/MM/YYYY`.
+indirect employment language needed earlier recall, one-off routine activity needed
+clear low-value review treatment, and dates should display as `DD/MM/YYYY`.
 
 The supplied transcript was replayed transiently, one finalized turn at a time, through
 the production query builders and store; it was not committed or retained. Lexical-only
@@ -464,10 +464,8 @@ reset, the exact progressive replay returns no job memory on the first three
 days/years/“Now” lines, first returns it at “they let you go,” keeps it within the top
 four through every indirect employment line including newspaper and rent, and removes
 it after “Besides that.” A permanent fictionalized regression covers the same sequence,
-including another same-name contact. The extraction instructions now exclude one-off
-routine activities unless they establish a durable preference, commitment, milestone,
-or recurring topic; a real `store=false` spot-check for “I took a normal walk after
-lunch” returned zero proposals.
+including another same-name contact. The original extraction gate suppressed one-off
+routine activity; the later approved caveat below supersedes that behavior.
 
 Current local gates: **195 passed**, `pip check` clean, Recall@4 **1.00**, MRR **1.00**,
 safety **11/11**, and unsupported high-confidence memory results **0**. The
@@ -558,9 +556,9 @@ A wider same-contact matrix also exercised indirect engagement, promotion, job l
 failed-exam, and breakup language plus a second contact with a similar move. Clear
 engagement, promotion, and exam cases selected the expected memory. Crowded weak/close
 cases abstained or used the visible possibilities path rather than silently choosing;
-no memory ID crossed contacts. The routine-activity rule remains extraction-only:
-mundane present speech may retrieve an important approved memory, while the existing
-walk/routine extraction gate still requires no proposal.
+no memory ID crossed contacts. Genericity is extraction/review metadata only: mundane
+present speech may retrieve an important approved memory, while concrete routine facts
+can remain visibly flagged proposals for user review.
 
 The vague-reference path now embeds only bounded selected-contact speech after the
 latest vague cue. Its production and evaluation floor is the shared cosine constant
@@ -584,6 +582,43 @@ drove removal of the word-count gate, runner-up promotion, cross-type ambiguity 
 the redundant semantic scan, stale eligibility at final emission, the weaker threshold
 alternative, and vague related-memory expansion, then returned **CLEAN**. No waiver is
 used.
+
+## Likely-generic proposal review
+
+The approved extraction caveat no longer silently discards a supported concrete fact
+only because it is routine or one-off. The strict extraction schema carries a persisted
+`likely_generic` boolean. A fact such as “Alex took a walk yesterday” remains a pending
+proposal with the visible text badge **LIKELY GENERIC — easy to reject**, is grouped
+before other proposals for multi-selection, and still cannot enter retrieval without
+explicit approval. Non-contact-specific small talk, advice, diagnoses, hidden intent,
+and unsupported certainty remain excluded. Schema v3 migrates existing proposals with
+the flag safely defaulted to false; focused migration, persistence, and extraction-gate
+tests pass.
+
+Final local validation is **199 passed** with `pip check` clean. Recall@4 and MRR
+remain **1.00**, safety remains **11/11**, unsupported high-confidence memory results
+remain **0**, semantic retrieval p95 is **94.506 ms**, and the
+1,000-contact/100,000-revision store remains integrity-clean at **148.077 ms** warm
+p95.
+
+The final `f05-v2` real `store=false` extraction gate ran all nine fixed fictional
+scenarios under both `none` and `low` reasoning: **18/18 passed** with zero forbidden
+inferences. Both profiles proposed the walk with `likely_generic=true`; weather small
+talk remained empty, and the untrusted-instruction case remained empty or safely
+quoted. The run used 9,586 input, 1,683 output, and 176 reasoning tokens with a
+token-accounted estimated cost of **$0.0039368**. The cumulative known F05 ledger sum
+is therefore **$0.02115025**, with the conservative reporter-failure estimate bringing
+the project estimate to **$0.02396945**, still below the $2.00 cap.
+
+Claude Opus review session `fef69ce6-f4c9-4ab9-b9d2-65abee3e1d71` identified the
+missing real-model measurement and missing production v2→v3 migration regression.
+Both were accepted. The migration test now preserves an existing proposal, adds the
+flag with false as its default, and pins identical fresh/migrated column order. The
+claimed test-count mismatch was rejected using the observed 197-test baseline and
+final 199-test output.
+The corrected complete-diff re-review session
+`c0c623aa-ce96-4aee-89d3-64f641e8969d` returned **CLEAN** with no unresolved material
+finding.
 
 ## Release audit
 

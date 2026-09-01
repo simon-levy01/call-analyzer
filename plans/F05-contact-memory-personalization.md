@@ -126,7 +126,7 @@ The names below may be adjusted to match the repository, but their semantics are
 ### Memory proposals
 
 - A Proposal Batch belongs to one assigned Conversation Record and records model/profile, prompt/schema version, status, token usage, cost, and retry/failure metadata.
-- A Memory Proposal is one atomic candidate with proposed content, controlled type, confidence, sensitivity, normalized/original date information, evidence references, and pending, rejected, or approved review state.
+- A Memory Proposal is one atomic candidate with proposed content, controlled type, confidence, sensitivity, a `likely_generic` review flag, normalized/original date information, evidence references, and pending, rejected, or approved review state.
 - Approval creates an Approved Memory and links the proposal to it. Rejection never changes retrieval because proposals are never retrieval candidates.
 
 ### Approved memory
@@ -163,7 +163,7 @@ The minimal normalized schema should cover these concepts:
 | conversation_records | Nullable contact FK, source kind, timing/time-zone metadata, import/call status, analysis status |
 | conversation_turns | Record FK, increasing sequence, speaker role, finalized text, optional relative/UTC bounds |
 | proposal_batches | Record FK, bounded-run state, model/schema version, usage/cost/failure fields |
-| memory_proposals | Batch FK, atomic proposed fields, review state, evidence/date data, approved-memory FK when accepted |
+| memory_proposals | Batch FK, atomic proposed fields, `likely_generic` review flag, review state, evidence/date data, approved-memory FK when accepted |
 | memories | Stable logical ID, contact FK, current-revision FK, deleted_at tombstone |
 | memory_revisions | Memory FK, predecessor FK, immutable approved fields, superseded_at, content nullable only after secure deletion |
 | memory_sources | Revision FK, record FK nullable after kept-source deletion, turn references, minimal deleted-source provenance |
@@ -262,7 +262,8 @@ The extraction prompt and schema must:
 - attach exact turn references and original date wording;
 - mark confidence and sensitivity conservatively;
 - avoid unsupported emotion, intention, diagnosis, or certainty;
-- exclude generic small talk and broad observations that would be true of nearly everyone;
+- exclude non-contact-specific small talk and broad observations that would be true of nearly everyone;
+- retain concrete contact-specific one-off or routine facts as proposals when otherwise supported, mark them `likely_generic`, and group them for easy rejection rather than silently suppressing them;
 - exclude generic advice such as everyone sometimes avoids naming painful subjects;
 - distinguish two similar values instead of collapsing them; and
 - permit an empty result when nothing is worth remembering.
@@ -530,6 +531,7 @@ Use deterministic fakes for contract tests and a fixed fictional real-model set 
 - durable usefulness;
 - unsupported inference rate;
 - generic-small-talk exclusion;
+- concrete routine-fact retention with `likely_generic` set, grouped for easy rejection;
 - duplicate flag recall without suppression;
 - two-different-values preservation; and
 - empty-result behavior.

@@ -176,6 +176,10 @@ _Avoid_: in-place edit, duplicate memory
 A Memory Proposal marked as similar to one or more Approved Memories or proposals in the same review batch. It remains available for user review and is never automatically discarded or merged.
 _Avoid_: confirmed duplicate, suppressed proposal
 
+**Likely Generic Proposal**:
+A supported concrete contact detail that may be too routine or one-off to be useful later. It remains a normal pending proposal, is grouped and visibly flagged for easy rejection, and never becomes an Approved Memory automatically.
+_Avoid_: discarded fact, automatically rejected memory, low-confidence fact
+
 **Rejected Proposal**:
 A Memory Proposal the user declined. It remains only in local review history, never participates in retrieval or guidance, and may be reopened or permanently deleted.
 _Avoid_: deleted memory, negative evidence, approved memory

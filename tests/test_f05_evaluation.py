@@ -25,14 +25,16 @@ def test_fixed_f05_retrieval_and_safety_gates_pass_without_cloud_or_model_downlo
     assert "not added" in report["technology_gate"]["cloud_rerank"]
 
 
-def test_routine_one_off_activity_is_not_a_useful_memory_proposal():
+def test_routine_one_off_activity_is_proposed_with_a_generic_warning():
     scenario = next(item for item in EXTRACTION_SCENARIOS if item.identifier == "routine_activity")
     walk = MemoryProposalInput(
         content="Test Contact took a walk yesterday",
         memory_type="other",
         confidence="high",
+        likely_generic=True,
         evidence_turns=[2],
     )
-    assert "one-off routine activities" in EXTRACTION_INSTRUCTIONS
-    assert _score_extraction(scenario, []) is True
-    assert _score_extraction(scenario, [walk]) is False
+    assert "likely_generic=true" in EXTRACTION_INSTRUCTIONS
+    assert _score_extraction(scenario, []) is False
+    assert _score_extraction(scenario, [walk]) is True
+    assert _score_extraction(scenario, [walk.model_copy(update={"likely_generic": False})]) is False

@@ -516,10 +516,11 @@ def show_window(summary: str) -> None:
             for row in proposals:
                 duplicates = memory_store.proposal_duplicate_descriptions(row["id"])
                 duplicate = f" · Possible duplicate of: {duplicates[0]}" if duplicates else ""
+                generic = " · LIKELY GENERIC — easy to reject" if row["likely_generic"] else ""
                 items.insert(
                     tk.END,
                     f"Proposal · {row['state']} · {type_labels[row['memory_type']]} · "
-                    f"{row['confidence']} confidence · {row['sensitivity']}{duplicate} · {row['content']}",
+                    f"{row['confidence']} confidence · {row['sensitivity']}{generic}{duplicate} · {row['content']}",
                 )
             rows += proposals
 
@@ -554,10 +555,11 @@ def show_window(summary: str) -> None:
                 ]
                 items.delete(0, tk.END)
                 for row in rows:
+                    generic = " · LIKELY GENERIC — easy to reject" if row["likely_generic"] else ""
                     items.insert(
                         tk.END,
                         f"Proposal · {row['state']} · {type_labels[row['memory_type']]} · "
-                        f"{row['confidence']} confidence · {row['sensitivity']} · {row['content']}",
+                        f"{row['confidence']} confidence · {row['sensitivity']}{generic} · {row['content']}",
                     )
                 return
             try:
