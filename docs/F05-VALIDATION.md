@@ -40,8 +40,8 @@ memory isolation.
 
 At the configured model prices, a maximum Luna request is about **$0.00092** with
 ordinary uncached input or **$0.00103** under the ledger's conservative all-cache-write
-reservation. At the absolute 17-second cadence that is about **$0.195/hour** ordinary or
-**$0.218/hour** conservatively reserved. One manually confirmed maximum Terra request is
+reservation. At the absolute 12-second cadence that is about **$0.276/hour** ordinary or
+**$0.309/hour** conservatively reserved. One manually confirmed maximum Terra request is
 about **$0.0103**. Real cost is normally lower because outputs are usually shorter than
 400 tokens and automatic requests require a new finalized turn.
 
@@ -349,10 +349,11 @@ event as cautious context; explicitly naming Pepper or the job loss retrieves th
 corresponding older event. Equal-date events still return possibilities, and the
 other contact's newer event never crosses the contact-ID boundary.
 
-The 86.555-second basic video transcript now also replays progressively at the real
-17-second analysis cadence. Six authored checkpoints receive only the turns finalized
+The 86.555-second basic video transcript originally replayed progressively at the then-current
+17-second analysis cadence. Six authored checkpoints received only the turns finalized
 by that time and use an independent, prewritten fake-model response sequence to assert
 the expected visible tone/cue, memory evidence, topic change, and stable-card replacement.
+The September 3 section below records its superseding 12-second, eight-checkpoint replay.
 Actual video decoding and face-motion handling remain covered by the separate F04 video
 tests; this replay does not claim progressive visual-model evaluation. A second
 progressive replay covers eight checkpoints
@@ -644,6 +645,52 @@ estimate is **$0.02550665**. The production offline audio replay also passed wit
 English/Hebrew WER **0.000/0.000**, pipeline attribution **4/4**, 11 turns, no silence
 turns, and no network or audio artifact; the video check produced six selected-face
 signals, and the focused video/memory-call suite passed **14/14**.
+
+## 2026-09-03 cadence and remembered-context stability correction
+
+A consenting follow-up call showed the approved job-loss memory being retrieved, then
+disappearing from the displayed possible context on the next retrieval miss. The cause
+was separate display state: retrieval replaced the possible-memory list immediately
+while the interpretation itself still followed the stable-card policy. Possible
+remembered context now stays visible while the same revision set keeps matching and
+for **24 seconds** after its last match. The existing UI timer expires it even if no
+further turn arrives. Retrieval failure, Stop, contact change, correction,
+supersession, deletion, permission/sensitivity change, and source invalidation clear it
+immediately.
+
+Automatic Luna starts now use a **12-second** minimum interval with the existing
+one-in-flight/latest-pending and stale-generation behavior. A maximum memory-aware
+request remains about **$0.00092** normally or **$0.00103** under conservative
+reservation, so the absolute cadence ceiling is about **$0.276/hour** or
+**$0.309/hour**. The unchanged `$0.25` session cap can stop cloud interpretation after
+roughly 49–54 minutes of continuous maximum-sized requests while local capture and
+transcription continue. A 10-second interval was rejected for now: it adds 20% more
+request capacity, raises those hourly ceilings to about **$0.331/$0.371**, and can
+shorten the maximum-sized cloud window to about 40–45 minutes for only two seconds of
+nominal responsiveness.
+
+No generated related-keyword field was added. The selected local BGE-small semantic
+path already retrieved the job-loss memory from indirect financial wording in the
+fixed 3/3 gate, including money, searching, and rent language. Generated hints such as
+`financial trouble` would add review/deletion surface and could broaden false matches.
+Reconsider only as user-reviewable retrieval hints if a future fixed benchmark records
+repeatable semantic misses.
+
+The 86.555-second media transcript now replays all 15 turns at eight 12-second
+checkpoints. It pins request-memory rows separately from the held display, covers two
+brief misses, exact 24-second expiry, a later shared-reference match, and the final
+tense/positive transitions. Focused interpretation/memory replay passed **45/45**; the
+full fake-model suite passed **200/200**, `pip check` passed, and this correction made
+no OpenAI request.
+
+Six tool-disabled Claude Opus 5 review responses drove corrections for timerless
+expiry, retrieval-failure and lifecycle clearing, Stop over-clearing, per-memory
+partial-match jitter, retrieval-rank preservation, false updated timestamps, stale
+status text, cost/history documentation, full replay coverage, float-boundary timing,
+and held-only evidence overclaim. Every accepted finding was corrected at the shared
+state/UI seam and rerun. Closing review session
+`c1f43d5c-30fe-433c-980c-c9f2c52e0cf6` returned **CLEAN** with no unresolved material
+finding.
 
 ## Release audit
 

@@ -51,7 +51,7 @@ The minimum implementation is deliberately boring: one local SQLite database, th
 - F01 through F04 are complete on the accepted baseline. The complete automated suite passed 126 tests before this planning-only change.
 - There is no current database, contact-memory store, embedding model, or memory framework dependency.
 - F04 receives finalized ConversationTurn values at the final-draft handoff in the combined application, builds an InterpretationSnapshot, and submits it through the existing coordinator.
-- F04 already enforces strict Pydantic output, stateless OpenAI Responses calls, store=false, a usage ledger, one request in flight, a latest-pending snapshot, stale-result rejection, a 17-second automatic cadence, and a 12-second stable-card rule.
+- F04 already enforces strict Pydantic output, stateless OpenAI Responses calls, store=false, a usage ledger, one request in flight, a latest-pending snapshot, stale-result rejection, a 12-second automatic cadence, and a 12-second stable-card rule.
 - The current F04 compact request uses t, v, and x fields and deliberately has no memory placeholder. F05 must add its real bounded memory input only after local retrieval succeeds.
 - The F04 cautious local policy can return before a cloud call. The memory-aware path must be deliberate so a relevant approved memory is not accidentally ignored by a memory-free early return.
 - The runtime currently uses window/source presentation as a contact-like label. That is not identity confirmation and must not become a memory key.
@@ -361,7 +361,7 @@ Add memory only at the real bounded-snapshot seam; do not create a placeholder p
 - Keep F04's existing no-memory path byte-for-byte or behaviorally equivalent where practical.
 - Limit memory-aware requests to four excerpts and a 700-token memory allowance within 2,200 estimated input tokens. Drop the lowest-ranked excerpt first. Never increase transcript or output limits.
 - Keep user-visible remembered-detail suggestions to three even when four excerpts are supplied.
-- Reuse the 17-second request cadence, one-in-flight/latest-pending coordinator, and 12-second stable-card policy.
+- Reuse the 12-second request cadence, one-in-flight/latest-pending coordinator, and 12-second stable-card policy. Keep a locally matched possible-memory display for 24 seconds after its last matching snapshot so one brief retrieval miss does not make it flicker; identity and lifecycle invalidation still clear it immediately.
 - Normal rank-score jitter does not replace a stable card. A contact change, memory correction, supersession, deletion, sensitivity/cloud-permission change, or source invalidation immediately clears affected guidance and invalidates stale results.
 - Manual Terra uses the newest snapshot and current contact/memory generation.
 - Log only content-free IDs, ranks, lifecycle decisions, usage, and failure categories unless an existing user-visible record view intentionally shows local text.
@@ -414,7 +414,7 @@ Do not add a generic personalization engine, prompt-template registry, strategy 
 ### Runtime limits
 
 - Warm local retrieval on the large synthetic store: p95 at or below 250 ms on the target Windows machine.
-- F04 memory-aware request starts still follow the existing 17-second cadence and cloud/display latency gates.
+- F04 memory-aware request starts still follow the existing 12-second cadence and cloud/display latency gates.
 - Every memory-aware F04 request stays at or below 2,200 estimated input tokens.
 - UI, capture, and transcription threads never wait on database search, extraction, embedding setup, or cloud rerank.
 - Use bounded queues and cancel/stale-generation checks already present in the application rather than adding a second scheduler framework.
@@ -641,5 +641,6 @@ Planning approval does not mark F05 complete.
 - [x] One consenting fictional-data WhatsApp call; it exposed the indirect-employment gap that selected the semantic gate, and the supplied transcript now passes progressive replay.
 - [x] Fresh Claude Opus 5 review, accepted root corrections, measured reruns, and final CLEAN REVIEW.
 - [x] Final diff audit, reviewed commit/push, pointer verification, Trello reconciliation, and roadmap completion.
+- [x] September 3 follow-up: automatic cadence reduced to 12 seconds and possible remembered context held for 24 seconds after its last match; generated retrieval keywords were not added because the selected local semantic model already passed the indirect-employment gate.
 
 Detailed measurements are recorded in [docs/F05-VALIDATION.md](../docs/F05-VALIDATION.md).

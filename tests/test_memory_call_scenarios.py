@@ -762,7 +762,7 @@ def test_progressive_video_transcript_replay_returns_expected_memory_and_tone_up
     ]
     first_update_at = fixture["turns"][1]["end_seconds"]
     expected_turns = [
-        max(index for index, turn in enumerate(fixture["turns"], 1) if turn["end_seconds"] <= first_update_at + 17 * offset)
+        max(index for index, turn in enumerate(fixture["turns"], 1) if turn["end_seconds"] <= first_update_at + 12 * offset)
         for offset in range(len(fixture["progressive_checkpoints"]))
     ]
     assert expected_turns == [item["through_turn"] for item in fixture["progressive_checkpoints"]]
@@ -783,9 +783,11 @@ def test_progressive_video_transcript_replay_returns_expected_memory_and_tone_up
         card = StableInterpretationCard()
         interpreter = FakeInterpreter([
             _authored_update(tone="sad_low_energy", memory_used=True),
+            _authored_update(tone="sad_low_energy"),
             _authored_update(cue="uncertainty"),
             _authored_update(tone="positive_warm", cue="humor"),
             _authored_update(cue="sarcasm"),
+            _authored_update(tone="positive_warm", cue="humor", memory_used=True),
             _authored_update(tone="tense_negative", cue="uncertainty"),
             _authored_update(tone="positive_warm"),
         ])
@@ -817,6 +819,7 @@ def test_progressive_video_transcript_replay_returns_expected_memory_and_tone_up
             )
             request = json.loads(prepare_interpretation_request(snapshot).input_text)
             assert len(request.get("m", [])) == len(possibilities)
+            assert len(possibilities) == expected["request_memory_rows"]
 
             returned = interpreter(snapshot)
             assert returned.status.value == expected["status"]
@@ -832,18 +835,25 @@ def test_progressive_video_transcript_replay_returns_expected_memory_and_tone_up
                 for modality in item.evidence.modalities
             }
             assert returned_modalities == set(expected["evidence_modalities"])
-            analysis_at = first_update_at + 17 * (snapshot_id - 1)
-            assert card.offer(returned, analysis_at) == "replaced"
-            display = format_interpretation_body(card.update, card.message, possibilities)
+            analysis_at = first_update_at + 12 * (snapshot_id - 1)
+            card_at = 12.001 * (snapshot_id - 1)
+            assert card.offer(returned, card_at) == expected.get("card_result", "replaced")
+            memory_at = analysis_at + (0.001 if expected.get("after_hold_expiry") else 0)
+            card.offer_memory_possibilities(possibilities, memory_at)
+            display = format_interpretation_body(
+                card.update, card.message, card.memory_possibilities
+            )
             displays.append(display)
             for text in expected["memory_contains"]:
                 assert text in display, (expected["through_turn"], text)
             for text in expected["memory_excludes"]:
                 assert text not in display, (expected["through_turn"], text)
-            if possibilities:
+            if expected["request_memory_rows"]:
                 assert "Evidence sources: conversation words, approved memory" in display
+            else:
+                assert "Evidence sources: conversation words, approved memory" not in display
 
-        assert len(displays) == len(interpreter.calls) == 6
+        assert len(displays) == len(interpreter.calls) == len(fixture["progressive_checkpoints"])
 
 
 def test_progressive_multi_call_replay_switches_direct_indirect_dates_and_contacts(tmp_path):

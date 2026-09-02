@@ -301,7 +301,6 @@ def show_window(summary: str) -> None:
     manual_terra_results: queue.SimpleQueue[tuple] = queue.SimpleQueue()
     memory_snapshot_results: queue.SimpleQueue[tuple] = queue.SimpleQueue()
     memory_analysis_results: queue.SimpleQueue[tuple] = queue.SimpleQueue()
-    latest_memory_possibilities: list[RetrievedMemoryContext] = []
     contact_choices = []
     selected_contact_id: str | None = None
     selected_contact_label: str | None = None
@@ -330,7 +329,7 @@ def show_window(summary: str) -> None:
                 text=update.status.value.replace("_", " ").title()
             )
         interpretation_body_label.configure(text=format_interpretation_body(
-            update, stable_interpretation.message, latest_memory_possibilities
+            update, stable_interpretation.message, stable_interpretation.memory_possibilities
         ))
         spend = usage_ledger.total_dollars if usage_ledger else 0.0
         warning = " · Warning threshold reached" if usage_ledger and usage_ledger.warning_reached else ""
@@ -338,6 +337,12 @@ def show_window(summary: str) -> None:
         extra = f" · {note}" if note else ""
         interpretation_meta_label.configure(
             text=f"This call's estimated interpretation spend: ${spend:.4f}{updated}{warning}{extra}"
+        )
+
+    def set_interpretation_unavailable(message: str, now: float) -> None:
+        stable_interpretation.show_unavailable(message, now)
+        memory_status_label.configure(
+            text="No recent approved memory context is displayed"
         )
 
     def render_transcript_turns(visible_turns, *, replace: bool) -> None:
@@ -388,11 +393,10 @@ def show_window(summary: str) -> None:
 
     def invalidate_memory_context() -> None:
         nonlocal interpretation_generation, latest_interpretation_snapshot
-        nonlocal next_interpretation_snapshot_id, latest_memory_possibilities
+        nonlocal next_interpretation_snapshot_id
         interpretation_generation += 1
         next_interpretation_snapshot_id = 0
         latest_interpretation_snapshot = None
-        latest_memory_possibilities = []
         stable_interpretation.reset()
         if interpretation_coordinator:
             interpretation_coordinator.reset(interpretation_generation)
@@ -1182,11 +1186,10 @@ def show_window(summary: str) -> None:
         nonlocal usage_ledger, interpretation_coordinator
         nonlocal interpretation_generation, next_interpretation_snapshot_id
         nonlocal latest_interpretation_snapshot, interpretation_updated_at
-        nonlocal manual_terra_running, latest_memory_possibilities
+        nonlocal manual_terra_running
         interpretation_generation += 1
         next_interpretation_snapshot_id = 0
         latest_interpretation_snapshot = None
-        latest_memory_possibilities = []
         interpretation_updated_at = ""
         manual_terra_running = False
         stable_interpretation.reset()
@@ -1204,19 +1207,19 @@ def show_window(summary: str) -> None:
             )
         except InterpretationAuthenticationUnavailable:
             interpretation_coordinator = None
-            stable_interpretation.show_unavailable(
+            set_interpretation_unavailable(
                 "OpenAI key not configured — local capture and transcription continue",
                 time.perf_counter(),
             )
         except ValueError:
             interpretation_coordinator = None
-            stable_interpretation.show_unavailable(
+            set_interpretation_unavailable(
                 "Interpretation budget configuration is invalid — local processing continues",
                 time.perf_counter(),
             )
         except (ImportError, OSError):
             interpretation_coordinator = None
-            stable_interpretation.show_unavailable(
+            set_interpretation_unavailable(
                 "Cloud interpretation unavailable — local processing continues",
                 time.perf_counter(),
             )
@@ -1320,7 +1323,7 @@ def show_window(summary: str) -> None:
                 visual_buckets=captured_visual,
             )
         except ValueError:
-            stable_interpretation.show_unavailable(
+            set_interpretation_unavailable(
                 "Recent conversation exceeds the safe interpretation input limit",
                 time.perf_counter(),
             )
@@ -1335,7 +1338,7 @@ def show_window(summary: str) -> None:
                 terra_button.configure(state="normal")
 
     def poll_memory_results() -> None:
-        nonlocal latest_interpretation_snapshot, latest_memory_possibilities
+        nonlocal latest_interpretation_snapshot
         while True:
             try:
                 generation, snapshot_id, snapshot, ambiguous, possibilities, semantic_available, error_type = memory_snapshot_results.get_nowait()
@@ -1346,8 +1349,9 @@ def show_window(summary: str) -> None:
             if latest_interpretation_snapshot is not None and snapshot_id < latest_interpretation_snapshot.snapshot_id:
                 continue
             if snapshot is None:
+                stable_interpretation.clear_memory_possibilities()
                 if error_type == "ValueError":
-                    stable_interpretation.show_unavailable(
+                    set_interpretation_unavailable(
                         "Recent conversation exceeds the safe interpretation input limit",
                         time.perf_counter(),
                     )
@@ -1356,24 +1360,34 @@ def show_window(summary: str) -> None:
                     memory_status_label.configure(
                         text="Local memory retrieval unavailable — interpretation continues without memory"
                     )
+                    render_interpretation()
                 continue
             if error_type:
+                stable_interpretation.clear_memory_possibilities()
                 memory_status_label.configure(text="Local memory retrieval unavailable — interpretation continues without memory")
-            elif ambiguous:
-                memory_status_label.configure(text="Several memories may fit — memory withheld; clarify the reference")
-            elif snapshot.memories:
-                suffix = "" if semantic_available else " · indirect recall reduced"
-                memory_status_label.configure(text=f"Using {len(snapshot.memories)} approved memory excerpt(s) for the confirmed contact{suffix}")
             else:
-                memory_status_label.configure(
-                    text=(
-                        "No eligible approved memory matched this snapshot"
-                        if semantic_available
-                        else "No lexical match — indirect recall reduced; run --install-memory-model"
-                    )
+                stable_interpretation.offer_memory_possibilities(
+                    possibilities, time.perf_counter()
                 )
+                if ambiguous:
+                    memory_status_label.configure(text="Several memories may fit — memory withheld; clarify the reference")
+                elif snapshot.memories:
+                    suffix = "" if semantic_available else " · indirect recall reduced"
+                    shown = len(stable_interpretation.memory_possibilities)
+                    memory_status_label.configure(text=f"Showing {shown} approved memory context item(s) · {len(snapshot.memories)} supplied to this analysis{suffix}")
+                elif stable_interpretation.memory_possibilities:
+                    memory_status_label.configure(
+                        text=f"Showing {len(stable_interpretation.memory_possibilities)} approved memory context item(s) · recent match retained briefly"
+                    )
+                else:
+                    memory_status_label.configure(
+                        text=(
+                            "No eligible approved memory matched this snapshot"
+                            if semantic_available
+                            else "No lexical match — indirect recall reduced; run --install-memory-model"
+                        )
+                    )
             latest_interpretation_snapshot = snapshot
-            latest_memory_possibilities = possibilities
             render_interpretation()
             if interpretation_coordinator:
                 interpretation_coordinator.offer(snapshot, time.perf_counter())
@@ -1409,7 +1423,7 @@ def show_window(summary: str) -> None:
         try:
             prepared = prepare_interpretation_request(item)
         except ValueError:
-            stable_interpretation.show_unavailable(
+            set_interpretation_unavailable(
                 "Recent conversation exceeds the safe Terra input limit",
                 time.perf_counter(),
             )
@@ -1465,14 +1479,26 @@ def show_window(summary: str) -> None:
                     if stable_interpretation.offer(event.update, now) == "replaced":
                         render_interpretation(replaced=True)
                 elif event.kind == CoordinatorEventKind.ERROR:
-                    stable_interpretation.show_unavailable(
+                    set_interpretation_unavailable(
                         interpretation_error_message(event.error_type), now
                     )
                     render_interpretation(replaced=True)
                 else:
                     render_interpretation()
+        memory_expired = stable_interpretation.expire_memory_possibilities(now)
+        if memory_expired:
+            if stable_interpretation.memory_possibilities:
+                memory_status_label.configure(
+                    text=f"Showing {len(stable_interpretation.memory_possibilities)} approved memory context item(s) · recent match retained briefly"
+                )
+            else:
+                memory_status_label.configure(
+                    text="No recent approved memory context is displayed"
+                )
         if stable_interpretation.tick(now):
             render_interpretation(replaced=True)
+        elif memory_expired:
+            render_interpretation()
         while True:
             try:
                 generation, snapshot_id, result, error_type = (
@@ -1492,7 +1518,7 @@ def show_window(summary: str) -> None:
             ):
                 render_interpretation(note="Terra result expired after newer context")
             elif error_type:
-                stable_interpretation.show_unavailable(
+                set_interpretation_unavailable(
                     interpretation_error_message(error_type), now
                 )
                 render_interpretation(replaced=True, note="Terra check failed")
@@ -1676,13 +1702,13 @@ def show_window(summary: str) -> None:
 
     def stop() -> None:
         nonlocal stopping, stop_started, interpretation_generation
-        nonlocal latest_interpretation_snapshot, latest_memory_possibilities
+        nonlocal latest_interpretation_snapshot
         if stopping:
             return
         stopping = True
         interpretation_generation += 1
         latest_interpretation_snapshot = None
-        latest_memory_possibilities = []
+        stable_interpretation.clear_memory_possibilities()
         if interpretation_coordinator:
             interpretation_coordinator.reset(interpretation_generation)
         stop_started = time.perf_counter()

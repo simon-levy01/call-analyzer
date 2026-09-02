@@ -98,7 +98,7 @@ hard limit; Terra runs only after **Check with Terra** and a per-request cost
 confirmation. Live Luna uses low reasoning with up to 16 complete turns from the
 last three minutes; repeated speaker labels are omitted and old visual rows are
 trimmed before conversation text when the request needs shortening. Automatic
-request starts are separated by at least 17 seconds. The compact cloud payload uses
+request starts are separated by at least 12 seconds. The compact cloud payload uses
 `u` and `c` for the user and confirmed contact; the visible transcript continues to
 show `You` and the confirmed contact's name.
 
@@ -130,7 +130,9 @@ you approve it. For example, carrying heavy things may be flagged as generic whi
 still helping retrieve an approved apartment-move memory. Vague references use only
 the confirmed contact's bounded words after the latest vague cue. Weak matches
 abstain, close matches appear as possibilities, and unscored connected memories are
-not added to this cautious path.
+not added to this cautious path. A matched possibility stays visible while it keeps
+matching and for 24 seconds after its last match; a contact/lifecycle change or
+unavailable retrieval clears it immediately.
 
 The app stores normalized attributed text in
 `%LOCALAPPDATA%\ConversationCopilot\memory.sqlite3`. When the optional local model
@@ -224,7 +226,7 @@ corpus from a JSON manifest containing `media`, `reference`, and `language` fiel
 
 The permanent `conversation_copilot/assets/f04/basic-video-chat` bundle is a
 fictional two-person call used for basic F02-F05 replay. It includes the preview
-video, separate microphone/contact audio stems, exact turns, progressive 17-second
+video, separate microphone/contact audio stems, exact turns, progressive 12-second
 tone/memory checkpoints, expected cues, and future memory cases. It does not replace
 the controlled model evaluation or a consenting live WhatsApp validation.
 

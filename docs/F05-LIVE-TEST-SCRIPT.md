@@ -1,7 +1,7 @@
 # F05 live test script
 
-Use fictional details and a consenting participant. Leave about 20 seconds after the
-remote reply so the 17-second interpretation cadence can complete.
+Use fictional details and a consenting participant. Leave about 15 seconds after the
+remote reply so the 12-second interpretation cadence can complete.
 
 ## Setup
 
@@ -18,6 +18,7 @@ remote reply so the 17-second interpretation cadence can complete.
 |---|---|---|---|
 | Indirect event + tone | “How are you doing after the event last week?” | “A little better. I still don't want to name it out loud, but thanks for checking.” | The card says the words may refer to Pepper. If tone uses that link, evidence sources include conversation words and approved memory. |
 | Pronoun-like follow-up | “How have you been after that?” | “I'm feeling better, but I still miss her a lot.” | Pepper appears as possible remembered context, without claiming certainty about current emotion. |
+| Brief retrieval miss | After Pepper appears, add one unrelated short exchange, wait past 24 seconds, then add another if needed. | Any ordinary replies. | Pepper remains visible through the brief miss, then disappears once 24 seconds have elapsed since its last matching analysis. Changing/deleting the memory or contact still clears it immediately. |
 | Distinct dated events | Add `Maya moved apartment on August 20`, then ask “How have you been since the event?” | “It has been difficult.” | Only the newer apartment event appears as cautious possible context. Name Pepper or August 18 explicitly to retrieve the older event. |
 | Same-date competing events | Add two plausible events with the same date, then ask “How have you been since the event?” | “It has been difficult.” | Both events appear as possibilities; memory is withheld from cloud interpretation until clarified. |
 | Wrong contact | Switch to a contact with no Pepper memory and repeat the event wording. | “I'm doing okay.” | Pepper never appears. Old guidance clears immediately. |

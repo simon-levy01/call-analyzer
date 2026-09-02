@@ -20,6 +20,7 @@ from conversation_copilot.interpretation import (
     InterpretationUnavailable,
     InterpretationUpdate,
     OpenAIInterpreter,
+    RetrievedMemoryContext,
     SocialCue,
     StableInterpretationCard,
     ToneHypothesis,
@@ -559,8 +560,8 @@ def test_first_request_cadence_and_one_latest_pending_snapshot():
     wait_until(first_finished)
     assert completed[0].kind == CoordinatorEventKind.ACCEPTED
     assert calls == [1]
-    assert coordinator.poll(16) == []
-    coordinator.poll(17)
+    assert coordinator.poll(11.9) == []
+    coordinator.poll(12)
     wait_until(lambda: len(calls) == 2)
     assert calls == [1, 3]
 
@@ -575,9 +576,9 @@ def test_duplicate_and_stale_results_never_replace_output():
     wait_until(lambda: bool(first.extend(coordinator.poll(0)) or first))
     assert first[0].kind == CoordinatorEventKind.ACCEPTED
 
-    coordinator.offer(snapshot(2, 3), 17)
+    coordinator.offer(snapshot(2, 3), 12)
     duplicate = []
-    wait_until(lambda: bool(duplicate.extend(coordinator.poll(17)) or duplicate))
+    wait_until(lambda: bool(duplicate.extend(coordinator.poll(12)) or duplicate))
     assert duplicate[0].kind == CoordinatorEventKind.DUPLICATE
     assert duplicate[0].update is None
 
@@ -641,6 +642,56 @@ def test_stable_card_delays_automatic_changes_and_manual_terra_is_explicit():
     latest.offer(changed, 5)
     assert latest.offer(first, 6) == "unchanged"
     assert not latest.tick(12)
+
+
+def test_relevant_memory_context_stays_visible_across_a_brief_retrieval_miss():
+    card = StableInterpretationCard(memory_display_seconds=24)
+    remembered = RetrievedMemoryContext(
+        memory_id="memory-job",
+        revision_id="revision-job",
+        excerpt="Yaheli recently lost his McDonald's job.",
+        memory_type="event_date",
+        confidence="high",
+        sensitivity_safe=True,
+        rank=1,
+        relevance="semantic similarity",
+    )
+
+    card.offer_memory_possibilities([remembered], 0)
+    card.offer_memory_possibilities([remembered], 12)
+    card.offer_memory_possibilities([], 30)
+    assert card.memory_possibilities == [remembered]
+    assert card.expire_memory_possibilities(36)
+    assert card.memory_possibilities == []
+    other = remembered.model_copy(
+        update={
+            "memory_id": "memory-rent",
+            "revision_id": "revision-rent",
+            "excerpt": "Yaheli is worried about paying rent.",
+            "rank": 2,
+        }
+    )
+    card.offer_memory_possibilities([remembered, other], 40)
+    new_lower_rank = other.model_copy(
+        update={
+            "memory_id": "memory-search",
+            "revision_id": "revision-search",
+            "excerpt": "Yaheli plans to search online.",
+            "rank": 3,
+        }
+    )
+    card.offer_memory_possibilities([remembered, new_lower_rank], 52)
+    assert card.memory_possibilities == [remembered, new_lower_rank, other]
+    assert card.expire_memory_possibilities(64)
+    assert card.memory_possibilities == [remembered, new_lower_rank]
+    card.clear_memory_possibilities()
+    assert card.memory_possibilities == []
+    card.offer_memory_possibilities([remembered], 70)
+    card.show_unavailable("Cloud unavailable", 71)
+    assert card.memory_possibilities == []
+    card.offer_memory_possibilities([remembered], 80)
+    card.reset()
+    assert card.memory_possibilities == []
 
 
 def test_synthetic_replay_covers_catalogues_modalities_and_abstention():
@@ -746,10 +797,10 @@ def test_cloud_failure_keeps_local_turns_and_next_final_turn_can_recover():
     assert [turn.content for turn in local_turns] == ["hello 1", "hello 2", "hello 3"]
 
     assert coordinator.offer(
-        build_snapshot(local_turns, snapshot_id=2, generation=1), 17
+        build_snapshot(local_turns, snapshot_id=2, generation=1), 12
     )
     recovered = []
-    wait_until(lambda: bool(recovered.extend(coordinator.poll(17)) or recovered))
+    wait_until(lambda: bool(recovered.extend(coordinator.poll(12)) or recovered))
     assert recovered[0].kind == CoordinatorEventKind.ACCEPTED
 
 

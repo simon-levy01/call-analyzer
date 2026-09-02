@@ -202,15 +202,27 @@
       "tone": "sad_low_energy",
       "memory_contains": ["Pepper died"],
       "memory_excludes": ["smoke alarm"],
-      "evidence_modalities": ["language", "memory"]
+      "evidence_modalities": ["language", "memory"],
+      "request_memory_rows": 1
     },
     {
-      "through_turn": 4,
+      "through_turn": 3,
+      "status": "updated",
+      "tone": "sad_low_energy",
+      "memory_contains": ["Pepper died"],
+      "memory_excludes": ["smoke alarm"],
+      "evidence_modalities": ["language"],
+      "request_memory_rows": 0
+    },
+    {
+      "through_turn": 5,
       "status": "updated",
       "social_cue": "uncertainty",
       "memory_contains": [],
       "memory_excludes": ["Pepper died", "smoke alarm"],
-      "evidence_modalities": ["language"]
+      "evidence_modalities": ["language"],
+      "request_memory_rows": 0,
+      "after_hold_expiry": true
     },
     {
       "through_turn": 7,
@@ -219,7 +231,8 @@
       "social_cue": "humor",
       "memory_contains": [],
       "memory_excludes": ["Pepper died", "smoke alarm"],
-      "evidence_modalities": ["language"]
+      "evidence_modalities": ["language"],
+      "request_memory_rows": 0
     },
     {
       "through_turn": 9,
@@ -227,16 +240,28 @@
       "social_cue": "sarcasm",
       "memory_contains": [],
       "memory_excludes": ["Pepper died", "smoke alarm"],
-      "evidence_modalities": ["language"]
+      "evidence_modalities": ["language"],
+      "request_memory_rows": 0
     },
     {
-      "through_turn": 13,
+      "through_turn": 12,
+      "status": "updated",
+      "tone": "positive_warm",
+      "social_cue": "humor",
+      "memory_contains": ["smoke alarm"],
+      "memory_excludes": ["Pepper died"],
+      "evidence_modalities": ["language", "memory"],
+      "request_memory_rows": 1
+    },
+    {
+      "through_turn": 14,
       "status": "updated",
       "tone": "tense_negative",
       "social_cue": "uncertainty",
-      "memory_contains": [],
-      "memory_excludes": ["Pepper died", "smoke alarm"],
-      "evidence_modalities": ["language"]
+      "memory_contains": ["smoke alarm"],
+      "memory_excludes": ["Pepper died"],
+      "evidence_modalities": ["language"],
+      "request_memory_rows": 0
     },
     {
       "through_turn": 15,
@@ -244,7 +269,9 @@
       "tone": "positive_warm",
       "memory_contains": [],
       "memory_excludes": ["Pepper died", "smoke alarm"],
-      "evidence_modalities": ["language"]
+      "evidence_modalities": ["language"],
+      "request_memory_rows": 0,
+      "after_hold_expiry": true
     }
   ]
 }

@@ -33,6 +33,8 @@ MAX_OUTPUT_TOKENS = 400
 REQUEST_PROTOCOL_OVERHEAD_TOKENS = 80
 SNAPSHOT_WINDOW_SECONDS = 180
 MAX_SNAPSHOT_TURNS = 16
+AUTO_INTERPRETATION_INTERVAL_SECONDS = 12.0
+MEMORY_DISPLAY_SECONDS = 24.0
 LUNA_MODEL = "gpt-5.6-luna"
 TERRA_MODEL = "gpt-5.6-terra"
 
@@ -1382,7 +1384,7 @@ class InterpretationCoordinator:
         interpreter: Callable[[InterpretationSnapshot], InterpretationUpdate],
         *,
         generation: int = 1,
-        minimum_interval_seconds: float = 17.0,
+        minimum_interval_seconds: float = AUTO_INTERPRETATION_INTERVAL_SECONDS,
     ) -> None:
         if generation < 1 or minimum_interval_seconds < 0:
             raise ValueError("generation must be positive and cadence non-negative")
@@ -1521,20 +1523,80 @@ class FakeInterpreter:
 
 
 class StableInterpretationCard:
-    def __init__(self, minimum_display_seconds: float = 12.0) -> None:
-        if minimum_display_seconds < 0:
-            raise ValueError("minimum card display must be non-negative")
+    def __init__(
+        self,
+        minimum_display_seconds: float = 12.0,
+        memory_display_seconds: float = MEMORY_DISPLAY_SECONDS,
+    ) -> None:
+        if minimum_display_seconds < 0 or memory_display_seconds < 0:
+            raise ValueError("minimum display times must be non-negative")
         self.minimum_display_seconds = minimum_display_seconds
+        self.memory_display_seconds = memory_display_seconds
         self.update: InterpretationUpdate | None = None
+        self.memory_possibilities: list[RetrievedMemoryContext] = []
+        self._memory_last_seen: dict[tuple[str, str], float] = {}
         self.message = "Waiting for two finalized turns"
         self.shown_at: float | None = None
         self._pending: InterpretationUpdate | None = None
 
     def reset(self) -> None:
         self.update = None
+        self.memory_possibilities = []
+        self._memory_last_seen = {}
         self.message = "Waiting for two finalized turns"
         self.shown_at = None
         self._pending = None
+
+    def offer_memory_possibilities(
+        self, possibilities: Sequence[RetrievedMemoryContext], now: float
+    ) -> None:
+        proposed = list(possibilities)
+        proposed_by_id = {
+            (item.memory_id, item.revision_id): item for item in proposed
+        }
+        current_by_id = {
+            (item.memory_id, item.revision_id): item
+            for item in self.memory_possibilities
+            if now - self._memory_last_seen[(item.memory_id, item.revision_id)]
+            < self.memory_display_seconds
+        }
+        for identity in proposed_by_id:
+            self._memory_last_seen[identity] = now
+        ordered_ids = [
+            *proposed_by_id,
+            *(identity for identity in current_by_id if identity not in proposed_by_id),
+        ][:4]
+        self.memory_possibilities = [
+            proposed_by_id[identity]
+            if identity in proposed_by_id
+            else current_by_id[identity]
+            for identity in ordered_ids
+        ]
+        self._memory_last_seen = {
+            identity: self._memory_last_seen[identity] for identity in ordered_ids
+        }
+
+    def clear_memory_possibilities(self) -> None:
+        self.memory_possibilities = []
+        self._memory_last_seen = {}
+
+    def expire_memory_possibilities(self, now: float) -> bool:
+        retained = [
+            item
+            for item in self.memory_possibilities
+            if now - self._memory_last_seen[(item.memory_id, item.revision_id)]
+            < self.memory_display_seconds
+        ]
+        if len(retained) == len(self.memory_possibilities):
+            return False
+        self.memory_possibilities = retained
+        retained_ids = {(item.memory_id, item.revision_id) for item in retained}
+        self._memory_last_seen = {
+            identity: seen
+            for identity, seen in self._memory_last_seen.items()
+            if identity in retained_ids
+        }
+        return True
 
     def offer(
         self, update: InterpretationUpdate, now: float, *, manual: bool = False
@@ -1570,6 +1632,7 @@ class StableInterpretationCard:
 
     def show_unavailable(self, message: str, now: float) -> None:
         self.update = None
+        self.clear_memory_possibilities()
         self.message = message
         self.shown_at = now
         self._pending = None
