@@ -236,6 +236,8 @@ def test_semantic_query_keeps_complete_recent_exchanges_instead_of_splicing_the_
         "Taking it one step at a time sounds sensible for now.",
         "I hope one of those applications works out soon.",
     ]
+    lines[2] += " There is more context around this thought."
+    lines[3] += " The conversation stays on the same subject."
     conversation = [
         ConversationTurn(
             speaker_name="You" if index % 2 else "Yaheli",
@@ -250,9 +252,38 @@ def test_semantic_query_keeps_complete_recent_exchanges_instead_of_splicing_the_
 
     query = _memory_semantic_input(conversation)
 
+    assert len(" ".join(lines[-8:])) > 500
     assert len(query) <= 500
     assert "covering rent without the regular income" in query
-    assert lines[0] not in query
+    assert lines[2] not in query
+
+    contact_query = _memory_semantic_input(
+        conversation, speaker_role=SpeakerRole.SELECTED_CONTACT
+    )
+    assert "covering rent without the regular income" in contact_query
+
+
+def test_semantic_query_keeps_the_start_and_whole_words_for_one_oversized_turn():
+    conversation = turns() + [
+        ConversationTurn(
+            speaker_name="You", speaker_role=SpeakerRole.USER, source="fixture",
+            content="Can you explain what happened?",
+            timestamp=datetime(2026, 8, 25, 12, 0, 10, tzinfo=timezone.utc),
+            display_order=3,
+        ),
+        ConversationTurn(
+            speaker_name="Maya", speaker_role=SpeakerRole.SELECTED_CONTACT,
+            source="fixture", content="TopicMarker " + "detail " * 100,
+            timestamp=datetime(2026, 8, 25, 12, 0, 15, tzinfo=timezone.utc),
+            display_order=4,
+        ),
+    ]
+
+    query = _memory_semantic_input(conversation)
+
+    assert query.startswith("TopicMarker ")
+    assert len(query) <= 500
+    assert query.endswith("detail")
 
 
 def test_semantic_query_pauses_during_an_explicit_topic_change():
@@ -310,6 +341,25 @@ def test_semantic_query_pauses_during_an_explicit_topic_change():
 
     assert "fresh tomatoes" in resumed
     assert "since the event" not in resumed
+
+
+def test_semantic_query_does_not_treat_an_in_sentence_phrase_as_a_topic_change():
+    conversation = turns() + [
+        ConversationTurn(
+            speaker_name="You", speaker_role=SpeakerRole.USER, source="fixture",
+            content="Do you feel ready for what comes next?",
+            timestamp=datetime(2026, 8, 25, 12, 0, 10, tzinfo=timezone.utc),
+            display_order=3,
+        ),
+        ConversationTurn(
+            speaker_name="Maya", speaker_role=SpeakerRole.SELECTED_CONTACT,
+            source="fixture", content="I think I am moving on from that difficult experience.",
+            timestamp=datetime(2026, 8, 25, 12, 0, 15, tzinfo=timezone.utc),
+            display_order=4,
+        ),
+    ]
+
+    assert "moving on" in _memory_semantic_input(conversation)
 
 
 def test_long_snapshot_trims_to_the_ceiling_matching_the_payload():

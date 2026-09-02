@@ -1010,6 +1010,30 @@ def test_old_event_words_do_not_inject_memory_into_a_new_topic(tmp_path, monkeyp
         ).matches == ()
 
 
+def test_exact_lexical_memory_still_retrieves_during_a_semantic_topic_pause(tmp_path):
+    changed_topic = _turns([
+        ["user", "Besides that, what have you been drinking lately?"],
+        ["selected_contact", "I have been making mint tea every evening."],
+        ["user", "Does mint tea help you relax?"],
+        ["selected_contact", "Yes, mint tea has been a pleasant routine."],
+    ])
+    with MemoryStore(tmp_path / "topic-pause-lexical.sqlite3") as store:
+        maya = store.create_contact("Maya")
+        tea = store.create_memory(
+            maya.id, "Maya prefers mint tea", memory_type="preference"
+        )
+        query, date_query = _memory_retrieval_inputs(changed_topic)
+        semantic_query = _memory_semantic_input(changed_topic)
+
+        result = store.retrieve(
+            maya.id, query, date_query=date_query, semantic_query=semantic_query
+        )
+
+        assert semantic_query == ""
+        assert result.matches[0].memory_id == tea
+        assert "lexical" in result.matches[0].reason
+
+
 def test_statement_form_event_reference_with_punctuation_retrieves(tmp_path):
     turns = _turns([
         ["user", "I have been thinking about the event."],
