@@ -255,7 +255,7 @@ def test_semantic_query_keeps_complete_recent_exchanges_instead_of_splicing_the_
     assert lines[0] not in query
 
 
-def test_semantic_query_starts_fresh_after_an_explicit_topic_change():
+def test_semantic_query_pauses_during_an_explicit_topic_change():
     conversation = turns() + [
         ConversationTurn(
             speaker_name="You", speaker_role=SpeakerRole.USER, source="fixture",
@@ -285,8 +285,31 @@ def test_semantic_query_starts_fresh_after_an_explicit_topic_change():
 
     query = _memory_semantic_input(conversation)
 
-    assert "pasta with tomatoes" in query
-    assert "since the event" not in query
+    assert query == ""
+
+    for offset, content in enumerate(
+        (
+            "Did you use fresh tomatoes?",
+            "Yes, and I added garlic.",
+            "How long did it cook?",
+            "About twenty minutes.",
+            "Would you make it again?",
+        ),
+        1,
+    ):
+        order = 6 + offset
+        conversation.append(ConversationTurn(
+            speaker_name="You" if order % 2 else "Maya",
+            speaker_role=SpeakerRole.USER if order % 2 else SpeakerRole.SELECTED_CONTACT,
+            source="fixture", content=content,
+            timestamp=datetime(2026, 8, 25, 12, 0, 25 + offset * 5, tzinfo=timezone.utc),
+            display_order=order,
+        ))
+
+    resumed = _memory_semantic_input(conversation)
+
+    assert "fresh tomatoes" in resumed
+    assert "since the event" not in resumed
 
 
 def test_long_snapshot_trims_to_the_ceiling_matching_the_payload():

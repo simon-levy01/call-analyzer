@@ -209,8 +209,7 @@ def memory_semantic_input(
     window = list(turns[-8:])
     for index in range(len(window) - 1, -1, -1):
         if _TOPIC_BOUNDARY.search(window[index].content):
-            window = window[index:]
-            break
+            return ""
     if len(window) < 4:
         return ""
     if speaker_role is not None:
