@@ -206,7 +206,7 @@ def memory_semantic_input(
     *,
     speaker_role: SpeakerRole | None = None,
 ) -> str:
-    window = list(turns[-20:])
+    window = list(turns[-8:])
     for index in range(len(window) - 1, -1, -1):
         if _TOPIC_BOUNDARY.search(window[index].content):
             window = window[index:]
@@ -220,10 +220,10 @@ def memory_semantic_input(
                     window = window[index + 1 :]
                     break
         window = [item for item in window if item.speaker_role == speaker_role]
-    text = " ".join(item.content for item in window)
-    if len(text) <= 350:
-        return text
-    return f"{text[:175].rsplit(' ', 1)[0]} {text[-175:].split(' ', 1)[-1]}"
+    parts = [item.content for item in window]
+    while len(parts) > 1 and len(" ".join(parts)) > 500:
+        parts.pop(0)
+    return " ".join(parts)[-500:].lstrip()
 
 
 def format_memory_date(value: str | datetime | None) -> str:

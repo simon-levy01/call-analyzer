@@ -24,6 +24,7 @@ from conversation_copilot.__main__ import _relabel_contact_turns
 from conversation_copilot.memory import (
     format_memory_date as _format_memory_date,
     memory_retrieval_inputs as _memory_retrieval_inputs,
+    memory_semantic_input as _memory_semantic_input,
     parse_memory_date as _parse_memory_date,
 )
 from conversation_copilot.models import ConversationTurn, SpeakerRole
@@ -219,6 +220,73 @@ def test_statement_form_when_is_not_a_temporal_memory_request():
     conversation[1].content = "Thanks for telling me."
     _query, date_query = _memory_retrieval_inputs(conversation)
     assert date_query == ""
+
+
+def test_semantic_query_keeps_complete_recent_exchanges_instead_of_splicing_the_middle():
+    started = datetime(2026, 9, 3, 12, tzinfo=timezone.utc)
+    lines = [
+        "How are things since all that happened a few days ago?",
+        "I am still trying to understand how quickly everything changed.",
+        "That sounds like a lot to process all at once.",
+        "The unexpected free time has made every day feel unfamiliar.",
+        "What part has been weighing on you most this week?",
+        "I keep worrying about covering rent without the regular income.",
+        "It makes sense that this uncertainty would be exhausting.",
+        "I have started writing down places where I could apply.",
+        "Taking it one step at a time sounds sensible for now.",
+        "I hope one of those applications works out soon.",
+    ]
+    conversation = [
+        ConversationTurn(
+            speaker_name="You" if index % 2 else "Yaheli",
+            speaker_role=SpeakerRole.USER if index % 2 else SpeakerRole.SELECTED_CONTACT,
+            source="fixture",
+            content=content,
+            timestamp=started + timedelta(seconds=index * 5),
+            display_order=index,
+        )
+        for index, content in enumerate(lines, 1)
+    ]
+
+    query = _memory_semantic_input(conversation)
+
+    assert len(query) <= 500
+    assert "covering rent without the regular income" in query
+    assert lines[0] not in query
+
+
+def test_semantic_query_starts_fresh_after_an_explicit_topic_change():
+    conversation = turns() + [
+        ConversationTurn(
+            speaker_name="You", speaker_role=SpeakerRole.USER, source="fixture",
+            content="Besides that, what did you make for dinner?",
+            timestamp=datetime(2026, 8, 25, 12, 0, 10, tzinfo=timezone.utc),
+            display_order=3,
+        ),
+        ConversationTurn(
+            speaker_name="Maya", speaker_role=SpeakerRole.SELECTED_CONTACT, source="fixture",
+            content="I made pasta with tomatoes and basil.",
+            timestamp=datetime(2026, 8, 25, 12, 0, 15, tzinfo=timezone.utc),
+            display_order=4,
+        ),
+        ConversationTurn(
+            speaker_name="You", speaker_role=SpeakerRole.USER, source="fixture",
+            content="That sounds delicious.",
+            timestamp=datetime(2026, 8, 25, 12, 0, 20, tzinfo=timezone.utc),
+            display_order=5,
+        ),
+        ConversationTurn(
+            speaker_name="Maya", speaker_role=SpeakerRole.SELECTED_CONTACT, source="fixture",
+            content="It was, and I saved some for tomorrow.",
+            timestamp=datetime(2026, 8, 25, 12, 0, 25, tzinfo=timezone.utc),
+            display_order=6,
+        ),
+    ]
+
+    query = _memory_semantic_input(conversation)
+
+    assert "pasta with tomatoes" in query
+    assert "since the event" not in query
 
 
 def test_long_snapshot_trims_to_the_ceiling_matching_the_payload():
