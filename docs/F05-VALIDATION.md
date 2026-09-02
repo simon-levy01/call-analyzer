@@ -692,6 +692,63 @@ state/UI seam and rerun. Closing review session
 `c1f43d5c-30fe-433c-980c-c9f2c52e0cf6` returned **CLEAN** with no unresolved material
 finding.
 
+## 2026-09-03 semantic continuity and topic-transition follow-up
+
+The released rollback point before this experiment is
+`f98dbb3d71095f80a30baa73cd6fced967928017`. The previous semantic builder nominally
+accepted 20 turns but compressed text longer than 350 characters to its first and last
+175 characters. A deterministic regression reproduced the live failure mode: the
+middle sentence `covering rent without the regular income` disappeared even while it
+remained inside the interpretation transcript.
+
+Commit `f4b73abd84c8341a58950dc442139b94b563939c` is the independently revertible
+semantic-window change. It uses the latest eight complete turns, allows up to 500
+characters, and drops the oldest complete turn first. Five longer fictional topics
+(job loss, moving home, relationship breakup, starting university, and receiving an
+award) retained their expected memory at ranks **4/1/2/1/1**. Compared with the old
+350-character splice, ranks did not regress and similarity improved in three of five;
+the fixed indirect-employment gate remained **3/3** at ranks **1/2/2**.
+
+The same replay exposed weak semantic carryover immediately after explicit topic
+changes. Commit `c718269f4eccda935e33feaa68008a28d262004a` is the separately revertible safety
+change: while a phrase such as `besides that` remains in the eight-turn window,
+semantic retrieval pauses, exact lexical/date/type retrieval continues, and semantic
+retrieval resumes after eight new turns establish the next topic. All five four-turn
+cooking-topic switches returned zero old-memory candidates, compared with the old
+builder retaining the prior target in **4/5** cases after weak similarities cleared
+the general **0.45** semantic threshold; active-topic ranks stayed **4/1/2/1/1**.
+
+The separate selected-contact cue query deliberately filters the same eight raw turns
+rather than reaching farther back than the main current-topic query. Its 500 characters
+are a ceiling, not a fill target. It is used only for guarded vague-reference handling,
+where a concise contact utterance such as `I miss her every day` must remain usable and
+the user's leading words must not choose the memory. Existing happy-event, grief-only,
+user-spoken-cue, mundane-cue, competing-loss, and non-alternating-turn regressions cover
+that filtered path.
+
+Both comparisons were local and made **zero OpenAI requests**. A 100-sample maximum-size
+embedding check measured 350-character median/p95/max **149.845/154.412/158.026 ms** and
+500-character median/p95/max **189.415/195.682/210.121 ms**. Full 500-character retrieval
+measured median/p95/max **191.340/207.455/220.440 ms**, below the required 250 ms p95
+ceiling. The fixed semantic gate remained **3/3** at ranks **1/2/2** with **93.708 ms**
+p95; the five focused new regressions passed **5/5**, the full fake-model suite passed
+**205/205**, and `pip check` remained clean. The deliberate tradeoff is that a purely indirect
+memory for the new topic can be delayed while an explicit transition remains in the
+eight-turn window; direct lexical retrieval remains immediate.
+
+Fresh tool-disabled Claude Opus review session
+`c6498c21-eee4-4103-9096-2d3fa90cf6a4` found missing coverage for the actual
+over-500-character path, a single oversized turn being cut mid-word from its tail,
+lexical retrieval during the semantic pause, boundary words used inside a sentence,
+and the initial 40-sample latency evidence. Correction commit
+`41e1a00d21ba57c67813517a3d58398ad45d625b` keeps the start of a lone oversized
+turn and ends it at a word boundary, makes the cap test load-bearing, adds the missing
+retrieval and boundary regressions, and records the 100-sample measurements. Claude
+withdrew its two objections to the topic-switch comparison after receiving the measured
+old **4/5** versus new **0/5** result and the fixed-window turn count. The existing
+selected-contact cue behavior was retained with its guarded-path test evidence; the
+closing review returned **CLEAN** with no unresolved material finding.
+
 ## Release audit
 
 The complete diff contains no API key/secret pattern, raw-media or database/model

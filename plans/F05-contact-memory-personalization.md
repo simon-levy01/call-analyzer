@@ -317,13 +317,15 @@ For each retrieval:
 3. apply sensitivity/cloud and explicit type/date filters;
 4. use FTS5 BM25 for lexical matches;
 5. include narrow metadata/date candidates when the query contains a person, date, commitment, or time reference;
-6. if the semantic gate passes, add local embedding candidates;
+6. if the semantic gate passes, add local embedding candidates from at most the latest eight complete turns and 500 characters, dropping the oldest complete turns first rather than splicing out the middle;
 7. fuse independent ranked lists with a small deterministic rank-fusion calculation;
 8. optionally expand at most one hop through explicit related-memory connections;
 9. keep a small local candidate pool, recommended maximum 12; and
 10. return at most four short excerpts to F04.
 
 Ranking may use modest recency and confidence signals, but relevance dominates. For a purely indirect event reference, one uniquely newest normalized event date may supply a single cautious possibility; older events require an explicit lexical or date reference. Equal or missing dates remain ambiguous. Low confidence is never upgraded by ranking. Date age changes ordering, not lifecycle.
+
+An explicit topic-boundary phrase such as `besides that` or `moving on` pauses semantic candidate generation while it remains in the eight-turn window. Lexical, date, and type retrieval continue, and semantic retrieval resumes from the established new topic after the boundary leaves the window. This prevents a previous topic from being semantically reintroduced during the remembered-context display hold without making display-only context eligible for cloud use.
 
 ### Semantic-search gate
 
@@ -642,5 +644,6 @@ Planning approval does not mark F05 complete.
 - [x] Fresh Claude Opus 5 review, accepted root corrections, measured reruns, and final CLEAN REVIEW.
 - [x] Final diff audit, reviewed commit/push, pointer verification, Trello reconciliation, and roadmap completion.
 - [x] September 3 follow-up: automatic cadence reduced to 12 seconds and possible remembered context held for 24 seconds after its last match; generated retrieval keywords were not added because the selected local semantic model already passed the indirect-employment gate.
+- [x] September 3 semantic-continuity follow-up: query the latest eight complete turns within 500 characters, preserve middle cues, and pause semantic matching across an explicit topic transition while lexical retrieval continues.
 
 Detailed measurements are recorded in [docs/F05-VALIDATION.md](../docs/F05-VALIDATION.md).
