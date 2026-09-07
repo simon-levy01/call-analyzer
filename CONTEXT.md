@@ -101,16 +101,40 @@ The outcome of an interpretation attempt: updated, insufficient evidence, or con
 _Avoid_: confidence, emotion state, system error
 
 **Evidence**:
-The observable words, vocal behavior, facial movement, or remembered context that influenced a tone hypothesis or social cue.
+The observable words, vocal behavior, facial movement, or eligible reviewed context supporting an interpretation, suggestion, summary statement, or Ask Memory answer.
 _Avoid_: certainty, proof
 
 **Confidence Level**:
-The qualitative strength of support for an emitted F04 interpretation item: low, medium, or high. Insufficient or conflicting evidence is an Interpretation Status, not an item confidence.
+The qualitative strength of support for an interpretation, guidance item, summary statement, or Ask Memory answer: low, medium, or high. Insufficient or conflicting evidence describes an outcome rather than another confidence level.
 _Avoid_: certainty percentage, probability
 
 **Live Guidance**:
 The limited set of current tone hypotheses, cues, replies, reminders, and follow-up questions offered during an assisted call.
 _Avoid_: dashboard feed, instruction
+
+**Ask Memory**:
+The user's question-and-answer experience over Approved Memories and Approved Summaries, including short follow-up questions about an explicitly identified contact or event. Each answer rests on current eligible evidence rather than previous generated answers.
+_Avoid_: general chatbot, automatic contact inference, answer history as evidence
+
+**Summary Draft**:
+A generated account of a Conversation Record awaiting the user's review. It is not approved evidence for Ask Memory and does not approve any Memory Proposal.
+_Avoid_: approved memory, searchable history, automatic approval
+
+**Approved Summary**:
+A summary the user has explicitly reviewed and approved, distinct from its separately reviewed Atomic Memories. Only its current eligible statements can support Ask Memory answers.
+_Avoid_: approved memory, unreviewed summary, automatic fact approval
+
+**Summary Statement**:
+An individually supported part of a conversation summary that can be reviewed, corrected, retained as history, or removed. A suggested follow-up is distinguished from a factual statement or actual commitment.
+_Avoid_: atomic memory, unqualified fact, inferred agreement
+
+**Prior Statement**:
+A summary statement the user chose to keep after related information was corrected, labeled with its original date and linked correction. It records earlier wording or plans without claiming they remain current.
+_Avoid_: current fact, restored superseded memory, hidden correction
+
+**Ask Scope**:
+The contact or explicit all-contact discovery context chosen for Ask Memory. Changing it does not change the contact assigned to an Assisted Call.
+_Avoid_: call reassignment, inferred identity, global memory pool
 
 **Conversation Memory**:
 Long-lived, locally stored context associated with a selected contact and available across imported text and assisted calls.
@@ -201,5 +225,5 @@ The permanent Trello column containing the planning, implementation, validation,
 _Avoid_: temporary status column, sprint
 
 **Claude Review Gate**:
-The required independent QA and code-review handoff that a code feature must pass before completion.
+The independent QA and code-review checkpoints before user testing and after user testing and corrections, both required before a code feature is complete.
 _Avoid_: optional review, final polish

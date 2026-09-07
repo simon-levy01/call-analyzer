@@ -124,7 +124,7 @@ Target dates are completion targets. If one slips, apply the trimming order inst
 | F03 — Two-sided audio and transcription | Aug 31 | Microphone and system audio become attributed transcript turns with acceptable latency |
 | F04 — Multimodal tone and cue interpretation | Sep 9 | Stable English-only conversation-atmosphere hypotheses and remote social cues combine bounded language, local vocal, and local visual evidence |
 | [F05 — Contact memory and personalization](plans/F05-contact-memory-personalization.md) | Sep 16 | Approved long-term memory, aliases, provenance, retrieval, supersession, and relationship-specific style |
-| F06 — Live guidance, Ask Memory, and post-call review | Sep 22 | Replies, reminders, follow-ups, summaries, memory proposals, and natural-language questions over contact history work through one bounded guidance experience |
+| [F06 — Live guidance, Ask Memory, and post-call review](plans/F06-live-guidance-ask-memory-post-call-review.md) | Sep 22 | Replies, reminders, follow-ups, manually approved summaries, existing memory-proposal review, and natural-language questions over approved local evidence |
 | F07 — Evaluation and calibration | Sep 27 | Repeatable scenarios, measured errors/latency/abstention, and tuned update behavior |
 | F08 — Windows packaging and final demonstration | Oct 1 | Reliable live Windows demo, clean setup, limitations, and recorded fallback |
 | F09 — macOS support | After F08; no committed date | Run and validate on the user's Mac: selected-window capture, two-sided audio, local transcription, existing guidance/memory, and Mac setup/packaging while preserving Windows operation |
@@ -154,28 +154,29 @@ F04 is approved as a memory-free interpretation feature. It analyzes the remote 
 F05 planning was approved on 2026-08-27 and completed on 2026-09-01 after the consenting call, measured retrieval/performance/safety gates, full suite, and clean Opus 5 correction review passed. It uses explicit contact selection, aliases/disambiguation, local attributed-text Conversation Records, review-only AI proposals (including visibly grouped `likely_generic` concrete routine facts), immutable approved revisions, exact-contact lifecycle filtering, SQLite/FTS5 retrieval plus bounded local BGE-small similarity, and bounded memory enrichment of F04. The semantic dependency was selected only after the live indirect-employment case scored 0/3 with lexical retrieval and 3/3 locally at ranks 1, 2, and 2. September 3 follow-ups keep locally matched remembered context visible for 24 seconds after its last matching snapshot, use the latest eight complete turns within a 500-character semantic window, and pause semantic matching across explicit topic transitions while preserving lexical retrieval and immediate lifecycle/contact invalidation. Face recognition remains a separate post-MVP candidate. Detailed scope, storage, lifecycle, evaluation, and implementation evidence live in `plans/F05-contact-memory-personalization.md` and `docs/F05-VALIDATION.md`.
 
 F06 must include an **Ask Memory** experience for natural-language questions over
-the selected contact's approved memories and F06 conversation summaries, such as
+the selected contact's Approved Memories and manually Approved Summaries, such as
 `What time did Yaheli say his appointment was?`. It must reuse F05's exact-contact,
 lifecycle-safe bounded retrieval rather than sending complete history to a model.
 Answers show supporting contact/date/source context and must say that nothing was
 found, present low-confidence alternatives, ask for clarification, or abstain when
-the stored evidence is missing or ambiguous. Rejected, superseded, deleted,
-unassigned, wrong-contact, or cloud-ineligible sensitive content cannot become
-answer evidence.
+the stored evidence is missing or ambiguous. Deleted, unassigned, wrong-contact,
+and unreviewed content cannot become answer evidence. Rejected proposals and linked
+summary statements remain excluded unless the user explicitly restores a summary
+statement through review; this does not approve the proposal. Superseded memory
+revisions are not current evidence. A summary statement explicitly kept after a
+correction may remain dated history with a linked correction, never silently current
+truth. Sensitive content without cloud permission remains eligible only for local use.
 
-The F06 grilling and feature plan must explicitly decide the smallest useful
-interaction model (one-shot search versus short conversational follow-ups), how
-the user selects one-contact versus explicit all-contact scope, what summary
-records are searchable, whether query history is retained, how citations open
-their memory/summary provenance, the local-retrieval versus bounded-model split,
-token/cost limits, sensitive-memory permission, stale-result invalidation, and
-missing/ambiguous-answer behavior. The MVP starts from contact-scoped question and
-answer with provenance; a general autonomous chatbot is not implied. Prefer the
-lightest local design that passes the fixed Ask Memory evaluation: first F05
-metadata/FTS5 plus a small semantic embedding model and deterministic answers,
-then an on-demand quantized sub-1B or roughly 1B local model only if it materially
-improves query rewriting or grounded answer phrasing. A model must never replace
-contact/lifecycle filtering or invent an answer when retrieval found no evidence.
+The [F06 feature plan](plans/F06-live-guidance-ask-memory-post-call-review.md)
+records the September 7 interview: two visible candidates per new guidance category
+(three supported), short temporary Ask follow-ups, separate in-call Ask contact scope,
+manual summary/memory approval, source links, correction Keep/Remove choices, rejection
+and deletion controls, and bounded shared costs. Existing FTS5/structured/source-based
+answers and BGE retrieval remain the default. Explicit cloud help is the preferred
+enhancement so an additional local LLM is not required on less capable PCs. Any local
+LLM experiment needs measured usefulness, complete package/RAM/latency and concurrent-call
+evidence; it remains optional and outside the normal install. No model replaces
+contact/lifecycle filtering or invents an answer when retrieval found no evidence.
 
 ## Per-Feature Workflow
 
@@ -190,11 +191,11 @@ During and after implementation:
 
 1. Build the smallest complete vertical slice and leave one runnable check for non-trivial logic.
 2. Test with saved inputs before spending API budget on live calls.
-3. Demonstrate the feature against its acceptance checks.
-4. Hand Claude Opus 5 the feature plan, changed files/diff, test results, and known limitations for QA/code review in a tool-disabled, read-only session. Each feature gate reviews that feature and its direct integration surface only, including existing components, contracts, and regression checks that the new feature touches or can affect; it does not repeat a general review of unrelated unchanged program code. Reserve whole-program Claude review for the dedicated project-wide/final gate. Use Opus 5 for preliminary reviews and the final required gate unless the user explicitly approves another model.
-5. Fix accepted findings or record why a finding was rejected.
-6. Rerun the feature checks, commit the reviewed result, and push it to the project's GitHub repository so the accepted history is preserved remotely.
-7. Mark the feature complete in its plan and permanent Trello column before planning the next feature.
+3. Before asking the user to test, complete agent-run feature/affected-integration checks and obtain a preliminary tool-disabled, read-only **Claude Opus 5** (`claude-opus-5`) QA/code review of the plan, complete diff, test evidence and known limitations. Verify and record the actual reviewer model; do not silently substitute an older Opus or Sonnet. Correct accepted findings, rerun affected checks and obtain a clean follow-up first.
+4. Give the user a concrete manual-test script, demonstrate the feature against its acceptance checks and record the user's actual results. Fix reported defects and rerun affected checks. Silence is not a pass.
+5. After user testing, obtain a fresh tool-disabled, read-only **Claude Opus 5** review of the final complete diff, automated evidence, manual outcomes and corrections. Both reviews cover only the feature and its direct integration surfaces, not unrelated unchanged code. Reserve whole-program review for the dedicated final gate. Use Opus 5 unless the user explicitly approves another model. The pre-test pass does not replace the post-test gate.
+6. Fix accepted findings or record evidence for rejection; rerun affected checks and obtain correction review until no material findings remain. Obtain targeted user rechecks if fixes change manually tested behavior. Audit the final diff, commit the reviewed result and push it; verify local main, origin/main and GitHub main match.
+7. Mark the feature complete in its plan and permanent Trello column only after both review gates, user testing, corrections and release verification. This general workflow was reaffirmed on 2026-09-08 for F06 and future work; it does not reopen accepted F01–F05 gates.
 
 ## Agent and Source-of-Truth Rules
 
@@ -249,6 +250,12 @@ The project is not finished because a demo looks plausible. Evaluation must incl
 **Google Meet follow-up — passed 2026-09-07:** a consenting live call in dedicated Chrome admitted the current code-shaped Meet title, captured three visible participants, detected faces in the normal layout and after the small-tile screen-share fallback, and produced attributed transcript plus live interpretation. The user accepted the run as passed. The historical F02/F03 waivers remain an accurate record of the earlier release gates; this later evidence closes the observed title, small-gallery, and tested-call routing risks for this Chrome/Meet configuration without expanding the product beyond explicit selected-window capture or one analyzed face.
 
 ## Cost Control
+
+**F06 planning decision — approved 2026-09-07:** F06 will raise the Assisted Call hard limit to **$0.35**, with **$0.08 reserved for post-call summary/extraction** and at most **$0.27 for paid live work**. Retain the $0.15 warning. All call-funded work shares the same ledger and accounts for in-flight reservations. If longer post-call work cannot fit, keep it pending and offer an explicit continuation button with its cost estimate and a bounded run limit. The $0.25 amounts below describe the accepted F04/F05 baseline until F06 implements this change; this decision does not reopen those completed gates.
+
+**F06 approval decision — approved 2026-09-07:** Summary drafts require explicit manual review/approval before search can use them. Ask Memory searches current eligible Approved Summaries and Approved Memories only. Summary approval and Memory Proposal approval remain separate actions; automatic approval is deferred.
+
+**F06 Ask Memory decision — approved 2026-09-07:** Begin with existing local structured/FTS5/source-based answers and BGE-small retrieval. An optional small local LLM requires measured F06 usefulness and complete-footprint/concurrent-call evidence before adoption. An OpenAI fallback requires an explicit action and visible estimate for each request, capped at **$0.04 per answer** and **$0.13 per outside-call Ask session**. During calls it shares the live budget and cannot consume the post-call reserve. Sensitive-memory permissions remain enforced. These are upper limits; testing records actual cost rather than aiming to consume them.
 
 - Set a development budget alert at **$30** through October 1.
 - Prefer replayable transcripts, audio samples, and derived visual fixtures during development.
