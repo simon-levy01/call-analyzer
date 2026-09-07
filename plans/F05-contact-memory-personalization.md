@@ -645,5 +645,6 @@ Planning approval does not mark F05 complete.
 - [x] Final diff audit, reviewed commit/push, pointer verification, Trello reconciliation, and roadmap completion.
 - [x] September 3 follow-up: automatic cadence reduced to 12 seconds and possible remembered context held for 24 seconds after its last match; generated retrieval keywords were not added because the selected local semantic model already passed the indirect-employment gate.
 - [x] September 3 semantic-continuity follow-up: query the latest eight complete turns within 500 characters, preserve middle cues, and pause semantic matching across an explicit topic transition while lexical retrieval continues.
+- [x] September 7 live follow-up: an approved fictional cat-loss memory briefly matched an unrelated relationship-conflict transcript through generic semantic similarity. Bereavement memories now require direct/date retrieval or guarded grief cues before semantic supply; the progressive replay returns no match at every line while existing indirect grief cases remain green.
 
 Detailed measurements are recorded in [docs/F05-VALIDATION.md](../docs/F05-VALIDATION.md).

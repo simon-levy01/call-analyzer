@@ -1,5 +1,10 @@
 # Conversation Copilot
 
+The current application targets Windows. **F09 — macOS support** is scheduled
+after F08's Windows packaging and final demonstration, with no committed date.
+The user will run F09 on a Mac for implementation and real-device validation;
+Mac installation and operation are not supported yet. See the [master plan](PLAN.md#f09--macos-support-planned-not-started).
+
 ## Setup (Windows PowerShell)
 
 ```powershell

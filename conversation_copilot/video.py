@@ -73,6 +73,16 @@ def _intersection_over_union(left: FaceBox, right: FaceBox) -> float:
     return intersection / union if union else 0.0
 
 
+def _intersection_over_smaller(left: FaceBox, right: FaceBox) -> float:
+    x1 = max(left.x, right.x)
+    y1 = max(left.y, right.y)
+    x2 = min(left.x + left.width, right.x + right.width)
+    y2 = min(left.y + left.height, right.y + right.height)
+    intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    smaller = min(left.area, right.area)
+    return min(1.0, intersection / smaller) if smaller else 0.0
+
+
 class RemoteFaceTracker:
     def __init__(self) -> None:
         self.selected: FaceBox | None = None
@@ -221,18 +231,8 @@ class FaceProcessor:
         timestamp_ms = max(timestamp_ms, self._last_timestamp_ms + 1)
         self._last_timestamp_ms = timestamp_ms
         rgb = cv2.cvtColor(bgra, cv2.COLOR_BGRA2RGB)
-        image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-        detections = self._detector.detect(image).detections
         height, width = rgb.shape[:2]
-        boxes = [
-            FaceBox(
-                max(0.0, detection.bounding_box.origin_x / width),
-                max(0.0, detection.bounding_box.origin_y / height),
-                min(1.0, detection.bounding_box.width / width),
-                min(1.0, detection.bounding_box.height / height),
-            )
-            for detection in detections
-        ]
+        boxes = self._detect_boxes(rgb, timestamp_ms)
         selected = self.tracker.update(boxes, timestamp_ms)
         state = "Face lost" if self.tracker.is_lost else "Tracking"
         if selected is None:
@@ -264,6 +264,45 @@ class FaceProcessor:
         signal = FacialSignal(timestamp_ms, selected, landmarks, blendshapes)
         thumbnail = cv2.resize(crop, (160, 120), interpolation=cv2.INTER_AREA)
         return ProcessingResult(signal, len(boxes), state, thumbnail)
+
+    def _detect_boxes(self, rgb: np.ndarray, timestamp_ms: int) -> list[FaceBox]:
+        height, width = rgb.shape[:2]
+
+        def detect(x1: int, y1: int, x2: int, y2: int) -> list[FaceBox]:
+            image = mp.Image(
+                image_format=mp.ImageFormat.SRGB,
+                data=np.ascontiguousarray(rgb[y1:y2, x1:x2]),
+            )
+            return [
+                FaceBox(
+                    max(0.0, (x1 + item.bounding_box.origin_x) / width),
+                    max(0.0, (y1 + item.bounding_box.origin_y) / height),
+                    min(1.0, item.bounding_box.width / width),
+                    min(1.0, item.bounding_box.height / height),
+                )
+                for item in self._detector.detect(image).detections
+            ]
+
+        boxes = detect(0, 0, width, height)
+        if boxes:
+            return boxes
+        left, right = width * 3 // 5, width * 2 // 5
+        top, bottom = height * 3 // 5, height * 2 // 5
+        tiled = [
+            box
+            for x1, y1, x2, y2 in (
+                (0, 0, left, top),
+                (right, 0, width, top),
+                (0, bottom, left, height),
+                (right, bottom, width, height),
+            )
+            for box in detect(x1, y1, x2, y2)
+        ]
+        unique: list[FaceBox] = []
+        for box in sorted(tiled, key=lambda item: item.area, reverse=True):
+            if all(_intersection_over_smaller(box, seen) < 0.5 for seen in unique):
+                unique.append(box)
+        return unique
 
 
 def _expanded_pixels(

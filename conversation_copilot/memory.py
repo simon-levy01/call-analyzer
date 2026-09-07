@@ -1742,6 +1742,8 @@ class MemoryStore:
                 vague_semantic_ambiguous = False
             else:
                 semantic_ids = [item for item in semantic_ids if item not in loss_ids]
+        if not grief_reference:
+            semantic_ids = [item for item in semantic_ids if item not in loss_ids]
         loss_lexical_ids = [item for item in lexical_ids if item in loss_ids]
         if grief_reference:
             dated_losses = sorted(

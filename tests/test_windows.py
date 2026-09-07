@@ -26,11 +26,17 @@ def test_only_supported_visible_call_windows_are_eligible():
         snapshot("Team sync - Google Meet", r"C:\Program Files\Google\Chrome\chrome.exe")
     )
     assert meet and meet.kind == "Google Meet"
+    active_meet = windows._eligible(
+        snapshot("Meet - abc-defg-hij - Google Chrome", r"C:\Program Files\Google\Chrome\chrome.exe")
+    )
+    assert active_meet and active_meet.kind == "Google Meet"
 
 
 def test_generic_chrome_and_other_browsers_are_rejected():
     assert windows._eligible(snapshot("WhatsApp", r"C:\Apps\WhatsApp.Root.exe")) is None
     assert windows._eligible(snapshot("Inbox", r"C:\Chrome\chrome.exe")) is None
+    assert windows._eligible(snapshot("Meet - search results - Google Chrome", r"C:\Chrome\chrome.exe")) is None
+    assert windows._eligible(snapshot("Meet - ABC-DEFG-HIJ - Google Chrome", r"C:\Chrome\chrome.exe")) is None
     assert windows._eligible(snapshot("Google Meet", r"C:\Edge\msedge.exe")) is None
     assert windows._eligible(snapshot("Google Meet", r"C:\Firefox\firefox.exe")) is None
 

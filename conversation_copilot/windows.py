@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import ctypes
+import re
 from dataclasses import dataclass
 from ctypes import wintypes
 from pathlib import Path
 
 MEET_TITLE_MARKER = "Google Meet"
+MEET_CODE_TITLE = re.compile(
+    r"Meet - [a-z]{3}-[a-z]{4}-[a-z]{3} - Google Chrome"
+)
 WHATSAPP_CALL_TITLE = "Video call"
 
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
@@ -157,7 +161,10 @@ def _eligible(snapshot: _WindowSnapshot) -> CallWindow | None:
         kind = "Zoom"
     elif (
         executable == "chrome.exe"
-        and MEET_TITLE_MARKER.casefold() in snapshot.title.casefold()
+        and (
+            MEET_TITLE_MARKER.casefold() in snapshot.title.casefold()
+            or MEET_CODE_TITLE.fullmatch(snapshot.title)
+        )
     ):
         kind = "Google Meet"
     else:

@@ -757,3 +757,37 @@ The four unrelated untracked CV PDFs were explicitly excluded. The reviewed F05 
 including the approved PLAN/CONTEXT/canonical-plan changes, were committed and pushed;
 final local/origin/GitHub pointer evidence is recorded on Trello F05.13. No waiver is
 used.
+
+## 2026-09-07 live Meet and bereavement false-positive follow-up
+
+A consenting three-participant Google Meet call passed dedicated-Chrome window selection,
+normal and screen-share face detection, attributed transcription, and live Luna analysis.
+During the same test, an approved fictional cat-loss memory briefly appeared during an
+unrelated relationship-conflict exchange. Line-by-line local replay isolated a semantic-only
+match: general negative affect had crossed the 0.45 similarity floor without any loss, grief,
+missing-person, pet, date, or event cue. The display's existing 24-second retention explained
+why the candidate was visible briefly, but did not make the candidate relevant.
+The committed regression dialogue is entirely fabricated and preserves no wording from the
+live call.
+
+The shared retrieval path now excludes bereavement revisions from semantic-only results unless
+the guarded grief-reference rules pass. Exact lexical/date retrieval and the established
+indirect `after the whole thing` plus contact-spoken attachment/missing cues remain unchanged.
+The progressive replay returns no memory at every checkpoint. A deliberately
+adversarial fixed-vector regression proves generic relationship conflict cannot supply a death
+memory even when the embedding ranks it first. Focused memory tests passed **76/76**. No OpenAI
+request was made for the replay or correction. After the Meet-title and tiled-detection
+regressions were included, focused video/window/memory-scenario checks passed **29/29**,
+the complete fake-model suite passed **209/209**, `pip check` was clean, and `--check-video`
+reported 478 landmarks and 52 blendshapes.
+Thirty direct 1920×1032 five-detector fallback frames measured 14.63 ms median, 15.74 ms
+p95, and 16.11 ms maximum; no cached face boxes are reused after a layout change.
+
+A fresh tool-disabled Claude Opus 5 review rejected the first throttled implementation because
+cached boxes could outlive a gallery-layout change, p95 omitted the occasional five-pass frame,
+partial seam boxes could evade IoU deduplication, and the synthetic provenance needed to be
+explicit. The accepted corrections removed the cache, measured the direct fallback path,
+deduplicate by intersection over the smaller box, use plainly synthetic fixture dialogue, and
+added regressions for per-frame rechecks and seam containment.
+The same Claude Opus 5 session then re-reviewed the complete corrected diff and returned
+`CLEAN REVIEW` with no unresolved material finding.

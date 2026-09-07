@@ -1,6 +1,7 @@
 import socket
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -45,6 +46,62 @@ def test_replay_runs_offline_with_verified_local_assets():
     assert "478 landmarks" in summary
     assert "52 blendshapes" in summary
     assert "Face lost without silent switching" in summary
+
+
+def test_quadrant_fallback_detects_small_gallery_faces():
+    portraits = [
+        video.cv2.imread(str(video.PORTRAIT_A_PATH)),
+        video.cv2.imread(str(video.PORTRAIT_B_PATH)),
+    ]
+    frame = np.full((1032, 1920, 3), 30, dtype=np.uint8)
+    for index in range(4):
+        portrait = video.cv2.resize(
+            portraits[index % 2], (480, 300), interpolation=video.cv2.INTER_AREA
+        )
+        x = 480 + index % 2 * 480
+        y = 100 + index // 2 * 300
+        frame[y : y + 300, x : x + 480] = portrait
+
+    processor = video.FaceProcessor()
+    try:
+        rgb = video.cv2.cvtColor(frame, video.cv2.COLOR_BGR2RGB)
+        full_image = video.mp.Image(image_format=video.mp.ImageFormat.SRGB, data=rgb)
+        assert not processor._detector.detect(full_image).detections
+
+        result = processor.process(video.cv2.cvtColor(frame, video.cv2.COLOR_BGR2BGRA), 0)
+    finally:
+        processor.close()
+
+    assert result.face_count == 4
+    assert result.signal is not None
+
+
+def test_tiled_detection_rechecks_each_frame_without_stale_boxes():
+    class NoFaces:
+        def __init__(self):
+            self.calls = 0
+
+        def detect(self, _image):
+            self.calls += 1
+            return SimpleNamespace(detections=[])
+
+    detector = NoFaces()
+    processor = video.FaceProcessor.__new__(video.FaceProcessor)
+    processor._detector = detector
+    rgb = np.zeros((100, 200, 3), dtype=np.uint8)
+
+    assert processor._detect_boxes(rgb, 0) == []
+    assert detector.calls == 5
+    assert processor._detect_boxes(rgb, 1) == []
+    assert detector.calls == 10
+
+
+def test_tiled_detection_deduplicates_partial_seam_boxes():
+    full = FaceBox(0.4, 0.2, 0.2, 0.3)
+    partial = FaceBox(0.55, 0.2, 0.05, 0.3)
+
+    assert video._intersection_over_union(full, partial) < 0.3
+    assert video._intersection_over_smaller(full, partial) == 1.0
 
 
 def test_production_vision_sources_have_no_writer_or_network_client():

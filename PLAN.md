@@ -1,8 +1,11 @@
 # Conversation Copilot Master Plan
 
 **Approved:** 2026-08-10  
-**Delivery deadline:** 2026-10-01  
+**Windows MVP delivery deadline:** 2026-10-01
+
 **Status:** Active
+
+**Roadmap update approved:** 2026-09-05 — F09 adds macOS support after F08. The user will run F09 on a Mac; it has no committed completion date and does not change the Windows MVP deadline.
 
 ## Purpose
 
@@ -66,7 +69,7 @@ By October 1, the application must demonstrate a complete one-to-one call loop o
 - Facial recognition or biometric identity during F01-F08. After the October 1 MVP, revisit opt-in contact face enrollment as a separate feature only with explicit consent, user-controlled deletion, multiple reference samples, measured false-match/false-reject behavior, and confirmation before a suggested match becomes the Selected Contact. F05 uses aliases and explicit contact selection; one saved screenshot is not treated as reliable identity evidence.
 - Hidden capture, employee/student scoring, or definitive emotion detection.
 - Native/private Zoom, WhatsApp, or Google Meet integrations when selected-window capture is sufficient.
-- macOS packaging.
+- macOS operation and packaging during F01-F08; scheduled separately as F09 after the Windows MVP.
 - Hardware wearables.
 - Cloud accounts or server-hosted memory.
 
@@ -86,7 +89,7 @@ These are preferred starting points, not permanent choices. Each feature plan mu
 | Durable storage and search | SQLite/FTS5 plus bounded local BGE-small similarity | Exact lifecycle/contact filtering remains SQL-first; vectors stay in the same database and are scored locally |
 | Vocal observations | Simple local remote-speaker energy/rate/pause/overlap features from existing samples/timing | Add a vocal-analysis dependency only after measured uplift failure and an approved plan revision |
 
-GPU acceleration is allowed and should be used when it improves the demo, but the basic MediaPipe path should remain CPU-capable. The supported release target is Windows; the lecturer's MacBook is not a packaging target.
+GPU acceleration is allowed and should be used when it improves the demo, but the basic MediaPipe path should remain CPU-capable. The F01-F08 release target is Windows; a MacBook is not required for the October 1 demonstration. F09 adds macOS as a supported platform only after implementation and validation on a real Mac.
 
 ## Reuse and Lessons from the Autistic Analyzer POC
 
@@ -124,6 +127,17 @@ Target dates are completion targets. If one slips, apply the trimming order inst
 | F06 — Live guidance, Ask Memory, and post-call review | Sep 22 | Replies, reminders, follow-ups, summaries, memory proposals, and natural-language questions over contact history work through one bounded guidance experience |
 | F07 — Evaluation and calibration | Sep 27 | Repeatable scenarios, measured errors/latency/abstention, and tuned update behavior |
 | F08 — Windows packaging and final demonstration | Oct 1 | Reliable live Windows demo, clean setup, limitations, and recorded fallback |
+| F09 — macOS support | After F08; no committed date | Run and validate on the user's Mac: selected-window capture, two-sided audio, local transcription, existing guidance/memory, and Mac setup/packaging while preserving Windows operation |
+
+### F09 — macOS support (planned; not started)
+
+Trello: [F09 roadmap card](https://trello.com/c/fCrlrZ8P/91-f09-macos-support-after-f08).
+
+Start after F08 is complete. The user will run this feature on a Mac. At that point, record its chip, memory, and macOS version and choose the supported hardware/OS baseline from measured results. Create `plans/F09-macos-support.md` and the permanent F09 Trello column immediately before implementation, following the existing per-feature workflow. Until then, keep F09 as a Feature Backlog roadmap card; do not start a second active feature or prebuild portability abstractions.
+
+Reuse the existing Python UI, interpretation, contact memory, and local face-processing logic wherever compatible. F09 owns Mac window discovery/capture, microphone and call-audio capture with explicit selection and permissions, a local transcription runtime that does not require NVIDIA CUDA, conditional platform dependencies/imports, native storage paths, and Mac setup/packaging. Choose capture and transcription implementations in the F09 plan after an early on-Mac capture/accuracy/latency check; do not assume the current Windows dependencies or GPU path work on Mac.
+
+Completion requires a clean Mac install and a complete call-to-guidance-to-post-call-memory demonstration, measured transcription accuracy/latency alongside video processing, permission-denial/recovery and audio-device/lifecycle checks, and real WhatsApp, Zoom, and dedicated Chrome/Meet validation for each claimed Mac integration. Preserve existing privacy, contact confirmation, bounded cloud requests, local audio processing, no raw media retention, and audio continuity after visual loss. Windows validation waivers do not count as Mac evidence. Rerun affected Windows regression checks, document the supported Mac configuration and limitations, and complete the existing Claude review, corrections, commit/push, and Trello completion gates.
 
 ### Post-MVP Candidate
 
@@ -232,6 +246,8 @@ The project is not finished because a demo looks plausible. Evaluation must incl
 
 **F03 validation exception — approved by the user on 2026-08-25:** real WhatsApp two-sided transcription passed. The user waived the F03 Zoom and Google Meet live calls for now; both are recorded as `WAIVED — not passed`. This accepts residual application-specific window, routing, layout, title, and endpoint-scope risks and does not present either app as validated.
 
+**Google Meet follow-up — passed 2026-09-07:** a consenting live call in dedicated Chrome admitted the current code-shaped Meet title, captured three visible participants, detected faces in the normal layout and after the small-tile screen-share fallback, and produced attributed transcript plus live interpretation. The user accepted the run as passed. The historical F02/F03 waivers remain an accurate record of the earlier release gates; this later evidence closes the observed title, small-gallery, and tested-call routing risks for this Chrome/Meet configuration without expanding the product beyond explicit selected-window capture or one analyzed face.
+
 ## Cost Control
 
 - Set a development budget alert at **$30** through October 1.
@@ -251,6 +267,6 @@ If the schedule slips, remove work in this order:
 2. Deep/private Zoom, WhatsApp, or Google Meet integrations beyond selected-window capture.
 3. Polished text UI and WhatsApp Web convenience features.
 4. Paid Hume/prosody experiments and extra emotion models.
-5. Broad hardware optimization and macOS support.
+5. Broad hardware optimization. macOS support is already outside the October 1 scope and remains scheduled as F09 after F08.
 
 Do not trim the working video capture path, evidence-backed multimodal interpretation, contact-aware guidance, uncertainty, repeatable evaluation, or the live Windows demo.

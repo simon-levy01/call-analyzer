@@ -624,6 +624,46 @@ def test_progressive_grief_phrases_retrieve_tragedy_memory_cautiously(
         assert not result.semantic_available
 
 
+def test_generic_relationship_conflict_does_not_retrieve_bereavement_memory(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        semantic_module,
+        "embed_texts_if_ready",
+        lambda texts, _cache: np.pad(
+            np.ones((len(texts), 1), dtype=np.float32), ((0, 0), (0, 383))
+        ),
+    )
+    turns = _turns([
+        ("user", "Synthetic prompt: describe the day."),
+        ("selected_contact", "Synthetic reply: I will tell somebody else."),
+        ("user", "Synthetic prompt: why not tell me?"),
+        ("selected_contact", "Synthetic reply: I prefer not to discuss it."),
+        ("user", "Synthetic prompt: is this about our friendship?"),
+        ("selected_contact", "Synthetic reply: I no longer feel close to you."),
+    ])
+    with MemoryStore(tmp_path / "relationship-conflict.sqlite3") as store:
+        contact = store.create_contact("Alex")
+        store.create_memory(
+            contact.id,
+            "Alex's cat died on September 1, 2026",
+            memory_type="event_date",
+        )
+        store.backfill_semantic_embeddings()
+        query, date_query = _memory_retrieval_inputs(turns)
+        result = store.retrieve(
+            contact.id,
+            query,
+            date_query=date_query,
+            semantic_query=_memory_semantic_input(turns),
+            contact_cue_query=_memory_semantic_input(
+                turns, speaker_role=SpeakerRole.SELECTED_CONTACT
+            ),
+        )
+
+    assert result.matches == ()
+
+
 def _turns(raw_turns):
     started = datetime(2026, 8, 29, 12, tzinfo=timezone.utc)
     return [
