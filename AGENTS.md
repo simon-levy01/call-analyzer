@@ -1,0 +1,17 @@
+# Project session instructions
+
+Read CONTEXT.md, PLAN.md and docs/TESTING.md before implementation or evaluation work. These instructions apply to every future session in this repository.
+
+## User's model-testing preference (13 September 2026)
+
+- Support real API evaluation, Codex subagent evaluation, and local Ollama evaluation. When the user requests model-dependent tests without specifying the method, ASK whether to use API, agents, or local models before running inference. Do not silently choose or fall back between them. Ordinary offline unit tests and saved-output validation do not invoke a model and may run normally.
+- An explicit request for offline/local-model testing selects local inference and needs no API-versus-agent clarification. Use downloaded weights and loopback endpoints; never fall back to a cloud model.
+- For agent tests, use the actual requested model and reasoning effort via explicit subagent configuration, with no conversation-history fork. Never impersonate a different model. If unavailable, report that rather than silently substituting. Give agents the frozen input/instructions/schema, keep expected answers hidden, and save raw answers. Use one fresh agent per distinct request for API comparisons: the expanded September 13 pilot leaked a previous case's memory into a later memory-free request. Shared-agent batches are diagnostic only, not isolated API comparisons. Exact duplicate instructions/input/schema/output-limit may reuse a saved agent answer with explicit provenance; do not count that reuse as another independent inference.
+- Agent tests consume subscription usage and are preliminary quality checks, NOT proof of API parity. They do not measure real API latency, strict structured-output decoding, provider billing or deployed behavior. Retain small real API acceptance checks when the user selects API mode.
+- Paid API tests require an applicable explicit budget. Old $2/$4 caps were for named past evaluations, not recurring authorization. Reuse recorded baselines when possible; never reset old spend ledgers or overwrite prior results.
+- The user now rejects quota-limited free hosted tiers as a solution to unlimited free model use. Local inference has no provider usage quota/API fee but still has hardware costs, finite context and performance constraints. Do not describe free-tier credits, Codex subscription access, or local hardware as unrestricted free hosted API access.
+- Preserve test prompts, cases, transcripts, model/version/effort, exact inputs, raw and validated outputs, expectations, human assessments, timing, usage and cost provenance. See docs/TESTING.md for prior suites and the private history archive. Never automatically upload private call logs or credentials to Git or external providers.
+
+## Current pre-live state (14 September 2026)
+
+The user selected Luna low and set aside local-model comparisons. Live/manual checks now use Luna; Ask Memory and review remain Luna low. Pre-live tests and Claude review are complete with known semantic limitations in docs/F06-AGENT-API-EXPANDED.md. The user accepted F06 as complete for now and authorized commit/push; another live call is optional future work, not a remaining closure gate. F07 is next but not started. Preserve all earlier model results without rerunning local comparisons unless requested.

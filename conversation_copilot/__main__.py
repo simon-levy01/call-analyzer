@@ -110,10 +110,10 @@ def show_window(summary: str) -> None:
         InterpretationBudgetExceeded,
         InterpretationCoordinator,
         LUNA_MODEL,
+        LIVE_BUDGET_CEILING_DOLLARS,
         OpenAIInterpreter,
         RetrievedMemoryContext,
         StableInterpretationCard,
-        TERRA_MODEL,
         UsageLedger,
         VisualAggregator,
         VocalObservation,
@@ -123,6 +123,10 @@ def show_window(summary: str) -> None:
         prepare_interpretation_request,
     )
     from .models import ConversationTurn, SpeakerRole
+    from .guidance import CATEGORIES, GuidanceDisplay, interpret_guidance
+    from .ask_memory import AskSession, memory_source, validate_sources, cloud_answer, ASK_INPUT_LIMIT, ASK_OUTPUT_LIMIT
+    from .interpretation import BudgetLimits
+    from .post_call import process_review, review_estimate
     from .memory import (
         AmbiguousContact,
         MEMORY_TYPES,
@@ -148,9 +152,53 @@ def show_window(summary: str) -> None:
     root.minsize(1000, 560)
     main_pane = tk.PanedWindow(root, orient=tk.HORIZONTAL, sashrelief=tk.RAISED)
     main_pane.pack(fill="both", expand=True)
-    left_column = tk.Frame(main_pane)
+    left_view = tk.Frame(main_pane)
+    left_canvas = tk.Canvas(left_view, highlightthickness=0, yscrollincrement=24, xscrollincrement=24)
+    vertical_scroll = ttk.Scrollbar(left_view, orient="vertical", command=left_canvas.yview)
+    horizontal_scroll = ttk.Scrollbar(left_view, orient="horizontal", command=left_canvas.xview)
+    left_canvas.configure(yscrollcommand=vertical_scroll.set, xscrollcommand=horizontal_scroll.set)
+    left_view.rowconfigure(0, weight=1)
+    left_view.columnconfigure(0, weight=1)
+    left_canvas.grid(row=0, column=0, sticky="nsew")
+    vertical_scroll.grid(row=0, column=1, sticky="ns")
+    horizontal_scroll.grid(row=1, column=0, sticky="ew")
+    left_column = tk.Frame(left_canvas)
+    left_content = left_canvas.create_window(0, 0, window=left_column, anchor="nw")
+    def resize_left(_event=None):
+        left_canvas.itemconfigure(left_content, width=max(left_canvas.winfo_width(), left_column.winfo_reqwidth()))
+        left_canvas.configure(scrollregion=left_canvas.bbox("all"))
+    left_column.bind("<Configure>", resize_left)
+    left_canvas.bind("<Configure>", resize_left)
+    def scroll_left(event):
+        widget = event.widget
+        if widget.winfo_toplevel() != root or isinstance(widget, (tk.Text, tk.Listbox, tk.Scale, ttk.Combobox)):
+            return
+        while widget is not None and widget != left_view:
+            widget = widget.master
+        if widget is left_view and event.delta:
+            scroll = left_canvas.xview_scroll if event.state & 1 else left_canvas.yview_scroll
+            scroll(-int(event.delta / 120) or (-1 if event.delta > 0 else 1), "units")
+            return "break"
+    root.bind("<MouseWheel>", scroll_left, add="+")
+    def reveal_control(event):
+        widget = event.widget
+        while widget is not None and widget != left_column:
+            widget = widget.master
+        if widget is not left_column:
+            return
+        bounds = left_canvas.bbox("all")
+        for position, size, viewport, extent, view, move in (
+            (event.widget.winfo_rooty() - left_column.winfo_rooty(), event.widget.winfo_height(), left_canvas.winfo_height(), bounds[3], left_canvas.yview, left_canvas.yview_moveto),
+            (event.widget.winfo_rootx() - left_column.winfo_rootx(), event.widget.winfo_width(), left_canvas.winfo_width(), bounds[2], left_canvas.xview, left_canvas.xview_moveto),
+        ):
+            start = view()[0] * extent
+            if position < start or position + size > start + viewport:
+                move(max(0, position if position < start else position + size - viewport) / max(1, extent))
+    root.bind("<FocusIn>", reveal_control, add="+")
+    left_canvas.bind("<Prior>", lambda _event: left_canvas.yview_scroll(-1, "pages"))
+    left_canvas.bind("<Next>", lambda _event: left_canvas.yview_scroll(1, "pages"))
     transcript_column = tk.LabelFrame(main_pane, text="Final transcript")
-    main_pane.add(left_column, minsize=760, stretch="always")
+    main_pane.add(left_view, minsize=760, stretch="always")
     main_pane.add(transcript_column, minsize=320, stretch="always")
     tk.Label(left_column, text=summary, justify="left", padx=12, pady=8).pack(anchor="w")
     tk.Label(left_column, text="Visible call windows").pack(anchor="w", padx=12)
@@ -159,6 +207,7 @@ def show_window(summary: str) -> None:
     memory_store = None
     memory_startup_error = ""
     semantic_backfill_lock = threading.Lock()
+    semantic_backfill_requested = False
     try:
         memory_store = MemoryStore()
     except MemoryStoreUnavailable as exc:
@@ -265,18 +314,34 @@ def show_window(summary: str) -> None:
         anchor="w",
     )
     interpretation_meta_label.pack(fill="x", padx=8, pady=(2, 4))
+    tk.Label(interpretation_frame, text="Live guidance: Luna · low reasoning", anchor="w").pack(fill="x", padx=8)
     terra_controls = tk.Frame(interpretation_frame)
     terra_controls.pack(fill="x", padx=8, pady=(0, 6))
-    tk.Label(terra_controls, text="Terra reasoning").pack(side="left")
+    tk.Label(terra_controls, text="Luna reasoning").pack(side="left")
     terra_reasoning = ttk.Combobox(
         terra_controls, state="disabled", values=("none", "low"), width=8
     )
-    terra_reasoning.current(0)
+    terra_reasoning.current(1)
     terra_reasoning.pack(side="left", padx=6)
     terra_button = tk.Button(
-        terra_controls, text="Check with Terra", state="disabled"
+        terra_controls, text="Check with Luna", state="disabled"
     )
     terra_button.pack(side="left")
+    suggest_button = tk.Button(terra_controls, text="Suggest now", state="disabled")
+    suggest_button.pack(side="left", padx=6)
+    ask_button = tk.Button(terra_controls, text="Ask Memory")
+    ask_button.pack(side="left", padx=6)
+    review_button = tk.Button(terra_controls, text="Review conversation")
+    review_button.pack(side="left", padx=6)
+    guidance_frame = tk.LabelFrame(transcript_column, text="Live guidance — confirm a contact")
+    guidance_frame.pack(fill="x", padx=8, pady=6)
+    guidance_status = tk.Label(guidance_frame, text="Select a contact to enable guidance", anchor="w", wraplength=300)
+    guidance_status.pack(fill="x")
+    guidance_rows = {}
+    guidance_display = GuidanceDisplay()
+    for category, label in zip(CATEGORIES, ("Next move", "Remember", "Follow up")):
+        group = tk.LabelFrame(guidance_frame, text=label)
+        guidance_rows[category] = group
     thumbnail_label = tk.Label(transcript_column, text="No selected face", width=160, height=120)
     transcript_title = tk.Label(transcript_column, text="Finalized attributed text", anchor="w")
     transcript_title.pack(fill="x", padx=8, pady=(6, 0))
@@ -294,6 +359,7 @@ def show_window(summary: str) -> None:
     stable_interpretation = StableInterpretationCard()
     interpretation_coordinator: InterpretationCoordinator | None = None
     interpretation_generation = 0
+    guidance_topic_start = 0
     next_interpretation_snapshot_id = 0
     latest_interpretation_snapshot = None
     interpretation_updated_at = ""
@@ -310,6 +376,695 @@ def show_window(summary: str) -> None:
     stop_started = 0.0
     shutdown_handoff: queue.SimpleQueue[str] = queue.SimpleQueue()
     thumbnail_photo = None
+    local_active = False
+    local_pending = {"ask": None, "live": None}
+    local_done = queue.SimpleQueue()
+    ask_dialog = None
+    outside_ask_ledger = UsageLedger(BudgetLimits(warning_dollars=0.10, hard_dollars=0.13))
+    review_running = set()
+    review_errors = {}
+    review_dialogs = {}
+    review_results = queue.SimpleQueue()
+
+    def submit_local(kind, work):
+        local_pending[kind] = work
+
+    def poll_local():
+        nonlocal local_active
+        try:
+            local_done.get_nowait()
+            local_active = False
+        except queue.Empty:
+            pass
+        if local_active:
+            return
+        for kind in ("ask", "live"):
+            work = local_pending[kind]
+            if work is not None:
+                local_pending[kind] = None
+                local_active = True
+                def run(work=work):
+                    try:
+                        work()
+                    finally:
+                        local_done.put(True)
+                threading.Thread(target=run, name="bounded-local-retrieval", daemon=True).start()
+                break
+
+    def source_current(sources, **kwargs):
+        try:
+            return validate_sources(memory_store, sources, **kwargs)
+        except sqlite3.Error:
+            return None
+
+    def show_evidence(parent, text, valid):
+        preview = tk.Toplevel(parent)
+        preview.title("Exact local source")
+        box = tk.Text(preview, wrap="word", height=18, width=80)
+        box.pack(fill="both", expand=True)
+        box.insert("1.0", text)
+        box.configure(state="disabled")
+        def validate_preview():
+            if not preview.winfo_exists():
+                return
+            try:
+                current = valid()
+            except sqlite3.Error:
+                current = None
+            except (ValueError, KeyError):
+                current = False
+            content = text if current else ("Memory store busy — retrying source validation." if current is None
+                      else "Source changed or was deleted. Reopen current evidence.")
+            if box.get("1.0", "end-1c") != content:
+                box.configure(state="normal")
+                box.delete("1.0", tk.END)
+                box.insert("1.0", content)
+                box.configure(state="disabled")
+            if current is False:
+                return
+            preview.after(250, validate_preview)
+        validate_preview()
+        return preview
+
+    def render_guidance():
+        guidance_frame.configure(text="Live guidance" if selected_contact_id else "Live guidance — confirm a contact")
+        for group in guidance_rows.values():
+            group.pack_forget()
+        for category, group in guidance_rows.items():
+            if guidance_display.visible(category):
+                group.pack(fill="x")
+            for child in group.winfo_children():
+                child.destroy()
+            for index, item in enumerate(guidance_display.visible(category)):
+                tk.Label(group, text=f"{item.candidate.text} ({item.candidate.confidence})", justify="left",
+                         wraplength=300, anchor="w").pack(fill="x")
+                actions = tk.Frame(group)
+                actions.pack(fill="x")
+                def dismiss(category=category, index=index):
+                    guidance_display.dismiss(category, index)
+                    render_guidance()
+                tk.Button(actions, text="Dismiss", command=dismiss).pack(side="right")
+                def evidence(candidate=item.candidate):
+                    try:
+                        evidence_generation = interpretation_generation
+                        sources = []
+                        matching = [turn for turn in turns if turn.display_order in candidate.turn_ids]
+                        lines = [f"{turn.timestamp}: {turn.speaker_name}: {turn.content}" for turn in matching]
+                        if memory_store and selected_contact_id:
+                            for revision_id in {*candidate.memory_ids, *candidate.preference_ids}:
+                                row = memory_store._connection.execute("SELECT memory_id FROM memory_revisions WHERE id=?", (revision_id,)).fetchone()
+                                source = memory_source(memory_store, row[0], selected_contact_id, display_limit=None) if row else None
+                                if source and source.revision_id == revision_id:
+                                    sources.append(source)
+                                    lines.append(f"{source.kind} · {source.source_date}: {source.content}")
+                        show_evidence(root, "\n\n".join(lines) or "Evidence no longer available.", lambda:
+                            evidence_generation == interpretation_generation and not stopping and
+                            all(turn in turns for turn in matching) and validate_sources(memory_store, tuple(sources), display_limit=None))
+                    except (sqlite3.Error, ValueError, KeyError):
+                        memory_status_label.configure(text="Evidence unavailable or store busy; try again.")
+                tk.Button(actions, text="Evidence", command=evidence).pack(side="right")
+            if len(guidance_display.all_items(category)) > 2 and category not in guidance_display.expanded:
+                def more(category=category):
+                    guidance_display.expanded.add(category)
+                    render_guidance()
+                tk.Button(group, text="More", command=more).pack(anchor="e")
+
+    def open_ask():
+        nonlocal ask_dialog
+        if memory_store is None:
+            return
+        if ask_dialog is not None and ask_dialog.winfo_exists():
+            ask_dialog.lift()
+            return
+        try:
+            contacts = memory_store.list_contacts(limit=10000)
+        except (ValueError, KeyError, sqlite3.Error) as exc:
+            memory_status_label.configure(text=f"Ask unavailable or memory store busy: {exc}")
+            return
+        dialog = ask_dialog = tk.Toplevel(root)
+        dialog.title("Ask Memory — independent contact scope")
+        dialog.geometry("760x620")
+        state = AskSession(selected_contact_id)
+        results = queue.SimpleQueue()
+        shown = [None]
+        last_source_check = [0.0]
+        running = [False]
+        page = [0]
+        scope = ttk.Combobox(dialog, state="readonly", values=["Choose contact", "All contacts (local discovery)", *[c.label for c in contacts]])
+        scope.pack(fill="x", padx=8, pady=8)
+        scope.current(next((i + 2 for i, c in enumerate(contacts) if c.id == selected_contact_id), 0))
+        question = tk.Entry(dialog)
+        question.pack(fill="x", padx=8)
+        reference = tk.Label(dialog, text=f"Query reference: {datetime.now().astimezone().isoformat()} · date queries: DD/MM/YYYY or ISO")
+        reference.pack(anchor="w", padx=8)
+        date_filter = ttk.Combobox(dialog, state="readonly", values=("Clarify date meaning", "Event date", "Recorded date"))
+        date_filter.current(0)
+        date_filter.pack(anchor="w", padx=8)
+        controls = tk.Frame(dialog)
+        controls.pack(fill="x", padx=8, pady=6)
+        status = tk.Label(dialog, text="Search approved memories and manually approved summaries.", anchor="w", wraplength=720, justify="left")
+        status.pack(fill="x", padx=8)
+        answer = tk.Text(dialog, height=10, wrap="word", state="disabled")
+        answer.pack(fill="both", expand=True, padx=8, pady=6)
+        source_list = tk.Listbox(dialog, height=6, exportselection=False)
+        source_list.pack(fill="x", padx=8)
+        source_actions = tk.Frame(dialog)
+        source_actions.pack(fill="x", padx=8, pady=8)
+
+        def clear():
+            state.new_question()
+            page[0] = 0
+            shown[0] = None
+            source_list.delete(0, tk.END)
+            answer.configure(state="normal")
+            answer.delete("1.0", tk.END)
+            answer.configure(state="disabled")
+            question.delete(0, tk.END)
+
+        def change_scope(_event=None):
+            index = scope.current()
+            clear()
+            state.set_scope(contacts[index - 2].id if index >= 2 else None, all_contacts=index == 1)
+
+        scope.bind("<<ComboboxSelected>>", change_scope)
+
+        def ask(use_cloud=False, *, page_forward=False):
+            if running[0]:
+                return
+            text = question.get().strip()
+            if not 1 <= len(text) <= 500:
+                status.configure(text="Enter a question of 1–500 characters.")
+                return
+            if not page_forward:
+                page[0] = 0
+            generation = state.generation
+            from copy import deepcopy
+            worker_state = deepcopy(state)
+            query_offset = page[0]
+            query_reference = datetime.now().astimezone()
+            date_mode = (None, "event", "recorded")[date_filter.current()]
+            reference.configure(text=f"Query reference: {query_reference.isoformat()} · date queries: DD/MM/YYYY or ISO")
+            selected_sources = shown[0].sources if shown[0] else ()
+            live = audio_session is not None and not stopping
+            ledger = usage_ledger if live else outside_ask_ledger
+            if use_cloud:
+                if state.all_contacts or not state.contact_id:
+                    status.configure(text="Choose one contact for Luna to search.")
+                    return
+                estimate = conservative_request_cost(LUNA_MODEL, ASK_INPUT_LIMIT, max_output_tokens=ASK_OUTPUT_LIMIT)
+                if not messagebox.askyesno("Use cloud help", f"Ask Luna low using this contact's permitted approved history (bounded if large)?\n"
+                    f"Conservative maximum ${estimate:.4f}; answer cap $0.04.\n"
+                    f"{'Call live ceiling $0.27' if live else 'Outside-call allowance $0.13 per app run'}.", parent=dialog):
+                    return
+            running[0] = True
+            status.configure(text="Pending — capture and transcription continue.")
+            worker_path = memory_store.path
+            def work():
+                try:
+                    with MemoryStore(worker_path, verify=False) as worker_store:
+                        if generation != state.generation:
+                            return
+                        result = cloud_answer(worker_store, text, selected_sources, ledger=ledger, live=live,
+                            contact_id=worker_state.contact_id, event_id=worker_state.event_id,
+                            reference=query_reference, date_mode=date_mode,
+                            is_current=lambda: generation == state.generation) if use_cloud else worker_state.answer(worker_store, text, offset=query_offset, reference=query_reference, date_mode=date_mode)
+                    results.put((generation, result, None, worker_state))
+                except Exception as exc:
+                    results.put((generation, None, type(exc).__name__, None))
+                finally:
+                    results.put((generation, None, "finished", None))
+            if use_cloud:
+                threading.Thread(target=work, name="explicit-cloud-ask", daemon=True).start()
+            else:
+                submit_local("ask", work)
+
+        tk.Button(controls, text="Ask locally", command=ask).pack(side="left")
+        tk.Button(controls, text="Use cloud help", command=lambda: ask(True)).pack(side="left", padx=6)
+        tk.Button(controls, text="New question", command=clear).pack(side="left")
+        def next_page():
+            if state.all_contacts and not running[0]:
+                page[0] += 12
+                ask(page_forward=True)
+        tk.Button(controls, text="Next discovery page", command=next_page).pack(side="left", padx=6)
+        question.bind("<Return>", lambda _event: ask())
+
+        def chosen_source():
+            selected = source_list.curselection()
+            return shown[0].sources[selected[0]] if selected and shown[0] else None
+
+        def choose_event():
+            source = chosen_source()
+            if source is None:
+                return
+            if state.all_contacts:
+                try:
+                    contacts[:] = memory_store.list_contacts(limit=10000)
+                except (ValueError, KeyError, sqlite3.Error) as exc:
+                    status.configure(text=f"Contact selection unavailable or memory store busy: {exc}")
+                    return
+                scope.configure(values=["Choose contact", "All contacts (local discovery)", *[c.label for c in contacts]])
+                index = next((i + 2 for i, c in enumerate(contacts) if c.id == source.contact_id), None)
+                if index is None:
+                    status.configure(text="Contact changed; ask again.")
+                    return
+                state.set_scope(source.contact_id)
+                scope.current(index)
+            state.choose_event(source.id)
+            status.configure(text="Event selected. Ask a short follow-up; evidence will be checked again.")
+
+        def preview_source():
+            source = chosen_source()
+            if source is None:
+                return
+            current = source_current((source,))
+            if current is not True:
+                status.configure(text="Memory store busy; retry opening the source." if current is None else "Source changed or was deleted. Ask again.")
+                return
+            lines = [f"{source.kind} · {source.contact_label}\nSource date: {source.source_date}\n"
+                     f"Event date: {source.event_date or 'see original wording; unresolved if absent'}\n"
+                     f"Confidence: {source.confidence}\n\n{source.content}"]
+            if source.record_id:
+                try:
+                    lines += [f"Turn {turn.display_order} · {turn.timestamp} · {turn.speaker_name}: {turn.content}"
+                              for turn in memory_store.record_turns(source.record_id) if turn.display_order in source.turns]
+                except sqlite3.Error:
+                    status.configure(text="Memory store busy; retry opening the source.")
+                    return
+            show_evidence(dialog, "\n\n".join(lines), lambda: validate_sources(memory_store, (source,)))
+
+        tk.Button(source_actions, text="Choose this event", command=choose_event).pack(side="left")
+        tk.Button(source_actions, text="Open exact source", command=preview_source).pack(side="left", padx=6)
+
+        def poll_ask():
+            if not dialog.winfo_exists():
+                return
+            while True:
+                try:
+                    generation, result, error, completed_state = results.get_nowait()
+                except queue.Empty:
+                    break
+                if error == "finished":
+                    running[0] = False
+                    continue
+                if generation != state.generation:
+                    continue
+                if error:
+                    status.configure(text=f"Unavailable ({error}); valid local results remain available.")
+                else:
+                    current = source_current(result.sources)
+                    if current is None:
+                        running[0] = True
+                        results.put((generation, result, error, completed_state))
+                        status.configure(text="Memory store busy — retrying result validation.")
+                        break
+                    running[0] = False
+                    if not current:
+                        status.configure(text="Evidence changed; ask again using current approved sources.")
+                        continue
+                    state.questions, state.exchanges = completed_state.questions, completed_state.exchanges
+                    state.event_id = completed_state.event_id
+                    shown[0] = result
+                    status.configure(text=f"{result.status}{' · ' + result.confidence + ' confidence' if result.confidence else ''} · {result.coverage} · {result.backend}")
+                    answer.configure(state="normal")
+                    answer.delete("1.0", tk.END)
+                    answer.insert("1.0", result.answer)
+                    answer.configure(state="disabled")
+                    source_list.delete(0, tk.END)
+                    for source in result.sources:
+                        source_list.insert(tk.END, f"{source.contact_label} · {source.kind} · {source.source_date[:10]} · {source.content}")
+            if shown[0] and time.perf_counter() - last_source_check[0] >= 1:
+                last_source_check[0] = time.perf_counter()
+                current = source_current(shown[0].sources)
+                if current is None:
+                    status.configure(text="Memory store busy — retrying source validation.")
+                elif current is False:
+                    clear()
+                    status.configure(text="Evidence changed; ask again using current approved sources.")
+                elif str(status.cget("text")).startswith("Memory store busy"):
+                    status.configure(text=f"{shown[0].status} · {shown[0].coverage} · {shown[0].backend}")
+            dialog.after(150, poll_ask)
+
+        def close_ask():
+            nonlocal ask_dialog
+            state.close()
+            shown[0] = None
+            ask_dialog = None
+            dialog.destroy()
+            schedule_semantic_backfill()
+
+        dialog.protocol("WM_DELETE_WINDOW", close_ask)
+        dialog.after(150, poll_ask)
+        question.focus_set()
+
+    ask_button.configure(command=open_ask)
+
+    def open_review(record_id=None):
+        if memory_store is None:
+            return
+        if record_id is None:
+            if selected_contact_id is None:
+                messagebox.showinfo("Review conversation", "Select a contact first.", parent=root)
+                return
+            try:
+                records = memory_store.list_records(selected_contact_id)
+            except (ValueError, KeyError, sqlite3.Error) as exc:
+                memory_status_label.configure(text=f"Review unavailable or memory store busy: {exc}")
+                return
+            chooser = tk.Toplevel(root)
+            chooser.title("Review one conversation")
+            choices = tk.Listbox(chooser, width=85)
+            choices.pack(fill="both", expand=True)
+            for record in records:
+                choices.insert(tk.END, f"{record['source_label']} · {record['started_at'] or record['created_at']} · {record['status']}")
+            def choose():
+                if choices.curselection():
+                    chosen = records[choices.curselection()[0]]["id"]
+                    chooser.destroy()
+                    open_review(chosen)
+            tk.Button(chooser, text="Review selected record", command=choose).pack()
+            return
+        existing = review_dialogs.get(record_id)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            existing.focus_set()
+            return
+        dialog = tk.Toplevel(root)
+        review_dialogs[record_id] = dialog
+        dialog.bind("<Destroy>", lambda event: review_dialogs.pop(record_id, None) if event.widget is dialog else None)
+        dialog.title("Post-call review — summary and linked memories")
+        dialog.geometry("1200x760")
+        label = tk.Label(dialog, text="Summary draft — not searchable until approved", anchor="w")
+        label.pack(fill="x", padx=8, pady=8)
+        panes = tk.PanedWindow(dialog, orient=tk.HORIZONTAL)
+        panes.pack(fill="both", expand=True)
+        summary_panel = tk.Frame(panes)
+        memory_panel = tk.LabelFrame(panes, text="Memories from this conversation")
+        panes.add(summary_panel, stretch="always", minsize=480)
+        panes.add(memory_panel, stretch="always", minsize=360)
+        narrative = tk.Text(summary_panel, wrap="word", height=12, state="disabled")
+        narrative.pack(fill="both", expand=True, padx=8)
+        tk.Label(summary_panel, text="Click a sentence to select it for editing or source review.").pack(anchor="w", padx=8)
+        listing = tk.Listbox(summary_panel, width=65, height=3, exportselection=False)
+        listing.pack(fill="both", expand=True, padx=8)
+        memories = tk.Listbox(memory_panel, exportselection=False, selectmode="extended", width=50)
+        memories.pack(fill="both", expand=True, padx=8, pady=8)
+        memory_scroll = ttk.Scrollbar(memory_panel, orient="horizontal", command=memories.xview)
+        memory_scroll.pack(fill="x", padx=8)
+        memories.configure(xscrollcommand=memory_scroll.set)
+        memory_rows = []
+        rows = []
+        version_id = [None]
+        def edit_review_memory():
+            if not memories.curselection():
+                return
+            item = memory_rows[memories.curselection()[0]]
+            if item["state"] not in {"approved", "pending"}:
+                return
+            content = simpledialog.askstring("Edit linked memory", "Corrected fact (up to 280 characters):", initialvalue=item["content"], parent=dialog)
+            if content is None:
+                return
+            try:
+                linked = memory_store._connection.execute("SELECT DISTINCT s.* FROM summary_statements s JOIN summary_dependencies d ON d.statement_id=s.id WHERE (d.memory_id=? OR d.proposal_id=?) AND s.excluded=0", (item["id"], item["id"])).fetchall()
+                choices = {}
+                for sentence in linked:
+                    choice = messagebox.askyesnocancel("Update linked summary sentence", f"Replace this sentence with the corrected fact?\n{sentence['content']}\n\nNew: {content}\nYes: sync this sentence. No: retain its prior wording. Cancel: discard edit.", parent=dialog)
+                    if choice is None:
+                        return
+                    choices[sentence["id"]] = "update" if choice else "keep"
+                if item["state"] == "approved":
+                    memory_store.correct_memory(item["id"], content, expected_revision_id=item["revision"], summary_choices=choices, normalized_date_start=None)
+                else:
+                    memory_store.edit_pending_review_memory(item["id"], content, expected_content=item["content"], summary_ids=[sid for sid, choice in choices.items() if choice == "update"])
+                invalidate_memory_context()
+                reload()
+            except (ValueError, KeyError, sqlite3.Error) as exc:
+                label.configure(text=f"Edit unavailable: {exc}")
+        def approve_review_memories(approve=True):
+            chosen = [memory_rows[i] for i in memories.curselection() if memory_rows[i]["state"] == "pending"]
+            if not chosen or not messagebox.askyesno("Review selected memories", f"{'Approve' if approve else 'Reject'} these memories?\n\n" + "\n".join(item["content"] for item in chosen), parent=dialog):
+                return
+            try:
+                memory_store.review_proposals([item["id"] for item in chosen], approve=approve)
+                invalidate_memory_context()
+                reload()
+            except (ValueError, KeyError, sqlite3.Error) as exc:
+                label.configure(text=f"Memory review unavailable: {exc}")
+        memory_actions = tk.Frame(memory_panel)
+        memory_actions.pack(fill="x")
+        for text, command in (("Edit linked memory", edit_review_memory), ("Approve selected memories", approve_review_memories), ("Reject selected memories", lambda: approve_review_memories(False))):
+            tk.Button(memory_actions, text=text, command=command).pack(fill="x", padx=8, pady=2)
+        def reload():
+            try:
+                selection = listing.curselection()
+                selected_id = rows[selection[0]]["id"] if selection else None
+                rows.clear()
+                listing.delete(0, tk.END)
+                version = memory_store._connection.execute(
+                    "SELECT * FROM summary_versions WHERE record_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1", (record_id,)
+                ).fetchone()
+                version_id[0] = version["id"] if version else None
+                if version:
+                    label.configure(text=f"Summary {version['state']} · {'partial coverage' if version['partial'] else 'bounded coverage'} · Approval includes its linked pending memories.")
+                    if len(memory_store.summary_turns(record_id, for_cloud=True)) < len(memory_store.record_turns(record_id)):
+                        label.configure(text=label.cget("text") + " Source turns withheld; full-source extraction is skipped unless already reviewed.")
+                    rows.extend(memory_store.summary_statements(version["id"]))
+                    for row in rows:
+                        listing.insert(tk.END, f"{'EXCLUDED · ' if row['excluded'] else ''}{row['section']} · {row['kind']} · {row['content']}")
+                    for index, row in enumerate(rows):
+                        if row["id"] == selected_id:
+                            listing.selection_set(index)
+                narrative_position = narrative.yview()[0]
+                narrative.configure(state="normal")
+                narrative.delete("1.0", tk.END)
+                paragraph = None
+                for index, row in enumerate(rows):
+                    if row["excluded"]:
+                        continue
+                    group = row["section"] in {"questions", "follow_ups"}
+                    if paragraph is not None:
+                        narrative.insert(tk.END, "\n\n" if group != paragraph else " ")
+                    tag = f"sentence_{index}"
+                    narrative.insert(tk.END, row["content"], tag)
+                    def select_sentence(_event, index=index):
+                        listing.selection_clear(0, tk.END)
+                        listing.selection_set(index)
+                    narrative.tag_bind(tag, "<Button-1>", select_sentence)
+                    paragraph = group
+                narrative.configure(state="disabled")
+                narrative.yview_moveto(narrative_position)
+                owner = memory_store._connection.execute("SELECT contact_id FROM conversation_records WHERE id=?", (record_id,)).fetchone()
+                selected_memories = {memory_rows[i]["id"] for i in memories.curselection() if i < len(memory_rows)}
+                memory_rows.clear()
+                memories.delete(0, tk.END)
+                if owner and owner[0]:
+                    for item in memory_store.list_current_memories(owner[0]):
+                        if memory_store._connection.execute("SELECT 1 FROM memory_sources WHERE revision_id=? AND record_id=?", (item["revision_id"], record_id)).fetchone():
+                            memory_rows.append({"id": item["memory_id"], "revision": item["revision_id"], "content": item["content"], "state": "approved"})
+                    for item in memory_store.list_proposals(owner[0]):
+                        if item["state"] != "approved" and memory_store._connection.execute("SELECT 1 FROM proposal_batches WHERE id=? AND record_id=?", (item["batch_id"], record_id)).fetchone():
+                            memory_rows.append({"id": item["id"], "content": item["content"], "state": item["state"]})
+                for index, item in enumerate(memory_rows):
+                    memories.insert(tk.END, f"{item['state']} · {item['content']}")
+                    if item["id"] in selected_memories:
+                        memories.selection_set(index)
+                if not version:
+                    label.configure(text="No summary yet. Generate one bounded review after seeing its estimate.")
+                job = memory_store._connection.execute("SELECT state FROM review_jobs WHERE record_id=?", (record_id,)).fetchone()
+                busy = record_id in review_running or bool(job and job[0] == "running")
+                if busy:
+                    label.configure(text="Generating summary and memories… Please wait until all chunks are complete.")
+                else:
+                    if job and job[0] == "pending":
+                        reason = review_errors.get(record_id, "Review paused or interrupted")
+                        label.configure(text=f"{reason}. Partial results saved; Process remaining resumes from the last completed chunk.")
+                for button in controls.winfo_children():
+                    button.configure(state="disabled" if busy else "normal")
+                for button in memory_actions.winfo_children():
+                    button.configure(state="disabled" if busy else "normal")
+            except (ValueError, KeyError, sqlite3.Error) as exc:
+                label.configure(text=f"Source unavailable or memory store busy: {exc}")
+
+        controls = tk.Frame(summary_panel)
+        controls.pack(fill="x", padx=8, pady=8)
+        def generate():
+            try:
+                chunks, estimate = review_estimate(memory_store, record_id)
+            except Exception as exc:
+                label.configure(text=f"Review unavailable: {exc}")
+                return
+            if messagebox.askyesno("Process remaining review", f"Process one selected conversation in {chunks} bounded chunks?\n"
+                f"One-attempt whole-job maximum: ${estimate:.4f}.\n"
+                "This run is capped at $0.25; any remaining work stays pending. Completed chunks are reused.", parent=dialog):
+                start_review_job(record_id, UsageLedger(BudgetLimits(warning_dollars=0.15, hard_dollars=0.25)))
+        def approve():
+            approving = version_id[0]
+            expected = {s["id"]: (s["content"], s["excluded"]) for s in rows}
+            try:
+                linked = memory_store._connection.execute("SELECT DISTINCT p.id,p.content FROM memory_proposals p JOIN summary_dependencies d ON d.proposal_id=p.id JOIN summary_statements s ON s.id=d.statement_id WHERE s.summary_id=? AND s.excluded=0 AND p.state='pending'", (approving,)).fetchall()
+            except sqlite3.Error as exc:
+                label.configure(text=f"Approval unavailable: {exc}")
+                return
+            if approving and messagebox.askyesno("Approve summary and linked memories", "Approve this summary and these linked pending memories?\nRejected/excluded items remain excluded.\n\n" + "\n".join(item["content"] for item in linked), parent=dialog):
+                try:
+                    memory_store.approve_summary(approving, expected_pending={item["id"]: item["content"] for item in linked}, expected_statements=expected)
+                except Exception as exc:
+                    label.configure(text=f"Approval unavailable: {exc}")
+                    return
+                invalidate_memory_context()
+                reload()
+        def edit(remove=False, restore=False):
+            if not listing.curselection():
+                return
+            row = rows[listing.curselection()[0]]
+            content = row["content"] if remove or restore else simpledialog.askstring("Edit statement", "Save changes explicitly approves your corrected wording on an approved summary:", initialvalue=row["content"], parent=dialog)
+            if content is None:
+                return
+            if restore and not messagebox.askyesno("Restore summary statement", "Explicitly restore this summary statement? This does not approve its rejected memory proposal.", parent=dialog):
+                return
+            try:
+                if remove or restore:
+                    memory_store.edit_summary_statement(row["id"], content, excluded=remove)
+                else:
+                    links = {}
+                    dependencies = memory_store._connection.execute("SELECT * FROM summary_dependencies WHERE statement_id=?", (row["id"],)).fetchall()
+                    for item in memory_rows:
+                        if item["state"] not in {"pending", "approved"} or not any(item["id"] in (d["memory_id"], d["proposal_id"]) for d in dependencies):
+                            continue
+                        choice = messagebox.askyesnocancel("Update linked memory", f"Summary sentence:\n{content}\n\nAlso replace this {item['state']} memory with the corrected fact?\n{item['content']}\n\nPending memories remain pending until approval.", parent=dialog)
+                        if choice is None:
+                            return
+                        if choice:
+                            links[item["id"]] = item.get("revision", item["content"])
+                    memory_store.edit_review_sentence(row["id"], content, expected_content=row["content"], links=links)
+            except Exception as exc:
+                label.configure(text=f"Change unavailable: {exc}")
+                return
+            invalidate_memory_context()
+            reload()
+        def delete():
+            try:
+                if messagebox.askyesno("Delete summary", "Delete every summary version for this conversation? Its transcript and independently approved memories remain.", parent=dialog):
+                    memory_store.delete_summary(record_id)
+                    invalidate_memory_context()
+                    reload()
+            except (ValueError, KeyError, sqlite3.Error) as exc:
+                label.configure(text=f"Deletion unavailable: {exc}")
+
+        def evidence():
+            try:
+                if not listing.curselection():
+                    return
+                row = dict(rows[listing.curselection()[0]])
+                owner = memory_store._connection.execute("SELECT * FROM conversation_records WHERE id=?", (record_id,)).fetchone()
+                if owner is None:
+                    label.configure(text="Conversation no longer exists; reopen current evidence.")
+                    return
+                record = dict(owner)
+                sequences = {item[0] for item in memory_store._connection.execute("SELECT sequence FROM summary_evidence WHERE statement_id=?", (row["id"],))}
+                text = f"Summary {row['kind']} · {row['origin']} · {row['confidence']} confidence\n{row['content']}\n\n"
+                text += "\n\n".join(f"Turn {turn.display_order} · {turn.timestamp} · {turn.speaker_name}: {turn.content}"
+                                      for turn in memory_store.record_turns(record_id) if turn.display_order in sequences)
+                def valid():
+                    current = memory_store._connection.execute("SELECT * FROM summary_statements WHERE id=?", (row["id"],)).fetchone()
+                    owner = memory_store._connection.execute("SELECT * FROM conversation_records WHERE id=?", (record_id,)).fetchone()
+                    return current is not None and dict(current) == row and owner is not None and dict(owner) == record
+                show_evidence(dialog, text, valid)
+            except (ValueError, KeyError, sqlite3.Error) as exc:
+                label.configure(text=f"Source unavailable or memory store busy: {exc}")
+
+        def permission(allowed):
+            if not listing.curselection():
+                return
+            row = rows[listing.curselection()[0]]
+            if not messagebox.askyesno("Summary cloud permission", f"{'Allow this sensitive statement in cloud Ask when all linked memories also permit it' if allowed else 'Mark this statement sensitive and block cloud use'}?\n{row['content']}", parent=dialog):
+                return
+            try:
+                if not allowed:
+                    memory_store.mark_summary_sensitive(row["id"])
+                else:
+                    memory_store.set_summary_cloud_permission(row["id"], True)
+                invalidate_memory_context()
+                reload()
+            except (ValueError, KeyError, sqlite3.Error) as exc:
+                label.configure(text=str(exc))
+        def review_legacy_sources():
+            try:
+                record = memory_store._connection.execute("SELECT * FROM conversation_records WHERE id=?", (record_id,)).fetchone()
+                if record is None:
+                    raise ValueError("conversation no longer exists")
+                source_turns = memory_store.record_turns(record_id)
+                snapshot = dict(record)
+                def current():
+                    row = memory_store._connection.execute("SELECT * FROM conversation_records WHERE id=?", (record_id,)).fetchone()
+                    return row is not None and dict(row) == snapshot and memory_store.record_turns(record_id) == source_turns
+                review = show_evidence(dialog, "Legacy deletion history: historical summaries are withheld until exact turns are reviewed.\n"
+                    "Select only turns containing no previously deleted facts. Known deletion exclusions and sensitive permissions remain enforced.\n\n" +
+                    "\n\n".join(f"Turn {t.display_order} · {t.timestamp} · {t.speaker_name}: {t.content}" for t in source_turns), current)
+                tk.Label(review, text="Reviewed safe turn numbers, separated by commas (no selection by default):").pack()
+                selected = tk.Entry(review)
+                selected.pack(fill="x")
+                def allow():
+                    try:
+                        if not current():
+                            raise ValueError("source changed; reopen its review")
+                        sequences = {int(value.strip()) for value in selected.get().split(",")}
+                        if not messagebox.askyesno("Confirm exact source review", "I reviewed these exact turns and confirm they contain no previously deleted facts. Allow them for historical summaries?", parent=review):
+                            return
+                        memory_store.review_legacy_summary_turns(record_id, sequences, expected_generation=record["generation"])
+                    except (ValueError, sqlite3.Error) as exc:
+                        messagebox.showerror("Source review", str(exc), parent=review)
+                        return
+                    review.destroy()
+                    reload()
+                tk.Button(review, text="Allow only these reviewed turns", command=allow).pack(fill="x")
+            except (ValueError, sqlite3.Error) as exc:
+                label.configure(text=f"Source review unavailable: {exc}")
+        def proposals():
+            try:
+                row = memory_store._connection.execute("SELECT contact_id FROM conversation_records WHERE id=?", (record_id,)).fetchone()
+                if row and row[0]:
+                    manage_memory(row[0])
+                else:
+                    label.configure(text="Conversation or assigned contact is unavailable.")
+            except (ValueError, KeyError, sqlite3.Error) as exc:
+                label.configure(text=f"Memory proposals unavailable or memory store busy: {exc}")
+        for text, command in (("Generate summary / process remaining", generate), ("Approve summary", approve),
+                              ("Open exact source", evidence), ("Mark sensitive / block cloud", lambda: permission(False)),
+                              ("Allow sensitive statement in cloud", lambda: permission(True)),
+                              ("Edit / Save changes", edit), ("Remove statement", lambda: edit(remove=True)),
+                              ("Restore excluded statement", lambda: edit(restore=True)), ("Delete summary", delete),
+                              ("Review legacy source exclusions", review_legacy_sources),
+                              ("Review memory proposals separately", proposals)):
+            tk.Button(controls, text=text, command=command).pack(anchor="w", fill="x")
+        def refresh_review():
+            if dialog.winfo_exists():
+                try:
+                    reload()
+                except (sqlite3.Error, ValueError):
+                    label.configure(text="Source unavailable or memory store busy; review will refresh shortly.")
+                finally:
+                    dialog.after(1500, refresh_review)
+        refresh_review()
+
+    def start_review_job(record_id, ledger):
+        if review_running:
+            memory_status_label.configure(text="Another bounded review is running; this record remains available for a later explicit run.")
+            return False
+        review_running.add(record_id)
+        review_errors.pop(record_id, None)
+        worker_path = memory_store.path
+        def run():
+            try:
+                with MemoryStore(worker_path, verify=False) as worker:
+                    result = process_review(worker, record_id, ledger=ledger,
+                        can_run=lambda: audio_session is None or stopping)
+                review_results.put((record_id, result, None))
+            except Exception as exc:
+                review_results.put((record_id, None, str(exc)))
+        threading.Thread(target=run, name="bounded-post-call-review", daemon=True).start()
+        return True
+
+    review_button.configure(command=open_review)
 
     def render_interpretation(*, replaced: bool = False, note: str = "") -> None:
         nonlocal interpretation_updated_at
@@ -374,14 +1129,17 @@ def show_window(summary: str) -> None:
             contact_box.set("")
 
     def schedule_semantic_backfill() -> None:
-        if memory_store is None or not semantic_backfill_lock.acquire(blocking=False):
+        nonlocal semantic_backfill_requested
+        semantic_backfill_requested = True
+        if memory_store is None or audio_session is not None or ask_dialog is not None or not semantic_backfill_lock.acquire(blocking=False):
             return
+        semantic_backfill_requested = False
         worker_path = memory_store.path
 
         def backfill() -> None:
             try:
                 with MemoryStore(worker_path, verify=False) as worker_store:
-                    worker_store.backfill_semantic_embeddings()
+                    worker_store.backfill_semantic_embeddings(can_run=lambda: audio_session is None and ask_dialog is None)
             except Exception:
                 pass
             finally:
@@ -398,6 +1156,8 @@ def show_window(summary: str) -> None:
         next_interpretation_snapshot_id = 0
         latest_interpretation_snapshot = None
         stable_interpretation.reset()
+        guidance_display.reset()
+        render_guidance()
         if interpretation_coordinator:
             interpretation_coordinator.reset(interpretation_generation)
         render_interpretation(replaced=True)
@@ -462,11 +1222,11 @@ def show_window(summary: str) -> None:
         refresh_contact_choices()
         set_selected_contact(contact.id)
 
-    def manage_memory() -> None:
-        if memory_store is None or selected_contact_id is None:
+    def manage_memory(contact_id=None) -> None:
+        contact_id = contact_id or selected_contact_id
+        if memory_store is None or contact_id is None:
             messagebox.showinfo("Contact memory", "Confirm one contact first.")
             return
-        contact_id = selected_contact_id
         dialog = tk.Toplevel(root)
         dialog.title(f"Memory — {memory_store.get_contact(contact_id).label}")
         dialog.geometry("760x430")
@@ -721,6 +1481,20 @@ def show_window(summary: str) -> None:
                     "confidence": confidence,
                     "sensitivity": sensitivity,
                 }
+                choices = {}
+                for statement in memory_store.memory_summary_preview(row["memory_id"]):
+                    choice = messagebox.askyesnocancel(
+                        "Update linked summary sentence",
+                        f"Old memory: {row['content']}\nNew memory: {content}\n\n"
+                        f"Summary: {statement['content']}\n\n"
+                        "Yes: Update the sentence to match this corrected fact.\n"
+                        "No: Keep the previous wording as dated history.\nCancel: leave the memory unchanged.", parent=dialog,
+                    )
+                    if choice is None:
+                        return
+                    choices[statement["id"]] = "update" if choice else "keep"
+                correction["summary_choices"] = choices
+                correction["expected_revision_id"] = row["revision_id"]
                 new_date = normalized_date.date().isoformat() if normalized_date else ""
                 if new_date != current_date:
                     correction["normalized_date_start"] = normalized_date
@@ -798,6 +1572,39 @@ def show_window(summary: str) -> None:
                     messagebox.showerror("Reopen proposal", str(exc), parent=dialog)
                     return
                 reload_items()
+
+        def confirm_reviewed() -> None:
+            try:
+                chosen = selected_rows()
+                if not chosen or any("memory_id" not in row.keys() or not selected_contact_row(row) for row in chosen):
+                    return
+                text = f"Contact: {memory_store.get_contact(contact_id).label}\n"
+                for row in chosen:
+                    sources = memory_store._connection.execute("SELECT * FROM memory_sources WHERE revision_id=?", (row["revision_id"],)).fetchall()
+                    text += f"\nCurrent revision: {row['revision_id']}\n{row['content']}\n"
+                    for source in sources:
+                        text += f"\nSource: {source['record_id'] or 'Original source deleted'} · {source['approximate_date'] or 'date unknown'}\n"
+                        if source["record_id"]:
+                            sequences = set(json.loads(source["turn_sequences"]))
+                            text += "\n".join(f"Turn {turn.display_order} · {turn.timestamp} · {turn.speaker_name}: {turn.content}"
+                                               for turn in memory_store.record_turns(source["record_id"]) if turn.display_order in sequences)
+                review = show_evidence(dialog, text, lambda: all(memory_store.current_revision(row["memory_id"])["id"] == row["revision_id"] for row in chosen))
+                def confirm():
+                    try:
+                        # Validate the complete selection before applying its review decisions.
+                        if any(memory_store.current_revision(row["memory_id"])["id"] != row["revision_id"] for row in chosen):
+                            raise ValueError("A revision changed; reopen this review")
+                        memory_store.confirm_reviewed_memories({row["memory_id"]: row["revision_id"] for row in chosen})
+                    except (ValueError, KeyError, sqlite3.Error) as exc:
+                        messagebox.showerror("Review memory", str(exc), parent=dialog)
+                        return
+                    invalidate_memory_context()
+                    reload_items()
+                    review.destroy()
+                tk.Button(review, text="Confirm I reviewed these contacts, revisions and sources", command=confirm).pack(fill="x")
+
+            except (ValueError, KeyError, sqlite3.Error) as exc:
+                messagebox.showerror("Review memory", f"Source unavailable or memory store busy: {exc}", parent=dialog)
 
         def delete_rejected_selected() -> None:
             row = selected_row()
@@ -908,7 +1715,7 @@ def show_window(summary: str) -> None:
             preview = memory_store.merge_preview(contact_id, merged.id)
             details = "\n".join(f"{name.replace('_', ' ')}: {count}" for name, count in preview.items())
             if messagebox.askyesno(
-                "Merge contacts", f"Keep {memory_store.get_contact(contact_id).label} and merge {merged.label}?\n\n{details}\n\nSimilar memories stay separate and are marked for review.",
+                "Merge contacts", f"Keep {memory_store.get_contact(contact_id).label} and merge {merged.label}?\n\n{details}\n\nMerged memories stay separate and are withheld from retrieval until reviewed. Multi-select them and use Confirm reviewed memory to review their sources together.",
                 parent=dialog,
             ):
                 try:
@@ -1079,6 +1886,7 @@ def show_window(summary: str) -> None:
             ("Retry analysis", lambda: choose_record("retry")),
             ("Delete source", lambda: choose_record("delete")), ("Reassign source", lambda: choose_record("reassign")),
             ("Export JSON", export_contact), ("Merge contact", merge_contact), ("Delete contact", delete_contact),
+            ("Confirm reviewed memory", confirm_reviewed),
         )
         for index, (label, command) in enumerate(actions):
             tk.Button(buttons, text=label, command=command).grid(
@@ -1183,6 +1991,8 @@ def show_window(summary: str) -> None:
     refresh_contact_choices()
 
     def begin_interpretation_session() -> None:
+        nonlocal guidance_topic_start
+        guidance_topic_start = 0
         nonlocal usage_ledger, interpretation_coordinator
         nonlocal interpretation_generation, next_interpretation_snapshot_id
         nonlocal latest_interpretation_snapshot, interpretation_updated_at
@@ -1193,18 +2003,41 @@ def show_window(summary: str) -> None:
         interpretation_updated_at = ""
         manual_terra_running = False
         stable_interpretation.reset()
+        guidance_display.reset()
+        render_guidance()
         usage_ledger = None
         try:
-            usage_ledger = UsageLedger()
+            usage_ledger = UsageLedger(BudgetLimits(warning_dollars=0.15, hard_dollars=0.35))
             luna = OpenAIInterpreter(
                 model=LUNA_MODEL,
                 reasoning="low",
                 ledger=usage_ledger,
+                live=True,
                 is_current=lambda item: item.generation == interpretation_generation,
             )
-            interpretation_coordinator = InterpretationCoordinator(
-                luna, generation=interpretation_generation
-            )
+            ledger = usage_ledger
+            def current_guidance(item, store):
+                if item.generation != interpretation_generation or stopping or item.contact_id != selected_contact_id:
+                    return False
+                if max(turn.display_order for turn in item.turns) < guidance_topic_start:
+                    return False
+                if item.memories:
+                    for memory in item.memories:
+                        source = memory_source(store, memory.memory_id, item.contact_id, for_cloud=True, display_limit=None)
+                        if source is None or source.revision_id != memory.revision_id:
+                            return False
+                return True
+            def combined(item):
+                if item.contact_id:
+                    with MemoryStore(memory_store.path, verify=False) as store:
+                        result = interpret_guidance(item, ledger=ledger, client=luna._client, model=LUNA_MODEL, reasoning="low",
+                            is_current=lambda snapshot: current_guidance(snapshot, store))
+                        from .guidance import suppress_outdated_replies
+                        return suppress_outdated_replies(result, max(t.display_order for t in item.turns),
+                            turns[-1].display_order if turns else 0)
+                return luna(item)
+            interpretation_coordinator = InterpretationCoordinator(combined, generation=interpretation_generation,
+                first_request_at=time.perf_counter() + 12, adaptive_cadence=True)
         except InterpretationAuthenticationUnavailable:
             interpretation_coordinator = None
             set_interpretation_unavailable(
@@ -1227,8 +2060,22 @@ def show_window(summary: str) -> None:
 
     def offer_interpretation_snapshot() -> None:
         nonlocal next_interpretation_snapshot_id, latest_interpretation_snapshot
-        if stopping or len(turns) < 2:
+        nonlocal guidance_topic_start
+        if stopping or not turns:
             return
+        if turns[-1].speaker_role == SpeakerRole.USER:
+            guidance_display.items["replies"].clear()
+            guidance_display.items["follow_up"].clear()
+            guidance_display.pending = None
+            guidance_display.pending_categories.clear()
+            render_guidance()
+        import re
+        from .memory import _TOPIC_BOUNDARY
+        new_topic = bool(_TOPIC_BOUNDARY.search(turns[-1].content))
+        if new_topic or re.search(r"^\s*(?:correction|make that)\b", turns[-1].content, re.I):
+            guidance_topic_start = turns[-1].display_order
+            guidance_display.invalidate(new_topic=new_topic, turn_ids=set(), memory_ids=set())
+            render_guidance()
         next_interpretation_snapshot_id += 1
         snapshot_id = next_interpretation_snapshot_id
         generation = interpretation_generation
@@ -1243,13 +2090,14 @@ def show_window(summary: str) -> None:
                 possible_contexts = []
                 ambiguous = False
                 semantic_available = False
+                preference_notice = ""
                 if memory_store is not None and captured_contact_id is not None:
                     query, date_query = memory_retrieval_inputs(captured_turns)
                     with MemoryStore(memory_store.path, verify=False) as worker_store:
                         result = worker_store.retrieve(
                             captured_contact_id,
                             query,
-                            for_cloud=True,
+                            for_cloud=False,
                             date_query=date_query,
                             semantic_query=memory_semantic_input(captured_turns),
                             contact_cue_query=memory_semantic_input(
@@ -1273,7 +2121,21 @@ def show_window(summary: str) -> None:
                         for item in result.matches[:4]
                     ]
                     if not ambiguous:
-                        contexts = possible_contexts
+                        contexts = [item for item in possible_contexts if item.sensitivity_safe]
+                    with MemoryStore(memory_store.path, verify=False) as worker_store:
+                        preferences = [row for row in worker_store.list_current_memories(captured_contact_id)
+                            if row["memory_type"] in {"communication_style", "relationship_preference"}
+                            and not row["needs_review"] and (row["sensitivity"] == "normal" or row["cloud_allowed"])]
+                    if len(preferences) > 1:
+                        preference_notice = "Multiple approved preferences: review for conflicts; at most two are supplied."
+                    ranks = {item.memory_id: item.rank for item in possible_contexts}
+                    preferences.sort(key=lambda row: ranks.get(row["memory_id"], 999))
+                    styles = [RetrievedMemoryContext(memory_id=row["memory_id"], revision_id=row["revision_id"],
+                        excerpt=textwrap.shorten(row["content"], width=180, placeholder="…"), memory_type=row["memory_type"], confidence=row["confidence"],
+                        sensitivity_safe=True, rank=i + 1, relevance="approved contact communication preference")
+                        for i, row in enumerate(preferences[:2])]
+                    style_ids = {item.revision_id for item in styles}
+                    contexts = [item for item in contexts if item.revision_id not in style_ids][:4 - len(styles)] + styles
                 snapshot = build_snapshot(
                     captured_turns,
                     snapshot_id=snapshot_id,
@@ -1283,7 +2145,7 @@ def show_window(summary: str) -> None:
                     contact_id=captured_contact_id,
                     retrieved_memories=contexts,
                 )
-                prepared = prepare_interpretation_request(snapshot)
+                prepared = prepare_interpretation_request(snapshot, preserve_transcript=True)
                 if prepared.memory_count != len(snapshot.memories):
                     snapshot = snapshot.model_copy(
                         update={"memories": snapshot.memories[:prepared.memory_count]}
@@ -1297,6 +2159,7 @@ def show_window(summary: str) -> None:
                         possible_contexts,
                         semantic_available,
                         None,
+                        preference_notice,
                     )
                 )
             except Exception as exc:
@@ -1308,11 +2171,11 @@ def show_window(summary: str) -> None:
                 except Exception:
                     fallback = None
                 memory_snapshot_results.put(
-                    (generation, snapshot_id, fallback, False, [], False, type(exc).__name__)
+                    (generation, snapshot_id, fallback, False, [], False, type(exc).__name__, "")
                 )
 
         if memory_store is not None and selected_contact_id is not None:
-            threading.Thread(target=build_with_memory, name="contact-memory-retrieval", daemon=True).start()
+            submit_local("live", build_with_memory)
             return
         try:
             latest_interpretation_snapshot = build_snapshot(
@@ -1338,16 +2201,20 @@ def show_window(summary: str) -> None:
                 terra_button.configure(state="normal")
 
     def poll_memory_results() -> None:
-        nonlocal latest_interpretation_snapshot
+        nonlocal latest_interpretation_snapshot, next_interpretation_snapshot_id
         while True:
             try:
-                generation, snapshot_id, snapshot, ambiguous, possibilities, semantic_available, error_type = memory_snapshot_results.get_nowait()
+                generation, snapshot_id, snapshot, ambiguous, possibilities, semantic_available, error_type, preference_notice = memory_snapshot_results.get_nowait()
             except queue.Empty:
                 break
             if generation != interpretation_generation or stopping:
                 continue
-            if latest_interpretation_snapshot is not None and snapshot_id < latest_interpretation_snapshot.snapshot_id:
+            if (latest_interpretation_snapshot is not None and snapshot_id < latest_interpretation_snapshot.snapshot_id
+                and (snapshot is None or max(t.display_order for t in snapshot.turns) <= max(t.display_order for t in latest_interpretation_snapshot.turns))):
                 continue
+            if snapshot is not None and latest_interpretation_snapshot is not None and snapshot_id < latest_interpretation_snapshot.snapshot_id:
+                next_interpretation_snapshot_id += 1
+                snapshot = snapshot.model_copy(update={"snapshot_id": next_interpretation_snapshot_id})
             if snapshot is None:
                 stable_interpretation.clear_memory_possibilities()
                 if error_type == "ValueError":
@@ -1367,14 +2234,19 @@ def show_window(summary: str) -> None:
                 memory_status_label.configure(text="Local memory retrieval unavailable — interpretation continues without memory")
             else:
                 stable_interpretation.offer_memory_possibilities(
-                    possibilities, time.perf_counter()
+                    [item for item in possibilities if not item.sensitivity_safe and not ambiguous
+                     and "lexical" in item.relevance], time.perf_counter()
                 )
+                if not ambiguous:
+                    guidance_display.offer_local_remember([item for item in possibilities if not item.sensitivity_safe
+                        and "lexical" in item.relevance], max(turn.display_order for turn in snapshot.turns), time.perf_counter())
+                    render_guidance()
                 if ambiguous:
-                    memory_status_label.configure(text="Several memories may fit — memory withheld; clarify the reference")
+                    memory_status_label.configure(text="Several memories may fit — ambiguous facts withheld; approved style preferences may still apply")
                 elif snapshot.memories:
                     suffix = "" if semantic_available else " · indirect recall reduced"
                     shown = len(stable_interpretation.memory_possibilities)
-                    memory_status_label.configure(text=f"Showing {shown} approved memory context item(s) · {len(snapshot.memories)} supplied to this analysis{suffix}")
+                    memory_status_label.configure(text=f"Checking {len(snapshot.memories)} candidate memories for relevance · {shown} displayed{suffix}")
                 elif stable_interpretation.memory_possibilities:
                     memory_status_label.configure(
                         text=f"Showing {len(stable_interpretation.memory_possibilities)} approved memory context item(s) · recent match retained briefly"
@@ -1387,6 +2259,8 @@ def show_window(summary: str) -> None:
                             else "No lexical match — indirect recall reduced; run --install-memory-model"
                         )
                     )
+            if preference_notice:
+                memory_status_label.configure(text=memory_status_label.cget("text") + " · " + preference_notice)
             latest_interpretation_snapshot = snapshot
             render_interpretation()
             if interpretation_coordinator:
@@ -1416,7 +2290,7 @@ def show_window(summary: str) -> None:
         item = latest_interpretation_snapshot
         ledger = usage_ledger
         if stopping or item is None or ledger is None:
-            render_interpretation(note="Two finalized turns are required for Terra")
+            render_interpretation(note="Transcribed speech is required for Luna")
             return
         if manual_terra_running:
             return
@@ -1424,20 +2298,20 @@ def show_window(summary: str) -> None:
             prepared = prepare_interpretation_request(item)
         except ValueError:
             set_interpretation_unavailable(
-                "Recent conversation exceeds the safe Terra input limit",
+                "Recent conversation exceeds the safe Luna input limit",
                 time.perf_counter(),
             )
             render_interpretation(replaced=True)
             return
         maximum = conservative_request_cost(
-            TERRA_MODEL, prepared.estimated_input_tokens
+            LUNA_MODEL, prepared.estimated_input_tokens
         )
-        if ledger.total_dollars + maximum > ledger.limits.hard_dollars:
-            render_interpretation(note="Session budget reached — Terra unavailable")
+        if ledger.committed_dollars + maximum > min(LIVE_BUDGET_CEILING_DOLLARS, ledger.limits.hard_dollars):
+            render_interpretation(note="Session budget reached — Luna unavailable")
             return
         if not messagebox.askyesno(
-            "Check with Terra",
-            f"Run one Terra {terra_reasoning.get()} request on the newest snapshot?\n\n"
+            "Check with Luna",
+            f"Run one Luna {terra_reasoning.get()} request on the newest snapshot?\n\n"
             f"Conservative maximum: ${maximum:.4f}\n"
             f"This call's estimated interpretation spend: ${ledger.total_dollars:.4f}",
         ):
@@ -1451,10 +2325,11 @@ def show_window(summary: str) -> None:
         def run() -> None:
             try:
                 result = OpenAIInterpreter(
-                    model=TERRA_MODEL,
+                    model=LUNA_MODEL,
                     reasoning=reasoning,
                     ledger=ledger,
                     is_current=lambda snapshot: snapshot.generation == interpretation_generation,
+                    live=True,
                 )(item)
             except Exception as exc:
                 manual_terra_results.put(
@@ -1470,12 +2345,37 @@ def show_window(summary: str) -> None:
         ).start()
 
     def poll_interpretation(now: float) -> None:
+        if semantic_backfill_requested:
+            schedule_semantic_backfill()
+        poll_local()
         poll_memory_results()
+        while True:
+            try:
+                record, result, error = review_results.get_nowait()
+            except queue.Empty:
+                break
+            review_running.discard(record)
+            if error:
+                review_errors[record] = error
+            memory_status_label.configure(text=f"Review pending: {error}" if error else "Summary draft and memory proposals ready for separate review.")
         nonlocal manual_terra_running
+        suggest_button.configure(state="normal" if selected_contact_id and latest_interpretation_snapshot and
+            interpretation_coordinator and not interpretation_coordinator.snapshot().in_flight and not stopping else "disabled")
         if interpretation_coordinator:
             for event in interpretation_coordinator.poll(now):
                 if event.kind == CoordinatorEventKind.ACCEPTED:
                     assert event.update is not None
+                    if hasattr(event.update, "replies"):
+                        from .guidance import selected_memory_context
+                        if latest_interpretation_snapshot:
+                            if event.snapshot_id < latest_interpretation_snapshot.snapshot_id:
+                                event.update.replies.clear()
+                                event.update.follow_up.clear()
+                            stable_interpretation.offer_memory_possibilities(
+                                selected_memory_context(latest_interpretation_snapshot.memories, event.update), now)
+                            memory_status_label.configure(text=f"Showing {len(stable_interpretation.memory_possibilities)} relevant memory context item(s)")
+                        guidance_display.offer(event.update, now)
+                        render_guidance()
                     if stable_interpretation.offer(event.update, now) == "replaced":
                         render_interpretation(replaced=True)
                 elif event.kind == CoordinatorEventKind.ERROR:
@@ -1486,6 +2386,10 @@ def show_window(summary: str) -> None:
                 else:
                     render_interpretation()
         memory_expired = stable_interpretation.expire_memory_possibilities(now)
+        previous_guidance = repr((guidance_display.items, guidance_display.local_remember))
+        guidance_display.tick(now)
+        if previous_guidance != repr((guidance_display.items, guidance_display.local_remember)):
+            render_guidance()
         if memory_expired:
             if stable_interpretation.memory_possibilities:
                 memory_status_label.configure(
@@ -1495,6 +2399,23 @@ def show_window(summary: str) -> None:
                 memory_status_label.configure(
                     text="No recent approved memory context is displayed"
                 )
+        if interpretation_coordinator and audio_session and not stopping:
+            state = interpretation_coordinator.snapshot()
+            if state.in_flight:
+                activity = "Analyzing the conversation…"
+            elif state.pending_snapshot_id is not None:
+                activity = "Listening — next analysis is scheduled"
+            elif not guidance_display.all_items("replies"):
+                activity = "Listening — guidance is active"
+            else:
+                activity = "Listening — guidance is active"
+            if not guidance_display.all_items("replies"):
+                from .guidance import waiting_suggestion
+                role = turns[-1].speaker_role.value if turns else "selected_contact"
+                activity = waiting_suggestion(role) + (" Updating guidance…" if state.in_flight else "")
+            guidance_status.configure(text=activity)
+        else:
+            guidance_status.configure(text="Select a contact to enable guidance" if not selected_contact_id else "Start a call to receive live guidance")
         if stable_interpretation.tick(now):
             render_interpretation(replaced=True)
         elif memory_expired:
@@ -1516,18 +2437,29 @@ def show_window(summary: str) -> None:
                 or current is None
                 or snapshot_id != current.snapshot_id
             ):
-                render_interpretation(note="Terra result expired after newer context")
+                render_interpretation(note="Luna result expired after newer context")
             elif error_type:
                 set_interpretation_unavailable(
                     interpretation_error_message(error_type), now
                 )
-                render_interpretation(replaced=True, note="Terra check failed")
+                render_interpretation(replaced=True, note="Luna check failed")
             elif stable_interpretation.offer(result, now, manual=True) == "unchanged":
-                render_interpretation(note="Terra found no meaningful change")
+                render_interpretation(note="Luna found no meaningful change")
             else:
-                render_interpretation(replaced=True, note="Checked with Terra")
+                render_interpretation(replaced=True, note="Checked with Luna")
 
     terra_button.configure(command=check_with_terra)
+
+    def suggest_now():
+        nonlocal next_interpretation_snapshot_id, latest_interpretation_snapshot
+        if latest_interpretation_snapshot and interpretation_coordinator and not stopping:
+            guidance_display.dismissed.clear()
+            next_interpretation_snapshot_id += 1
+            latest_interpretation_snapshot = latest_interpretation_snapshot.model_copy(update={"snapshot_id": next_interpretation_snapshot_id, "manual": True})
+            interpretation_coordinator.offer(latest_interpretation_snapshot, time.perf_counter(), manual=True)
+            suggest_button.configure(state="disabled")
+
+    suggest_button.configure(command=suggest_now)
 
     def set_running(running: bool) -> None:
         window_list.configure(state="disabled" if running else "normal")
@@ -1669,35 +2601,25 @@ def show_window(summary: str) -> None:
             current_record_id = None
             return
 
-        worker_path = memory_store.path
         ledger = usage_ledger
         try:
-            _chunks, estimate = extraction_maximum_cost(memory_store.record_turns(record_id))
+            _chunks, estimate = review_estimate(memory_store, record_id)
         except KeyError:
             memory_status_label.configure(text="Conversation record unavailable; memory analysis did not run")
             return
         except ValueError:
             memory_status_label.configure(text="Conversation saved; a turn exceeds the extraction limit, so analysis did not run")
             return
-        if ledger is None or ledger.total_dollars + estimate > ledger.limits.hard_dollars:
+        open_review(record_id)
+        if ledger is None or ledger.committed_dollars + estimate > ledger.limits.hard_dollars:
             memory_status_label.configure(
-                text="Conversation saved; shared call budget cannot cover extraction, so analysis waits for manual retry"
+                text="Conversation saved; review remains pending until an explicit estimated continuation"
             )
             current_record_id = None
             return
 
-        def run_extraction() -> None:
-            try:
-                with MemoryStore(worker_path, verify=False) as worker_store:
-                    extractor = OpenAIMemoryExtractor(ledger=ledger)
-                    batch_id = analyze_record(worker_store, record_id, extractor)
-            except Exception as exc:
-                memory_analysis_results.put((record_id, None, type(exc).__name__))
-            else:
-                memory_analysis_results.put((record_id, batch_id, None))
-
-        threading.Thread(target=run_extraction, name="post-call-memory-extraction", daemon=True).start()
-        memory_status_label.configure(text="Conversation saved; extracting a bounded proposal batch")
+        if start_review_job(record_id, ledger):
+            memory_status_label.configure(text="Conversation saved; preparing bounded summary and existing memory proposals")
         current_record_id = None
 
     def stop() -> None:
@@ -1706,6 +2628,11 @@ def show_window(summary: str) -> None:
         if stopping:
             return
         stopping = True
+        if usage_ledger:
+            usage_ledger.stopped = True
+        guidance_display.reset()
+        render_guidance()
+        local_pending["live"] = None
         interpretation_generation += 1
         latest_interpretation_snapshot = None
         stable_interpretation.clear_memory_possibilities()
@@ -1957,6 +2884,7 @@ def show_window(summary: str) -> None:
                 else:
                     status_label.configure(text=error or "Stopped")
                 finish_memory_record()
+                schedule_semantic_backfill()
                 set_running(False)
                 if not audio_timed_out and (
                     audio_catalog is None or audio_catalog.closed
@@ -1974,6 +2902,7 @@ def show_window(summary: str) -> None:
                 status_label.configure(text="Stop failed (TimeoutError)")
                 audio_status_label.configure(text=audio_runtime_error)
                 finish_memory_record()
+                schedule_semantic_backfill()
                 set_running(False)
                 populate_audio_choices(initial=False)
             else:

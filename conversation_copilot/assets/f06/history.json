@@ -1,0 +1,47 @@
+{
+  "contact": "Alex Morgan — FICTIONAL ASK TEST",
+  "reference": "2026-09-13T12:00:00+03:00",
+  "calls": [
+    {"date": "2026-09-01", "title": "Preparing for an interview", "items": [
+      {"id":"interview", "you":"What is coming up with work?", "said":"I have a junior designer interview at Northstar Studio on September 4. It's my first design interview.", "memory":"Alex has a junior designer interview at Northstar Studio on September 4, 2026; it is his first design interview.", "event":"2026-09-04"},
+      {"id":"preparation", "you":"What part worries you?", "said":"Explaining my portfolio out loud. Could we practise together on September 3 at seven in the evening?", "memory":"Alex is nervous about explaining his portfolio aloud and asked to practise with the user on September 3, 2026 at 19:00.", "event":"2026-09-03"},
+      {"id":"old_loss", "you":"Does practising remind you of anyone?", "said":"My grandfather Arthur used to rehearse presentations with me. He died on February 12 this year. I still miss our Sunday chess games.", "memory":"Alex's grandfather Arthur died on February 12, 2026. Arthur helped him rehearse presentations; Alex misses their Sunday chess games.", "event":"2026-02-12", "sensitive":true},
+      {"id":"old_prize", "you":"Have you had any encouraging feedback?", "said":"I won the Riverside photography contest on June 20. The winning picture was a sunrise over the harbour.", "memory":"Alex won the Riverside photography contest on June 20, 2026 with a harbour sunrise photograph.", "event":"2026-06-20"},
+      {"id":"old_trip", "you":"Did you go away over the summer?", "said":"I went camping at Pine Lake on July 18 with Ben. It rained the whole weekend and our tent leaked.", "memory":"Alex camped at Pine Lake with Ben on July 18, 2026; rain and a leaking tent spoiled the weekend.", "event":"2026-07-18"},
+      {"id":"preference", "you":"How can I help while you get ready?", "said":"Give me specific feedback rather than just telling me I'll be fine. I don't drink coffee after lunch either; it keeps me awake.", "memory":"Alex prefers specific feedback to generic reassurance and avoids coffee after lunch because it keeps him awake."}
+    ]},
+    {"date": "2026-09-07", "title": "Rejection and a recent bereavement", "items": [
+      {"id":"rejection", "you":"How did the Northstar interview turn out?", "said":"They emailed a rejection on September 6. They wanted someone who had shipped client projects. I felt disappointed, but they said the portfolio itself was strong.", "memory":"Northstar Studio rejected Alex on September 6, 2026 after his September 4 interview, citing lack of shipped client projects. Alex felt disappointed; they praised his portfolio.", "event":"2026-09-06"},
+      {"id":"next_step", "you":"What do you want to do next?", "said":"I'll build a booking page for my aunt's bakery to get a real client project. I want a working version by September 25.", "memory":"Alex plans a booking page for his aunt's bakery, targeting September 25, 2026, to gain client-project experience after Northstar's rejection.", "event":"2026-09-25"},
+      {"id":"new_loss", "you":"Has anything else made this week difficult?", "said":"My friend Maya died in a cycling accident on September 5. We rode together most Saturdays. Her memorial is on September 12.", "memory":"Alex's friend Maya died in a cycling accident on September 5, 2026. They rode together on Saturdays; her memorial is September 12, 2026.", "event":"2026-09-05", "sensitive":true},
+      {"id":"support", "you":"Would you like advice about everything?", "said":"Right now I mostly want someone to listen about Maya. With the work stuff, practical suggestions are welcome.", "memory":"Alex wants listening rather than advice about Maya's death, but welcomes practical suggestions about his work setback.", "sensitive":true},
+      {"id":"dentist", "you":"Anything else on your calendar?", "said":"A dental checkup at Cedar Clinic on September 10 at three in the afternoon.", "memory":"Alex has a dental checkup at Cedar Clinic on September 10, 2026 at 15:00.", "event":"2026-09-10"},
+      {"id":"new_application", "you":"Are you waiting on another employer?", "said":"I sent an application to Harbor Labs yesterday, September 6, but they haven't invited me to an interview.", "memory":"Alex applied to Harbor Labs on September 6, 2026 and had no interview invitation as of September 7.", "event":"2026-09-06"}
+    ]},
+    {"date": "2026-09-13", "title": "Something enjoyable ahead", "items": [
+      {"id":"new_trip", "you":"Is there something you're looking forward to?", "said":"Ben and I booked a cabin in the Galilee for September 19 to 21. I'm looking forward to switching off.", "memory":"Alex and Ben booked a Galilee cabin for September 19–21, 2026. Alex looks forward to relaxing.", "event":"2026-09-19"},
+      {"id":"new_prize", "you":"You sound pleased about something else too.", "said":"My short film won the Maple community festival award on September 11. They're showing it at a screening on September 18.", "memory":"Alex's short film won the Maple community festival award on September 11, 2026; its screening is September 18.", "event":"2026-09-11"},
+      {"id":"celebration", "you":"How are you going to mark the win?", "said":"Dinner with my sister at Olive Kitchen on September 16, at eight.", "memory":"Alex will celebrate the film award with his sister at Olive Kitchen on September 16, 2026 at 20:00.", "event":"2026-09-16"},
+      {"id":"memorial", "you":"How was yesterday?", "said":"Maya's memorial was hard. I talked to her brother afterwards. I still don't want to go on our usual Saturday ride.", "memory":"Alex found Maya's September 12, 2026 memorial difficult, spoke with her brother afterwards, and does not yet want to resume their Saturday ride.", "event":"2026-09-12", "sensitive":true},
+      {"id":"bakery_progress", "you":"Did you start the bakery page?", "said":"The first prototype is working. My aunt will try it on September 15. Northstar hasn't changed its decision, and Harbor Labs still hasn't replied.", "memory":"As of September 13, 2026, Alex's bakery prototype works; his aunt will test it September 15. Northstar's rejection stands and Harbor Labs has not replied.", "event":"2026-09-15"},
+      {"id":"physio", "you":"Do you have any other appointments?", "said":"Physiotherapy for my shoulder at Harbor Health on September 17 at eleven in the morning. The dental checkup last Thursday went fine.", "memory":"Alex has shoulder physiotherapy at Harbor Health on September 17, 2026 at 11:00. His September 10 dental checkup went fine.", "event":"2026-09-17"}
+    ]}
+  ],
+  "queries": [
+    {"question":"Did he get the position he was preparing for?", "expected":["rejection"], "status":"answered"},
+    {"question":"What is he doing to address the reason they turned him down?", "expected":["rejection","next_step","bakery_progress"], "status":"answered"},
+    {"question":"What could help him take his mind off things soon?", "expected":["new_trip"], "status":"answered"},
+    {"question":"Who is the more recent person he lost?", "expected":["new_loss"], "status":"answered"},
+    {"question":"Who used to help him get ready to speak in front of people?", "expected":["old_loss"], "status":"answered"},
+    {"question":"What happened to that person he misses?", "expected":["old_loss","new_loss"], "status":"clarification"},
+    {"question":"What did he win most recently?", "expected":["new_prize"], "status":"answered"},
+    {"question":"Which success involved a picture taken early in the day?", "expected":["old_prize"], "status":"answered"},
+    {"question":"What went wrong on the earlier getaway, and how is the next one different?", "expected":["old_trip","new_trip"], "status":"answered"},
+    {"question":"Where is he going to have his teeth checked?", "expected":["dentist"], "status":"answered"},
+    {"question":"Which health visit is still ahead of him?", "expected":["physio"], "status":"answered"},
+    {"question":"When is his appointment?", "expected":["dentist","physio"], "status":"clarification"},
+    {"question":"Should I offer solutions when he brings up his riding companion?", "expected":["support","new_loss"], "status":"answered"},
+    {"question":"Has the other company offered him a meeting yet?", "expected":["new_application","bakery_progress"], "status":"answered"},
+    {"question":"How much will his new role pay?", "expected":[], "status":"no_match"}
+  ]
+}

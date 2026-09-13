@@ -99,11 +99,18 @@ def test_current_database_open_runs_one_integrity_scan(tmp_path, monkeypatch):
     assert calls == [True]
 
 
+def drop_f06_schema(db):
+    db.execute("DROP TRIGGER summary_record_invalidate")
+    for table in ("review_chunks", "review_jobs", "summary_dependencies", "summary_evidence", "summary_statements", "summary_versions", "summary_exclusions", "summary_search"):
+        db.execute(f"DROP TABLE {table}")
+
+
 def test_version_one_migrates_to_semantic_table_with_backup_cleanup(tmp_path):
     path = tmp_path / "memory.sqlite3"
     with MemoryStore(path) as store:
         contact = store.create_contact("Alex")
     old = sqlite3.connect(path)
+    drop_f06_schema(old)
     old.execute("DROP TABLE memory_embeddings")
     old.execute("ALTER TABLE memory_proposals DROP COLUMN likely_generic")
     old.execute("PRAGMA user_version = 1")
@@ -136,6 +143,7 @@ def test_version_two_migrates_existing_proposals_with_generic_flag_defaulted(tmp
             )
         ])[0]
     old = sqlite3.connect(path)
+    drop_f06_schema(old)
     old.execute("ALTER TABLE memory_proposals DROP COLUMN likely_generic")
     old.execute("PRAGMA user_version = 2")
     old.commit()
@@ -618,9 +626,11 @@ def test_historical_reassignment_defaults_delete_and_keeps_only_explicit_review_
         assert all(item["delete"] for item in preview)
         assert store.reassign_record(record_id, corrected.id, keep_memory_ids=[keep_id]) == 2
         assert store.retrieve(wrong.id, "attributed").matches == ()
-        assert store.retrieve(corrected.id, "transferable").matches[0].memory_id == keep_id
+        assert store.retrieve(corrected.id, "transferable").matches == ()
         kept = store._connection.execute("SELECT contact_id,needs_review FROM memories WHERE id=?", (keep_id,)).fetchone()
         assert tuple(kept) == (corrected.id, 1)
+        store.confirm_reviewed_memory(keep_id, store.current_revision(keep_id)["id"])
+        assert store.retrieve(corrected.id, "transferable").matches[0].memory_id == keep_id
         assert store._connection.execute("SELECT deleted_at FROM memories WHERE id=?", (delete_id,)).fetchone()[0]
         assert store._connection.execute("SELECT count(*) FROM memory_connections").fetchone()[0] == 0
 
@@ -834,7 +844,7 @@ def test_exact_contact_lifecycle_filters_ambiguity_export_and_version(tmp_path):
         store.validate_export(payload)
         serialized = json.dumps(payload)
         assert "memory_search" not in serialized and "embedding" not in serialized and alex.id not in serialized
-        payload["version"] = 2
+        payload["version"] += 1
         with pytest.raises(ValueError, match="unsupported"):
             store.validate_export(payload)
         with pytest.raises(ValueError):
@@ -983,6 +993,8 @@ def test_merge_rehomes_retrieval_and_contact_delete_clears_fts(tmp_path):
         assert store.batch_progress(batch_id)[2] == "pending_review"
         approved = store.approve_proposal(proposal_id)
         assert store.current_revision(approved)["content"] == "Maya likes coffee"
+        assert not store.retrieve(survivor.id, "mint tea").matches
+        store.confirm_reviewed_memory(memory_id, store.current_revision(memory_id)["id"])
         match = store.retrieve(survivor.id, "mint tea").matches[0]
         assert match.memory_id == memory_id and match.contact_id == survivor.id
         store.delete_contact(survivor.id)

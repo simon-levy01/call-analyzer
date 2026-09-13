@@ -137,11 +137,11 @@ def test_snapshot_drops_oldest_complete_turns_and_stays_bounded():
     assert 2 <= len(result.turns) <= 16
     assert result.turns[-1].display_order == 12
     assert result.turns[0].timestamp >= result.turns[-1].timestamp - timedelta(minutes=3)
-    assert result.estimated_transcript_tokens <= 1_000
+    assert result.estimated_transcript_tokens <= 1_300
     assert all(turn.speaker_role in {SpeakerRole.USER, SpeakerRole.SELECTED_CONTACT} for turn in result.turns)
 
 
-def test_snapshot_keeps_three_minutes_and_sixteen_short_turns():
+def test_snapshot_keeps_three_minutes_of_short_turns():
     result = build_snapshot(turns(12), snapshot_id=1, generation=1)
 
     assert len(result.turns) == 12
@@ -495,11 +495,11 @@ def test_openai_retry_stale_auth_budget_and_local_key_file(tmp_path):
     assert timeout_ledger.records[0].dollars > timeout_ledger.records[1].dollars
 
     stale = Responses([ApiError(429), success])
-    with pytest.raises(InterpretationUnavailable, match="unavailable"):
+    with pytest.raises(InterpretationUnavailable, match="source changed"):
         OpenAIInterpreter(
             client=SimpleNamespace(responses=stale), is_current=lambda _item: False
         )(snapshot(2, 2))
-    assert stale.calls == 1
+    assert stale.calls == 0
 
     auth = Responses([ApiError(401)])
     auth_ledger = UsageLedger()
@@ -533,6 +533,37 @@ def test_openai_retry_stale_auth_budget_and_local_key_file(tmp_path):
     key_file = tmp_path / ".env.local"
     key_file.write_text("OPENAI_API_KEY=secret-test-key\n", encoding="utf-8")
     assert local_openai_api_key(key_file, {}) == "secret-test-key"
+
+
+def test_first_request_at_twelve_seconds_with_one_finalized_turn():
+    single = build_snapshot(turns(1), snapshot_id=1, generation=1)
+    calls = []
+    coordinator = InterpretationCoordinator(lambda item: calls.append(item) or update(), first_request_at=12,
+        adaptive_cadence=True)
+    assert not coordinator.offer(single, 5)
+    coordinator.poll(11.9)
+    assert not calls
+    coordinator.poll(12)
+    wait_until(lambda: bool(calls))
+    assert len(calls[0].turns) == 1
+
+
+@pytest.mark.parametrize(("arrival_gap", "expected_interval"), [(2, 10), (4, 12), (8, 15)])
+def test_adaptive_cadence_follows_transcript_arrivals(arrival_gap, expected_interval):
+    fake = FakeInterpreter([update(), update()])
+    coordinator = InterpretationCoordinator(fake, adaptive_cadence=True)
+    assert coordinator.offer(snapshot(1, 2), 0)
+    wait_until(lambda: bool(coordinator.poll(0)))
+    assert not coordinator.offer(snapshot(2, 3), arrival_gap)
+    # Reoffering the same finalized transcript must not count as faster speech.
+    assert not coordinator.offer(snapshot(2, 3), arrival_gap + 0.1)
+    coordinator.poll(expected_interval - 0.01)
+    assert len(fake.calls) == 1
+    coordinator.poll(expected_interval)
+    wait_until(lambda: len(fake.calls) == 2)
+    wait_until(lambda: bool(coordinator.poll(expected_interval)))
+    coordinator.poll(100)
+    assert len(fake.calls) == 2  # Silence does not generate more requests.
 
 
 def test_first_request_cadence_and_one_latest_pending_snapshot():

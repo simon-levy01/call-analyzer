@@ -1,0 +1,313 @@
+"""Combined F06 guidance output and bounded display state."""
+from __future__ import annotations
+
+import json
+import hashlib
+import re
+from dataclasses import dataclass
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from .interpretation import (
+    InterpretationUpdate, _InterpretationWireUpdate, _canonical_interpretation,
+    _calibrate_high_confidence, _restrict_evidence_to_present_modalities,
+    f06_structured_request, prepare_interpretation_request,
+    estimate_english_tokens, REQUEST_PROTOCOL_OVERHEAD_TOKENS, EvidenceModality,
+    _cautious_policy, LUNA_MODEL,
+)
+
+CATEGORIES = ("replies", "remember", "follow_up")
+GUIDANCE_INPUT_LIMIT = 4_500
+
+GUIDANCE_INSTRUCTIONS = """
+Also return useful next-move candidates in replies, plus optional remember and follow_up candidates. Empty remember and follow_up lists are valid.
+Replies are alternatives, not messages to send automatically. Never invent the user's feelings, reactions, knowledge or commitments (for example 'that made me laugh').
+Never use fill-in placeholders or unprovided facts in a ready-to-say reply. Ask a supported question instead.
+Do not turn another person's correction into the user's acceptance: say 'Got it—four PM', not 'Four PM works for me'.
+Write in the user's voice; never discuss the assistant's instructions or its approved-memory system.
+Replies guide the USER's next move: words to say or an action such as 'Pause and give them a moment to respond.'
+Never answer the user's question as the contact. User turns are context: avoid questions already asked
+and statements already made. reply_to_turn_id is the latest contact turn. If user_spoke_last, cite
+latest_turn_id and account for what the user has already said; often suggest waiting, adding speech
+only when useful. Otherwise cite reply_to_turn_id. Always offer a reply or listening/waiting action.
+Use the user's observed register and phrasing as the default style. Supplied approved communication_style or
+relationship_preference evidence may refine that style; cite its revision in preference_ids when used.
+Relationship labels never imply a style. Conflicting preferences require clarification; do not choose one silently.
+Candidates must cite 1–3 source turn_ids and/or memory revision IDs in memory_ids, all supplied in input.
+Remember must refer to relevant approved memories; follow_up should ask rather than assume uncertain plans.
+When a memory's relevance includes possible-loss-reference, the current speaker has NOT confirmed that
+the implicit mention refers to it. Offer a Remember candidate beginning 'Possibly related:' using the
+memory's exact factual meaning. Keep uncertainty in the reminder, not in an identity-check question.
+Replies should offer natural support that fits the current words and possible context, without naming
+an unconfirmed person/event or asking 'Is this about ...?'. For supported bereavement, a simple
+'I am sorry for your loss' can fit. 'Lost' alone does not establish death; never invent death.
+No diagnosis, certain emotion, invented agreement or invented preference. Use only current evidence.
+turn_ids maps each t row to its source turn ID. m row first field is its memory revision ID.
+
+Current tone/cues concern the latest substantive contact contribution in the current topic. Past/negated feelings, user app commentary and filler are not present contact affect. A topic change is not withdrawal; a preference is not engagement.
+When discriminating factual clues support a useful connection across the ongoing topic, return a Remember candidate; do not silently omit it. Copy its supplied ID exactly. Generic stress, sadness, relief or excitement alone cannot select an event; retrieval alone is not relevance. Match meanings without requiring names or shared keywords: a selected short and screening may connect to a film award. Prefer event clues over recency; use dates to distinguish plausible events. Begin 'Possibly related:' unless identity is established. Never recreate transcript facts as memories without supplied memory IDs.
+An explicit refusal to discuss an event overrides relevance: omit its reminders/questions until the contact reopens it. After a topic switch, drop old-topic reminders and emotions.
+Avoid repeating questions, answers or stated dependencies in meaning. An unfinished phrase calls for listening. Never assume 'you must be thrilled'. Prefer one or two concise reply alternatives and at most one distinct follow_up; omit duplicate or unhelpful questions.
+"""
+
+
+def suppress_outdated_replies(update, analyzed_order, latest_order):
+    """New speech invalidates ready-to-say text, not the whole recent analysis."""
+    if latest_order > analyzed_order:
+        return update.model_copy(update={"replies": [], "follow_up": []})
+    return update
+
+
+def selected_memory_context(memories, update):
+    selected = {revision for item in update.remember for revision in item.memory_ids}
+    return [memory for memory in memories if memory.revision_id in selected]
+
+
+def waiting_suggestion(speaker_role):
+    return "Pause and give them a moment to respond." if speaker_role == "user" else "Listen and give them room to finish."
+
+
+class GuidanceCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=180)
+    confidence: str = Field(pattern="^(low|medium|high)$")
+    turn_ids: list[int] = Field(default_factory=list, max_length=3)
+    memory_ids: list[str] = Field(default_factory=list, max_length=3)
+    preference_ids: list[str] = Field(default_factory=list, max_length=2)
+
+    @property
+    def id(self):
+        return hashlib.sha256(self.model_dump_json().encode()).hexdigest()[:20]
+
+
+class GuidanceOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    interpretation: _InterpretationWireUpdate
+    replies: list[GuidanceCandidate] = Field(default_factory=list, max_length=3)
+    remember: list[GuidanceCandidate] = Field(default_factory=list, max_length=3)
+    follow_up: list[GuidanceCandidate] = Field(default_factory=list, max_length=3)
+
+
+class GuidedInterpretation(InterpretationUpdate):
+    replies: list[GuidanceCandidate] = Field(default_factory=list, max_length=3)
+    remember: list[GuidanceCandidate] = Field(default_factory=list, max_length=3)
+    follow_up: list[GuidanceCandidate] = Field(default_factory=list, max_length=3)
+    snapshot_id: int
+    generation: int
+    manual: bool = False
+
+
+def interpret_guidance(snapshot, *, ledger, client=None, model=LUNA_MODEL, reasoning="none", is_current=lambda _item: True, live=True):
+    policy = _cautious_policy(snapshot)
+    if not any(turn.speaker_role.value == "selected_contact" for turn in snapshot.turns):
+        return GuidedInterpretation(**policy.model_dump(), snapshot_id=snapshot.snapshot_id,
+            generation=snapshot.generation, manual=snapshot.manual,
+            replies=[GuidanceCandidate(text=waiting_suggestion("user"), confidence="medium",
+                turn_ids=[max(turn.display_order for turn in snapshot.turns)])])
+    prepared = prepare_interpretation_request(snapshot, preserve_transcript=True)
+    payload = json.loads(prepared.input_text)
+    payload["turn_ids"] = list(prepared.turn_orders)
+    latest = max(snapshot.turns, key=lambda turn: turn.display_order)
+    reply_to = max(turn.display_order for turn in snapshot.turns if turn.speaker_role.value == "selected_contact")
+    payload["reply_to_turn_id"] = reply_to
+    payload["latest_turn_id"] = latest.display_order
+    payload["user_spoke_last"] = latest.speaker_role.value == "user"
+    instructions = prepared.instructions + GUIDANCE_INSTRUCTIONS
+    overhead = sum(estimate_english_tokens(text) for text in (
+        instructions, json.dumps(GuidanceOutput.model_json_schema(), separators=(",", ":")))) + REQUEST_PROTOCOL_OVERHEAD_TOKENS
+    while overhead + estimate_english_tokens(json.dumps(payload, ensure_ascii=False, separators=(",", ":"))) > GUIDANCE_INPUT_LIMIT:
+        # Bound optional observations/memories without spending the transcript allowance on instructions.
+        key = next((key for key in ("x", "v", "m") if payload.get(key)), None)
+        if key:
+            payload[key].pop(-1 if key == "m" else 0)
+        else:
+            raise ValueError("bounded guidance speech exceeds its input ceiling")
+    parsed, _usage = f06_structured_request(GuidanceOutput, payload, instructions, ledger=ledger,
+        input_limit=GUIDANCE_INPUT_LIMIT, output_limit=1200, live=live, client=client, model=model, reasoning=reasoning,
+        priority=0 if snapshot.manual else 2, is_current=lambda: is_current(snapshot))
+    turns = set(payload["turn_ids"])
+    memories = {row[0] for row in payload.get("m", [])}
+    styles = {item.revision_id for item in snapshot.memories if item.memory_type in {"communication_style", "relationship_preference"}}
+    user_words = [" " + re.sub(r"\W+", " ", turn.content.casefold()).strip() + " "
+                  for turn in snapshot.turns if turn.speaker_role.value == "user"]
+    for category in CATEGORIES:
+        accepted = []
+        for item in getattr(parsed, category):
+            words = " " + re.sub(r"\W+", " ", item.text.casefold()).strip() + " "
+            already_said = any(words in turn for turn in user_words)
+            if (not set(item.turn_ids) <= turns or not set(item.memory_ids) <= memories
+                or not set(item.preference_ids) <= (styles & memories)):
+                raise ValueError("guidance cites unavailable evidence")
+            if category in {"replies", "follow_up"} and latest.display_order not in item.turn_ids:
+                continue
+            if category in {"replies", "follow_up"} and already_said:
+                continue
+            if (not 1 <= len(item.turn_ids) + len(item.memory_ids) <= 3
+                or (category == "remember" and not item.memory_ids)
+                or re.search(r"\[[^\]]+\]|<[^>]+>", item.text)):
+                continue
+            personal_claim = re.search(r"\b(?:works? for me|see you|count me in|i(?:['’]ll| will| won['’]t| promise| agree| accept| feel|(?:['’]m| am) (?:not )?going to)"
+                r"|i can (?:make|attend|come|meet)|i(?:['’]m| am| was) (?:free|happy|glad|excited)|made me (?:laugh|smile))\b", item.text, re.I)
+            if personal_claim and not already_said:
+                continue
+            evidence_confidence = [memory.confidence.value for memory in snapshot.memories
+                                   if memory.revision_id in {*item.memory_ids, *item.preference_ids}]
+            if "low" in evidence_confidence:
+                item.confidence = "low"
+            elif "medium" in evidence_confidence and item.confidence == "high":
+                item.confidence = "medium"
+            accepted.append(item)
+        setattr(parsed, category, accepted)
+    if not parsed.replies:
+        parsed.replies = [GuidanceCandidate(text=waiting_suggestion(latest.speaker_role.value),
+            confidence="medium", turn_ids=[latest.display_order])]
+    modalities = set(prepared.modalities)
+    for key, modality in (("x", EvidenceModality.VISUAL), ("v", EvidenceModality.VOCAL), ("m", EvidenceModality.MEMORY)):
+        if not payload.get(key):
+            modalities.discard(modality)
+    if not any(row[1] for row in payload.get("v", [])):
+        modalities.discard(EvidenceModality.VOCAL)
+    if not any(row[1] > 0 and row[2] > 0 and any(value is not None for value in row[3:]) for row in payload.get("x", [])):
+        modalities.discard(EvidenceModality.VISUAL)
+    if not any(row[0] == "c" for row in payload["t"]):
+        modalities.discard(EvidenceModality.LANGUAGE)
+    # Preserve the local tone/cue safety policy while independently allowing useful
+    # word-supported replies. Abstention about tone does not forbid a factual question.
+    interpretation = policy or _calibrate_high_confidence(_restrict_evidence_to_present_modalities(
+        _canonical_interpretation(parsed.interpretation), modalities), snapshot)
+    if policy is not None and policy.status.value == "updated" and len(policy.tones) == 1:
+        # Keep abstention/conflict gates authoritative; a positive rule match need
+        # not hide a second supported model hypothesis.
+        additional = _calibrate_high_confidence(_restrict_evidence_to_present_modalities(
+            _canonical_interpretation(parsed.interpretation), modalities), snapshot)
+        room = min(1, 3 - len(policy.tones) - len(policy.social_cues))
+        extra = [tone for tone in additional.tones if tone.kind not in {t.kind for t in policy.tones}][:room]
+        if extra:
+            interpretation = policy.model_copy(update={"tones": [*policy.tones, *extra]})
+    return GuidedInterpretation(**interpretation.model_dump(), snapshot_id=snapshot.snapshot_id,
+        generation=snapshot.generation, manual=snapshot.manual, **{key: getattr(parsed, key) for key in CATEGORIES})
+
+
+@dataclass
+class DisplayedGuidance:
+    candidate: GuidanceCandidate
+    shown_at: float
+    supported_at: float
+    snapshot_id: int
+
+
+class GuidanceDisplay:
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.items = {key: [] for key in CATEGORIES}
+        self.local_remember = []
+        self.dismissed: set[tuple] = set()
+        self.expanded: set[str] = set()
+        self.pending = None
+        self.pending_categories = set()
+        self.pending_at = 0.0
+        self.pending_manual = False
+        self.last_snapshot = 0
+
+    @staticmethod
+    def fingerprint(category, item):
+        # ponytail: lexical meaning normalization; a local semantic matcher is only
+        # warranted if measured paraphrases evade this bounded, non-cloud check.
+        words = re.findall(r"\w+", item.text.casefold())
+        meaning = tuple("clarify" if word in {"explain", "clarify", "elaborate"} else word
+                        for word in words if word not in {"could", "would", "can", "you", "please", "that"})
+        return category, tuple(sorted(item.memory_ids)), meaning
+
+    def dismiss(self, category, index):
+        item = self.all_items(category)[index]
+        if item in self.local_remember:
+            self.local_remember.remove(item)
+        else:
+            self.items[category].remove(item)
+        if len(self.dismissed) < 256:
+            self.dismissed.add(self.fingerprint(category, item.candidate))
+
+    def visible(self, category):
+        return self.all_items(category)[:3 if category in self.expanded else 2]
+
+    def all_items(self, category):
+        return (self.local_remember + self.items[category])[:3] if category == "remember" else self.items[category]
+
+    def offer_local_remember(self, memories, snapshot_id, now):
+        renewed = []
+        for memory in memories[:3]:
+            candidate = GuidanceCandidate(text=memory.excerpt, confidence=memory.confidence.value, memory_ids=[memory.revision_id])
+            if self.fingerprint("remember", candidate) in self.dismissed:
+                continue
+            old = next((item for item in self.local_remember if item.candidate.memory_ids == candidate.memory_ids), None)
+            if old and old.snapshot_id < snapshot_id:
+                old.supported_at, old.snapshot_id = now, snapshot_id
+            renewed.append(old or DisplayedGuidance(candidate, now, now, snapshot_id))
+        retained = [item for item in self.local_remember if now - item.supported_at < 24 and item not in renewed]
+        self.local_remember = (renewed + retained)[:3]
+
+    def offer(self, update, now, *, manual=False):
+        manual = manual or getattr(update, "manual", False)
+        if update.snapshot_id < self.last_snapshot or (update.snapshot_id == self.last_snapshot and not manual):
+            return
+        if manual:
+            self.dismissed.clear()
+        self.last_snapshot = update.snapshot_id
+        self.pending = update
+        self.pending_categories = set(CATEGORIES)
+        self.pending_at = now
+        self.pending_manual = manual
+        self.tick(now)
+
+    def invalidate(self, *, turn_ids=None, memory_ids=None, new_topic=False):
+        if new_topic:
+            self.reset()
+            return
+        for category in CATEGORIES:
+            self.items[category] = [item for item in self.items[category] if
+                (turn_ids is None or set(item.candidate.turn_ids) <= turn_ids) and
+                (memory_ids is None or {*item.candidate.memory_ids, *item.candidate.preference_ids} <= memory_ids)]
+        if memory_ids is not None:
+            self.local_remember = [item for item in self.local_remember if set(item.candidate.memory_ids) <= memory_ids]
+        if self.pending:
+            self.pending = None
+            self.pending_categories.clear()
+
+    def tick(self, now):
+        self.local_remember = [item for item in self.local_remember if now - item.supported_at < 24]
+        for category in CATEGORIES:
+            self.items[category] = [item for item in self.items[category] if now - item.supported_at < 24]
+        if self.pending is None:
+            return
+        if now - self.pending_at >= 24:
+            self.pending = None
+            self.pending_categories.clear()
+            return
+        for category in CATEGORIES:
+            if category not in self.pending_categories:
+                continue
+            current = self.items[category]
+            candidates = [item for item in getattr(self.pending, category) if self.fingerprint(category, item) not in self.dismissed]
+            replacement = []
+            for candidate in candidates:
+                existing = next((item for item in current if item.candidate.text.casefold() == candidate.text.casefold()), None)
+                if existing:
+                    # Identical old evidence is not a fresh supporting match.
+                    fresh = set(candidate.turn_ids) - set(existing.candidate.turn_ids)
+                    if fresh or self.pending_manual:
+                        existing.supported_at = now
+                        existing.candidate = candidate
+                    if self.pending_manual:
+                        existing.shown_at = now
+                    replacement.append(existing)
+                else:
+                    replacement.append(DisplayedGuidance(candidate, now, self.pending_at, self.pending.snapshot_id))
+            if not self.pending_manual and any(now - item.shown_at < 12 for item in current):
+                continue
+            else:
+                self.items[category] = replacement
+                self.pending_categories.discard(category)
+        if not self.pending_categories:
+            self.pending = None

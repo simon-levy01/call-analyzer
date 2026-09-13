@@ -7,6 +7,16 @@
 
 **Roadmap update approved:** 2026-09-05 — F09 adds macOS support after F08. The user will run F09 on a Mac; it has no committed completion date and does not change the Windows MVP deadline.
 
+## F06 closure — user accepted 14 September 2026
+
+F06 is **complete for now by explicit user acceptance**. After reviewing the remaining Luna-quality limitations, the user instructed: “consider everything done for now”, commit/push, and update the plan. This supersedes pending closure requirements for another final Luna live call and another final Opus review; neither is reported as passed. Earlier manual calls and preliminary Opus reviews remain historical evidence. The latest independent review was Claude Sonnet 5, with two confirmed code findings fixed and covered by tests.
+
+Current configuration: Luna low for live guidance, manual interpretation, Ask Memory and post-call review. 270 automated tests pass. Completed comparison: 258 historical agent answers (226 distinct requests plus32 exact reuses),12 new agent answers,6 changed-prompt agent checks, and24 new Luna API calls costing an estimated $0.02118703. Existing API results were reused. Local-model experiments are set aside, with results preserved.
+
+Known accepted limitations: occasional ambiguous job reminders, overreading a verbal boundary as discomfort, and uncertain attribution/meaning from garbled speech. These remain evaluation/calibration work for F07; no claim of perfect memory recall or agent/API equivalence. F07, including planned facial-expression improvements, is next but has not started. No F07 implementation is authorized by this closure.
+
+Evidence: [completed checks and review dispositions](docs/F06-AGENT-API-EXPANDED.md), [test index](docs/TESTING.md). Private raw logs, databases and archives remain Git-ignored; future devices need a private archive transfer. Exact publication SHA and verified main pointers are recorded on the existing Trello release/roadmap cards to avoid a self-referential commit hash.
+
 ## Purpose
 
 Build a Windows-first assistant for autistic users that runs beside a one-to-one WhatsApp, Zoom, or Google Meet video call. Google Meet is supported only in a dedicated Google Chrome window. The assistant combines visible facial signals, both sides of the conversation, and contact-specific memory to offer cautious possible tones, social cues, useful reminders, follow-up questions, and reply suggestions.
@@ -124,10 +134,25 @@ Target dates are completion targets. If one slips, apply the trimming order inst
 | F03 — Two-sided audio and transcription | Aug 31 | Microphone and system audio become attributed transcript turns with acceptable latency |
 | F04 — Multimodal tone and cue interpretation | Sep 9 | Stable English-only conversation-atmosphere hypotheses and remote social cues combine bounded language, local vocal, and local visual evidence |
 | [F05 — Contact memory and personalization](plans/F05-contact-memory-personalization.md) | Sep 16 | Approved long-term memory, aliases, provenance, retrieval, supersession, and relationship-specific style |
-| [F06 — Live guidance, Ask Memory, and post-call review](plans/F06-live-guidance-ask-memory-post-call-review.md) | Sep 22 | Replies, reminders, follow-ups, manually approved summaries, existing memory-proposal review, and natural-language questions over approved local evidence |
-| F07 — Evaluation and calibration | Sep 27 | Repeatable scenarios, measured errors/latency/abstention, and tuned update behavior |
+| [F06 — Live guidance, Ask Memory, and post-call review](plans/F06-live-guidance-ask-memory-post-call-review.md) | Complete for now — Sep 14 | Replies, reminders, follow-ups, manually approved summaries, existing memory-proposal review, and natural-language questions over approved local evidence |
+| F07 — Evaluation and calibration | Sep 27 | Repeatable scenarios, measured errors/latency/abstention, tuned update behavior, and evaluated facial-expression observations |
 | F08 — Windows packaging and final demonstration | Oct 1 | Reliable live Windows demo, clean setup, limitations, and recorded fallback |
 | F09 — macOS support | After F08; no committed date | Run and validate on the user's Mac: selected-window capture, two-sided audio, local transcription, existing guidance/memory, and Mac setup/packaging while preserving Windows operation |
+
+### F07 — Facial-expression interpretation improvement (planned; not started)
+
+User requested 2026-09-13; included in F07 after F06 acceptance and before F08 packaging.
+Trello: [F07 roadmap and planning brief](https://trello.com/c/68EGr9Sh).
+Create the detailed F07 plan and permanent feature column when F07 begins; F06 is accepted for now; F07 has not started.
+Compare existing movement-only buckets with compact MediaPipe expression levels, duration and onset/offset,
+starting with smile-like and explicitly defined frown-like configurations. Confidence in an observed expression
+is separate from confidence about emotional meaning. A sustained smile must not disappear merely because
+its movement is low; speaking, head movement, occlusion and face loss must not masquerade as expressions.
+Align observations with contact speech and test whether they improve guidance, not just visual citation counts.
+Reuse local features before considering another model. Preserve no raw-frame retention/upload and no identity inference.
+Acceptance includes labeled expression precision/recall and calibration, matched no-visual/current-visual/improved-visual
+replays, useful versus incorrect suggestions, latency/CPU/token cost, a consenting live test and both Opus 5 review gates.
+Choose numerical thresholds before tuning in the F07 plan; no claim of improved performance until measured.
 
 ### F09 — macOS support (planned; not started)
 
@@ -220,7 +245,7 @@ The memory feature plan must compare SQLite/FTS5, Mem0, and Graphiti using a sma
 - retrieval is fast enough for live guidance and does not flood the model with irrelevant history;
 - retrieval handles indirect or euphemistic references such as `the event last week` by combining the confirmed contact, recent conversation turns, temporal metadata, importance/sensitivity, lexical matching, and locally computed semantic similarity rather than relying on shared keywords alone;
 - the F05 retrieval test includes a sensitive-event case in which a later conversation refers indirectly to an earlier tragedy, plus a competing-event case that must return low confidence or abstain instead of selecting an ambiguous memory;
-- local retrieval produces a bounded candidate set. A low-cost model may disambiguate only those candidates when local evidence is insufficient; the complete contact history or memory store is never sent merely to find a match;
+- live retrieval produces a bounded candidate set. For explicitly requested F06 cloud Ask (user revision 2026-09-13), Luna low may consider all eligible approved, cloud-permitted memories and summaries for one selected contact if they fit a bounded request; otherwise use a ranked shortlist. Never send the entire multi-contact store. Preserve contact/lifecycle/privacy checks and cited evidence;
 - export and deletion are testable.
 
 No memory framework is adopted merely because it is popular. Keep SQLite/FTS5 unless the measured indirect-reference gate requires the plan's bounded local embedding candidates; do not add a vector database.
@@ -277,3 +302,7 @@ If the schedule slips, remove work in this order:
 5. Broad hardware optimization. macOS support is already outside the October 1 scope and remains scheduled as F09 after F08.
 
 Do not trim the working video capture path, evidence-backed multimodal interpretation, contact-aware guidance, uncertainty, repeatable evaluation, or the live Windows demo.
+
+**F06 post-call tuning — 2026-09-13:** User-authorized 1.5x extraction reservation (6,000→9,000), whole-transcript summary input up to 9,000, and Ask input/evidence +300 tokens (6,300/4,700). Post-call Luna low; live settings unchanged. Saved 88-turn call replay used only extraction and summary, two final requests costing $0.00265096; four variants total $0.02796231. See `docs/F06-POST-CALL-CONTEXT-TEST.md` for actual output and remaining generic-memory limitations. Automated checks: 268 passed; user retest and final review/release remain pending.
+
+Final F06 tuning replay after raising proposal ceiling8→12 used2 requests ($0.00245255); total current tuning $0.03041486, aggregate evaluation $3.45659864. Six pending proposals cover the desired fact groups, with remaining interpretation/summary-resolution mistakes documented in the report. This is not a clean model-quality acceptance claim.

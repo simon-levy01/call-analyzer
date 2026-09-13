@@ -1,0 +1,6 @@
+9/8/26, 12:00 - You: What should I remember about your appointment?
+9/8/26, 12:01 - Yaheli: My dentist appointment is 2026-09-10 at 3 PM at Cedar Clinic.
+9/8/26, 12:02 - You: How would you like me to reply when we discuss plans?
+9/8/26, 12:03 - Yaheli: I prefer concise, direct replies. Give me time to think when I go quiet.
+9/8/26, 12:04 - You: Anything else we have agreed to do?
+9/8/26, 12:05 - Yaheli: Please remind me to ask Nora whether Friday works. We have not agreed on a meeting yet.

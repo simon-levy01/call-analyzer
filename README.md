@@ -1,5 +1,7 @@
 # Conversation Copilot
 
+For model evaluation choices, historical tests and reusable logs, read [project instructions](AGENTS.md) and the [testing index](docs/TESTING.md).
+
 The current application targets Windows. **F09 — macOS support** is scheduled
 after F08's Windows packaging and final demonstration, with no committed date.
 The user will run F09 on a Mac for implementation and real-device validation;
@@ -98,12 +100,12 @@ Validate the cached offline path with:
 
 The app sends only bounded English transcript excerpts and compact derived remote
 vocal/visual observations to OpenAI. It never sends raw audio, video frames,
-landmarks, or full blendshape history. Automatic Luna requests stop at the session
-hard limit; Terra runs only after **Check with Terra** and a per-request cost
-confirmation. Live Luna uses low reasoning with up to 16 complete turns from the
+landmarks, or full blendshape history. Automatic interpretation requests stop at the session
+hard limit; manual **Check with Luna** remains an explicit tone check with a per-request cost
+confirmation. The user-selected live configuration uses Luna with low reasoning, including contact-confirmed guidance. Requests use a 1,300-token budget for complete turns from the
 last three minutes; repeated speaker labels are omitted and old visual rows are
 trimmed before conversation text when the request needs shortening. Automatic
-request starts are separated by at least 12 seconds. The compact cloud payload uses
+request starts adapt within 10–15 seconds after the first request at 12 seconds. The compact cloud payload uses
 `u` and `c` for the user and confirmed contact; the visible transcript continues to
 show `You` and the confirmed contact's name.
 
@@ -224,6 +226,22 @@ corpus from a JSON manifest containing `media`, `reference`, and `language` fiel
 ```
 
 ## Tests
+
+F06 adds Reply, Remember and Follow up guidance, a nonmodal Ask Memory panel
+with its own contact selection, and a review window showing a paragraph summary beside its memories.
+Replies and follow-ups target the contact’s latest turn; the user’s words supply context and style.
+Cloud Ask also sends the selected contact’s display label and disambiguator. Post-call cloud requests include the transcript’s supplied speaker display names (the contact name and “You” for call records).
+
+Post-call generation uses Luna low and the complete eligible transcript when it fits the bounded request; longer calls retain resumable chunks. Memory proposals separately extract attributed details from the transcript. Ask cloud evidence has a 4,700-token allowance within a 6,300-token input ceiling. See the [saved-call context test](docs/F06-POST-CALL-CONTEXT-TEST.md).
+
+Summary generation shows loading until completion. Click a sentence to edit it and select linked memories
+to synchronize; memory edits can likewise update linked sentences. Pending edits remain pending.
+Approving a summary also approves its linked pending memories in one confirmed transaction; rejected
+and unrelated proposals are unchanged. Summary drafts become searchable only after explicit approval. Local Ask uses
+approved sources; explicit cloud help asks Luna low directly over the selected contact's approved, cloud-permitted history, with a ranked shortlist when it exceeds the token budget. Answers can combine memories and show supporting sources. No preceding local search is required. Try the [fictional three-call search test](docs/F06-ASK-HISTORY-TEST.md). The call ceiling is
+$0.35, preserving $0.08 from live use for review; outside-call Ask is capped at
+$0.13 per app run and $0.04 per answer. See [F06 validation](docs/F06-VALIDATION.md)
+for evidence and pending review/manual gates.
 
 ```powershell
 .\.venv\Scripts\python -m pytest

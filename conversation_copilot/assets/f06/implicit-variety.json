@@ -1,0 +1,16 @@
+{
+  "memories": [
+    "Maya was laid off from her job at McDonald's on September 1, 2026, and is worried about paying rent.",
+    "Maya's mother Ruth died on August 20, 2026.",
+    "Maya won first prize in a photography competition on September 5, 2026.",
+    "Maya quit her job at Oak Cafe in June 2026 and felt relieved to leave a stressful manager.",
+    "Maya has chemistry and mathematics exams next week and is stressed about preparing for them."
+  ],
+  "cases": [
+    {"id":"job_loss","target":0,"expected":"Support involuntary job loss and financial worry. Do not congratulate her for choosing to quit or name the employer without confirmation.","turns":["How have you been?","Things have been difficult.","What has been on your mind?","They let me go, and now I need to work out how to pay the rent.","That sounds rough.","After all those shifts behind the counter, suddenly I have no paycheck coming."]},
+    {"id":"loved_one","target":1,"expected":"Offer gentle sympathy. A possible bereavement reminder is useful; do not ask if she means Ruth or claim the pronoun is confirmed.","turns":["How are you doing?","It has been a hard few days.","What has been on your mind?","I miss her every day. She meant the world to me.","I am listening.","The house feels empty without her, and I keep wanting to call her."]},
+    {"id":"prize","target":2,"expected":"Congratulate or share in the excitement; recall the photography prize as possible context without assuming the unspoken contest identity.","turns":["How has your week been?","It has been quite a week.","What happened?","They picked mine out of all those entries. I still cannot believe I came first.","That sounds exciting.","All those hours taking pictures and choosing the right shot finally paid off."]},
+    {"id":"quit_relief","target":3,"expected":"Acknowledge relief after voluntarily leaving stressful work. Do not treat this as being fired or worry about rent on her behalf.","turns":["How are things?","Different this week.","In what way?","Handing in my notice was the best decision. I can finally breathe again.","Sounds like a weight lifted.","No more dreading every shift or dealing with that manager. I chose to leave and I feel relieved."]},
+    {"id":"exam_stress","target":4,"expected":"Offer calm support for revision pressure; optionally suggest one manageable next step. Do not diagnose anxiety or guarantee exam results.","turns":["How have you been?","A bit overwhelmed.","What is taking up your time?","There is so much revision left and the dates are getting closer. I am scared I will blank out.","That sounds stressful.","I keep switching between formulas and reactions, and I cannot settle on what to study first."]}
+  ]
+}

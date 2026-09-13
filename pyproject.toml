@@ -22,6 +22,7 @@ dependencies = [
     "opencv-contrib-python==5.0.0.93",
     "openai>=2.54,<3",
     "pydantic>=2,<3",
+    "tzdata==2026.3",
     "winrt-runtime==3.2.1",
     "winrt-Windows.Foundation==3.2.1",
     "winrt-Windows.Graphics==3.2.1",
@@ -41,7 +42,7 @@ test = ["pytest>=8,<9"]
 packages = ["conversation_copilot"]
 
 [tool.setuptools.package-data]
-conversation_copilot = ["assets/*", "assets/audio/*", "assets/f04/*.json", "assets/f04/*.md", "assets/f05/*.json", "assets/f05/*.md", "demo/*.txt"]
+conversation_copilot = ["assets/*", "assets/audio/*", "assets/f04/*.json", "assets/f04/*.md", "assets/f05/*.json", "assets/f05/*.md", "assets/f06/*.json", "assets/f06/*.md", "assets/f06/*.txt", "demo/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

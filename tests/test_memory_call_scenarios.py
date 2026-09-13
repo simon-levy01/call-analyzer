@@ -624,6 +624,69 @@ def test_progressive_grief_phrases_retrieve_tragedy_memory_cautiously(
         assert not result.semantic_available
 
 
+def test_financial_wording_focuses_retrieval_without_inventing_a_cause(tmp_path, monkeypatch):
+    queries = []
+    def embed(texts, cache):
+        queries.extend(texts)
+        return np.array([np.eye(384, dtype=np.float32)[0 if "lost his job" in text or "Financial hardship." in text else 1]
+                         for text in texts])
+    monkeypatch.setattr(semantic_module, "embed_texts_if_ready", embed)
+    with MemoryStore(tmp_path / "financial.sqlite3") as store:
+        contact = store.create_contact("Sam")
+        job = store.create_memory(contact.id, "Sam lost his job at McDonalds.", memory_type="event_date")
+        store.backfill_semantic_embeddings()
+        def retrieve(text):
+            turns = _turns([("user", "How have you been?"), ("selected_contact", "A rough week."),
+                            ("user", "What happened?"), ("selected_contact", text)])
+            query, dates = _memory_retrieval_inputs(turns)
+            return store.retrieve(contact.id, query, date_query=dates, for_cloud=True,
+                semantic_query=_memory_semantic_input(turns),
+                contact_cue_query=_memory_semantic_input(turns, speaker_role=SpeakerRole.SELECTED_CONTACT))
+        assert [m.memory_id for m in retrieve("It's hard money-wise.").matches] == [job]
+        assert "It's hard money-wise. Financial hardship." in queries
+        assert not retrieve("I'm stressed.").matches
+        assert not retrieve("It's not hard money-wise.").matches
+        assert not retrieve("Anyway, I finished a book.").matches
+        assert not any("McDonalds" in query for query in queries[1:])
+
+
+def test_implicit_lost_pet_reference_stays_possible_and_respects_context(tmp_path, monkeypatch):
+    # Equal semantic vectors deliberately exercise the cue and ambiguity guards.
+    monkeypatch.setattr(semantic_module, "embed_texts_if_ready",
+        lambda texts, cache: np.tile(np.eye(1, 384, dtype=np.float32), (len(texts), 1)))
+    def retrieve(store, contact, raw):
+        turns = _turns(raw)
+        query, dates = _memory_retrieval_inputs(turns)
+        return store.retrieve(contact, query, for_cloud=True, date_query=dates,
+            semantic_query=_memory_semantic_input(turns),
+            contact_cue_query=_memory_semantic_input(turns, speaker_role=SpeakerRole.SELECTED_CONTACT))
+    prefix = [("user", "How have you been?"), ("selected_contact", "A difficult few days."),
+              ("user", "What has been on your mind?")]
+    with MemoryStore(tmp_path / "lost-pet.sqlite3") as store:
+        maya = store.create_contact("Maya").id
+        other = store.create_contact("Nora").id
+        pepper = store.create_memory(maya, "Maya lost her dog Pepper on August 18, 2026.", memory_type="event_date")
+        store.backfill_semantic_embeddings()
+        implicit = prefix + [("selected_contact", "I miss her every day. She meant a lot to me.")]
+        result = retrieve(store, maya, implicit)
+        assert [m.memory_id for m in result.matches] == [pepper]
+        assert "possible-loss-reference" in result.matches[0].reason
+        assert "died" not in result.matches[0].content
+        assert not retrieve(store, other, implicit).matches
+        assert not retrieve(store, maya, prefix + [("selected_contact", "It has been difficult.")]).matches
+        user_only = prefix[:2] + [("user", "I miss her every day. She meant a lot to me."),
+                                 ("selected_contact", "It has been difficult.")]
+        assert not retrieve(store, maya, user_only).matches
+        assert not retrieve(store, maya, implicit + [("user", "Okay."),
+            ("selected_contact", "Changing the subject: I am enjoying The Hobbit.")]).matches
+        direct = retrieve(store, maya, prefix + [("selected_contact", "I miss my dog Pepper.")])
+        assert [m.memory_id for m in direct.matches] == [pepper]
+        assert "possible-loss-reference" not in direct.matches[0].reason
+        store.create_memory(maya, "Maya lost her cat Robin last month.", memory_type="event_date")
+        store.backfill_semantic_embeddings()
+        assert retrieve(store, maya, implicit).ambiguous
+
+
 def test_generic_relationship_conflict_does_not_retrieve_bereavement_memory(
     tmp_path, monkeypatch
 ):
