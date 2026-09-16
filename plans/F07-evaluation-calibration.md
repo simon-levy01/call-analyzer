@@ -1,6 +1,6 @@
 # F07 — Evaluation and calibration
 
-Correction-branch offline checkpoint:333tests pass;149requests replayed without errors. Actual tool-disabled Opus5 cleared the source for preliminary offline use; fresh semantic tests, user rechecks and final release review remain pending.
+September 17 diagnostic API checkpoint: 90 fresh Luna-low responses compare frozen old/revised production requests, two independent repeats, plus the historical long-summary comparator. $0.09749827 committed under its own newly requested $0.30 evaluation cap; original F07 ledger unchanged.334 tests pass after correcting one downstream empty-cue validation failure; 32 saved revised guidance outputs replay with one recovered result and no new inference. See [comparison](../docs/CALL-PROMPT-API-20260917.md). Verified tool-disabled Opus 5 review/follow-up cleared the diagnostic checkpoint; human rechecks, held-out acceptance and final post-human review remain pending. This does not replace the 144-response design or authorize another tuning round.
 
 September 16 diagnostic correction branch: `codex/call-analysis-fixes-20260916`, baseline `codex/pre-call-fixes-20260916` (`75d5b27`). See `docs/CALL-FIXES-20260916.md`. User-requested non-echo corrections and exposed three-call regressions do not replace this plan's held-out, repeat, participant or deadline gates. Fresh semantic tests await the requested method selection. No extra API spend authorization is inferred from the +200 individual token-cap allowance.
 

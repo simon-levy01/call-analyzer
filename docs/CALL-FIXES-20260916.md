@@ -1,6 +1,6 @@
 # Call-analysis correction branch
 
-Status: implementation and offline regression checks complete; actual tool-disabled Claude Opus 5 cleared the corrected source for preliminary offline use. Fresh semantic comparison, user rechecks and final release review remain pending. No F07 release pass or human-test clearance is claimed here.
+Status update September 17: [fresh API comparison](CALL-PROMPT-API-20260917.md) completed 90 independent Luna-low responses, preserving old/revised requests, two repeats and all earlier evidence. Attribution/summary gains are specific; semantic failures remain. One post-API application validation correction now passes 334 tests. Verified tool-disabled Opus 5 review/follow-up cleared the diagnostic checkpoint; user rechecks/final post-human review remain pending. The sections below preserve the September 16 offline checkpoint and its then-pending inference status; no F07 release pass is claimed.
 
 The user requested analysis of prior calls, a switchable baseline/fix branch, application of non-echo fixes, and comparison against saved Luna, Astra low, Sol high and root assessments. Echo/audio pickup is explicitly excluded. Each input/output cap may grow by at most 200 tokens where needed; this does not increase an API spending authorization or waive the separate 10% cost gate.
 

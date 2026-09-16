@@ -1,6 +1,6 @@
 # Evaluation handoff and reusable history
 
-Correction-branch offline checkpoint:333tests pass;149requests replayed without errors. Actual tool-disabled Opus5 cleared the source for preliminary offline use; fresh semantic tests, user rechecks and final release review remain pending.
+September 17 real Luna-low comparison: [old/revised requests, saved agents and root findings](CALL-PROMPT-API-20260917.md).90 structured API responses with two repeats; one downstream application validation failure retained. $0.09749827/$0.30 committed including the preserved startup reservation. After frozen inference finished, a two-line shared empty-cue canonicalization fix passes 56 affected/334 full tests; 32 saved revised guidance answers replay with exact model requests and only the failed result changes. Private evidence: `build/call-prompt-api-20260917/`. Original logs/ledgers and approved data unchanged. Verified tool-disabled Opus 5 review/follow-up cleared the diagnostic checkpoint; no human/held-out/F07 release pass.
 
 September 16 isolated correction branch: [implementation and offline comparison](CALL-FIXES-20260916.md). Pre-fix checkpoint `codex/pre-call-fixes-20260916` (`75d5b27`); fixes on `codex/call-analysis-fixes-20260916`. Private preserved evidence/runner: `build/call-fixes-20260916/`. 333 offline tests pass. Three calls,149 request captures,146 saved Luna outputs and five saved Sol live answers replayed offline; no fresh semantic inference or release pass. Echo is excluded by user instruction. Method selection and final review remain pending.
 

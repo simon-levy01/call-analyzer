@@ -198,6 +198,8 @@ def _canonical_interpretation(parsed: Any) -> InterpretationUpdate:
     if isinstance(parsed, InterpretationUpdate):
         return parsed
     data = parsed.model_dump() if isinstance(parsed, BaseModel) else dict(parsed)
+    if data["status"] == InterpretationStatus.UPDATED and not data["tones"] and not data["social_cues"]:
+        data["status"] = InterpretationStatus.INSUFFICIENT_EVIDENCE
     if data["status"] == InterpretationStatus.UPDATED:
         data["explanation"] = None
         items = [

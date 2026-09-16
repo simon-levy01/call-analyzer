@@ -1,6 +1,6 @@
 # Conversation Copilot
 
-Correction-branch offline checkpoint:333tests pass;149requests replayed without errors. Actual tool-disabled Opus5 cleared the source for preliminary offline use; fresh semantic tests, user rechecks and final release review remain pending.
+September 17 correction-branch API comparison: 90 fresh Luna-low responses across old/revised requests and two repeats; mixed semantic results, $0.09749827 committed under one $0.30 cap. One application validation failure was preserved and fixed afterward; 334 tests pass and 32 saved revised guidance outputs replay with one recovered result. Read [comparison](docs/CALL-PROMPT-API-20260917.md). Verified tool-disabled Opus 5 review/follow-up cleared the diagnostic checkpoint; user rechecks and final post-human release review remain pending. Keep the separate correction branch and original F07 gates.
 
 September 16 working branch: `codex/call-analysis-fixes-20260916`. Switchable pre-fix checkpoint: `codex/pre-call-fixes-20260916` (`75d5b27`). Read `docs/CALL-FIXES-20260916.md` and private `build/call-fixes-20260916/` before continuing. User excludes echo/audio pickup fixes and permits only needed +200 individual token caps. Offline comparisons run; fresh test method selection and review remain pending. Approved personal data and historical evidence were not changed.
 

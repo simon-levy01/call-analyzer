@@ -3,6 +3,28 @@ from types import SimpleNamespace
 from conversation_copilot.guidance import GuidanceCandidate, GuidanceDisplay
 
 
+def test_empty_updated_wire_abstains_without_losing_valid_reply(monkeypatch):
+    from conversation_copilot import guidance
+    from conversation_copilot.f04_evaluation import EvaluationScenario
+    from conversation_copilot.interpretation import UsageLedger, _canonical_interpretation
+    snapshot = EvaluationScenario("empty-updated", "f06", "Here is an option.", "Could you show it closer?").snapshot("transcript")
+    output = guidance.GuidanceOutput.model_validate({
+        "interpretation": {"status": "updated", "tones": [], "social_cues": [],
+            "explanation": "No supported affective tone is established."},
+        "replies": [{"text": "Sure, I'll show it closer.", "confidence": "high", "turn_ids": [2]}]})
+    # Both standalone interpretation and combined guidance use this canonicalizer.
+    for explanation in (None, "No supported affective tone is established."):
+        wire = output.interpretation.model_copy(update={"explanation": explanation})
+        result = _canonical_interpretation(wire)
+        assert result.status == "insufficient_evidence" and not result.tones and not result.social_cues
+        assert result.explanation == (explanation or "Recent evidence was insufficient or conflicting")
+        assert wire.status == "updated"  # Preserve the original model answer.
+    monkeypatch.setattr(guidance, "f06_structured_request", lambda *a, **k: (output, None))
+    result = guidance.interpret_guidance(snapshot, ledger=UsageLedger())
+    assert result.status == "insufficient_evidence"
+    assert [item.text for item in result.replies] == ["Sure, I'll show it closer."]
+
+
 def test_recent_reply_ideas_keep_analysis_and_filter_memories():
     from conversation_copilot.guidance import reconcile_replies, selected_memory_context, GuidedInterpretation
     original = GuidedInterpretation(snapshot_id=1, generation=1, status="insufficient_evidence", explanation="Limited evidence",

@@ -1,6 +1,6 @@
 # Conversation Copilot Master Plan
 
-Correction-branch offline checkpoint:333tests pass;149requests replayed without errors. Actual tool-disabled Opus5 cleared the source for preliminary offline use; fresh semantic tests, user rechecks and final release review remain pending.
+September 17 API checkpoint: 90 independent Luna-low responses compare frozen old/revised production requests with two repeats; $0.09749827/$0.30 committed. Specific attribution/summary improvements coexist with garbled-speech, category and repetition failures. A post-API empty-cue validation correction passes 334 tests and changes only one of 32 saved revised guidance results. See [comparison](docs/CALL-PROMPT-API-20260917.md). Verified tool-disabled Opus 5 review/follow-up cleared the diagnostic checkpoint; live rechecks/final release review still pending. No F07 gate or main-branch publication claimed.
 
 **September 16 call corrections:** User requested prior-log analysis and isolated fixes, excluding echo. Baseline branch `codex/pre-call-fixes-20260916` (`75d5b27`), correction branch `codex/call-analysis-fixes-20260916`. [Implementation, offline comparisons and remaining gates](docs/CALL-FIXES-20260916.md). No main merge, new paid evaluation or F07 completion is claimed. User permits a needed +200 per individual token cap; original dollar/cost gates remain.
 
