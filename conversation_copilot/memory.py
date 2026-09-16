@@ -954,6 +954,7 @@ class MemoryStore:
             raise ValueError("active conversations cannot be analyzed")
         batch_id = _id()
         with self.transaction() as db:
+            db.execute("UPDATE proposal_batches SET status='invalidated' WHERE record_id=? AND status IN ('running','failed')", (record_id,))
             db.execute(
                 "INSERT INTO proposal_batches(id,record_id,record_generation,status,model,reasoning,prompt_version,chunks_total,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
                 (batch_id, record_id, row["generation"], "running", model, reasoning, prompt_version, chunks_total, _now()),
@@ -1042,9 +1043,15 @@ class MemoryStore:
 
     def retryable_batch(self, record_id: str) -> str | None:
         row = self._connection.execute(
-            """SELECT id FROM proposal_batches WHERE record_id=? AND status IN ('running','failed')
-               ORDER BY created_at DESC LIMIT 1""", (record_id,)
+            """SELECT b.id,b.prompt_version FROM proposal_batches b JOIN conversation_records r ON r.id=b.record_id
+               WHERE b.record_id=? AND b.record_generation=r.generation AND b.status IN ('running','failed')
+               ORDER BY b.created_at DESC LIMIT 1""", (record_id,)
         ).fetchone()
+        if row and row[1].startswith("f06-context-v2/"):
+            try:
+                extraction_chunks(self.record_turns(record_id), prompt_version=row[1])
+            except (ValueError, TypeError, KeyError):
+                return None  # A fresh batch will preserve and invalidate this obsolete checkpoint.
         return str(row[0]) if row else None
 
     def store_proposals(
@@ -2565,11 +2572,12 @@ Before returning, scan BOTH speakers for missed specific opinions, project feedb
 people. Recheck every proposed life event against surrounding turns: retrieving/displaying a job memory is not getting a job. Remove general model-improvement predictions. Then check ownership, useful detail and source support. Do not manufacture items to fill a quota.
 Repeated boundary turns are context; avoid repeating an unchanged fact from an earlier chunk.
 Put citations only in evidence_turns, not content. Completed work is not a future commitment. A temporary dispute or preference about a THIRD party is shared_reference, not a standing communication_style/relationship_preference for the user. Omit routine greetings even when agreed. Banter is not a literal life event unless the context supports that reading.
+Keep temporary advice or same-evening routines scoped to that occasion in the content; mark low-value routines likely_generic=true. An open offer is shared_reference, not a commitment unless accepted. Per-call measurements and costs are dated speaker reports about that test, not stable product properties. Keep relative date wording in content; never substitute an inferred absolute date. Leave normalized dates unset when the speaker's local calendar date is not established. Do not turn a one-off action into a habit or standing preference.
 Return at most 12 proposals, each at most 280 characters and citing at most 20 supplied turn IDs.
 """
 MAX_EXTRACTION_TURNS = 200
 MAX_EXTRACTION_OUTPUT_TOKENS = 2_400
-MAX_EXTRACTION_RESERVATION_TOKENS = 9_000
+MAX_EXTRACTION_RESERVATION_TOKENS = 9_200  # Scope instructions keep the measured 9,032-token call in one chunk.
 
 
 def _extraction_payload(turns: Sequence[ConversationTurn]) -> str:
@@ -2591,21 +2599,43 @@ def extraction_reservation_tokens(turns: Sequence[ConversationTurn], *, legacy: 
 
 
 def extraction_chunks(
-    turns: Sequence[ConversationTurn], *, max_turns: int = MAX_EXTRACTION_TURNS, legacy: bool = False
+    turns: Sequence[ConversationTurn], *, max_turns: int = MAX_EXTRACTION_TURNS, legacy: bool = False,
+    prompt_version: str | None = None,
 ) -> list[list[ConversationTurn]]:
+    if prompt_version and prompt_version.startswith("f06-context-v2/"):
+        frozen = json.loads(prompt_version.split("/", 1)[1])["chunks"]
+        by_id = {turn.display_order: turn for turn in turns}
+        if (not isinstance(frozen, list) or not frozen or any(not isinstance(ids, list) or not 1 <= len(ids) <= MAX_EXTRACTION_TURNS
+            or any(type(order) is not int or order not in by_id for order in ids)
+            or ids != sorted(set(ids)) for ids in frozen)
+            or {order for ids in frozen for order in ids} != set(by_id)):
+            raise ValueError("extraction checkpoint source boundaries changed")
+        return [[by_id[order] for order in ids] for ids in frozen]
+    previous = bool(prompt_version and prompt_version.startswith("f06-context-v1/"))
+    if previous:
+        max_turns = int(prompt_version.split("/")[1])
+    elif prompt_version:
+        legacy, max_turns = True, min(max_turns, 20)
     if not 1 <= max_turns <= MAX_EXTRACTION_TURNS:
         raise ValueError("invalid extraction chunk size")
     chunks: list[list[ConversationTurn]] = []
     current: list[ConversationTurn] = []
-    ceiling = 6000 if legacy else MAX_EXTRACTION_RESERVATION_TOKENS
+    ceiling = 6000 if legacy else 9000 if previous else MAX_EXTRACTION_RESERVATION_TOKENS
+    def chunk_tokens(items):
+        tokens = extraction_reservation_tokens(items, legacy=legacy)
+        if previous:
+            from .interpretation import estimate_english_tokens
+            # Frozen v1 prompt framing at the pre-correction checkpoint; new v2 stores exact IDs.
+            tokens += 1288 - estimate_english_tokens(EXTRACTION_INSTRUCTIONS)
+        return tokens
     for turn in turns:
         candidate = [*current, turn]
-        if current and (len(candidate) > max_turns or extraction_reservation_tokens(candidate, legacy=legacy) > ceiling):
+        if current and (len(candidate) > max_turns or chunk_tokens(candidate) > ceiling):
             chunks.append(current)
             candidate = [*(current[-3:] if not legacy and max_turns > 3 else []), turn]
-            while len(candidate) > 1 and (len(candidate) > max_turns or extraction_reservation_tokens(candidate, legacy=legacy) > ceiling):
+            while len(candidate) > 1 and (len(candidate) > max_turns or chunk_tokens(candidate) > ceiling):
                 candidate.pop(0)
-        if extraction_reservation_tokens(candidate, legacy=legacy) > ceiling:
+        if chunk_tokens(candidate) > ceiling:
             raise ValueError("one conversation turn exceeds the bounded extraction limit")
         current = candidate
     if current:
@@ -2614,11 +2644,12 @@ def extraction_chunks(
 
 
 def extraction_maximum_cost(
-    turns: Sequence[ConversationTurn], *, max_turns: int = MAX_EXTRACTION_TURNS, legacy: bool = False
+    turns: Sequence[ConversationTurn], *, max_turns: int = MAX_EXTRACTION_TURNS, legacy: bool = False,
+    prompt_version: str | None = None,
 ) -> tuple[int, float]:
     from .interpretation import conservative_request_cost
 
-    chunks = extraction_chunks(turns, max_turns=max_turns, legacy=legacy)
+    chunks = extraction_chunks(turns, max_turns=max_turns, legacy=legacy, prompt_version=prompt_version)
     return len(chunks), sum(
         conservative_request_cost(
             "gpt-5.6-luna",
@@ -2751,12 +2782,21 @@ def analyze_record(
         raise ValueError("conversation record has no attributed text")
     # Persist the chunking version so interrupted older jobs retain their original boundaries.
     version = store._connection.execute("SELECT prompt_version FROM proposal_batches WHERE id=?", (batch_id,)).fetchone() if batch_id else None
-    legacy = version is not None and not version[0].startswith("f06-context-v1/")
-    if version and not legacy:
-        chunk_turns = int(version[0].split("/")[1])
-    chunks = extraction_chunks(turns, max_turns=min(chunk_turns, 20) if legacy else chunk_turns, legacy=legacy)
+    try:
+        chunks = extraction_chunks(turns, max_turns=chunk_turns, prompt_version=version[0] if version else None)
+    except (ValueError, TypeError, KeyError):
+        if not version or not version[0].startswith("f06-context-v2/"):
+            raise
+        with store.transaction() as db:
+            changed = db.execute("UPDATE proposal_batches SET status='invalidated' WHERE id=? AND record_id=? AND status IN ('running','failed')", (batch_id,record_id)).rowcount
+        if not changed:
+            raise
+        batch_id = None
+        chunks = extraction_chunks(turns, max_turns=chunk_turns)
     batch_id = batch_id or store.create_batch(
-        record_id, model=model, reasoning=reasoning, chunks_total=len(chunks), prompt_version=f"f06-context-v1/{chunk_turns}"
+        record_id, model=model, reasoning=reasoning, chunks_total=len(chunks),
+        prompt_version="f06-context-v2/" + json.dumps({"ceiling": MAX_EXTRACTION_RESERVATION_TOKENS,
+            "chunks": [[turn.display_order for turn in chunk] for chunk in chunks]}, separators=(",", ":"))
     )
     completed, total, status = store.batch_progress(batch_id)
     if total != len(chunks) or status not in {"running", "failed"}:

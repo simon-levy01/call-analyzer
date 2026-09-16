@@ -47,7 +47,7 @@ def test_long_context_preserves_both_sensors_without_spending_more(monkeypatch):
     snapshot = build_snapshot(turns, snapshot_id=1, generation=1, vocal_observations=vocal, visual_buckets=visual,
                               created_at=turns[-1].timestamp+timedelta(seconds=1))
     def fake(schema, payload, instructions, **kwargs):
-        assert kwargs['input_limit'] == 4500
+        assert kwargs['input_limit'] == 4700
         assert payload['x'] and payload['v']
         assert payload['turn_ids'] == [t.display_order for t in snapshot.turns]
         return guidance.GuidanceOutput.model_validate({'interpretation':{'status':'insufficient_evidence'}}), None

@@ -2821,7 +2821,7 @@ def show_window(summary: str) -> None:
             visual_aggregator.add(signal, observed_at, captured_at=captured_at)
             if test_log.active:
                 test_log.emit("visual", generation=interpretation_generation, contact_id=selected_contact_id, observed_at=observed_at, captured_at=captured_at, status=snapshot.status, face_count=snapshot.face_count, signal_timestamp_ms=signal.timestamp_ms if signal else None, face_box=signal.face_box if signal else None, blendshapes=dict(signal.blendshapes) if signal else None, expressions=visual_aggregator.expressions(), buckets=visual_aggregator.buckets(observed_at)[-1:])
-            status_label.configure(text=snapshot.status)
+            status_label.configure(text="Face tracking paused — select Continue tracking" if snapshot.status == "Face lost" else snapshot.status)
             switch_button.configure(
                 text=(
                     "Continue tracking"

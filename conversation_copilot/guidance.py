@@ -16,17 +16,18 @@ from .interpretation import (
     _calibrate_high_confidence, _restrict_evidence_to_present_modalities,
     f06_structured_request, prepare_interpretation_request,
     estimate_english_tokens, REQUEST_PROTOCOL_OVERHEAD_TOKENS, EvidenceModality,
-    _cautious_policy, LUNA_MODEL, visual_row_has_evidence,
+    _cautious_policy, _ground_interpretation, LUNA_MODEL, visual_row_has_evidence,
 )
 
 CATEGORIES = ("replies", "remember", "follow_up")
-GUIDANCE_INPUT_LIMIT = 4_500
+GUIDANCE_INPUT_LIMIT = 4_700  # Explicit roles and source citations; user-authorized +200 input tokens.
 
 GUIDANCE_INSTRUCTIONS = """
 Return optional replies, remember and follow_up candidates; empty lists are valid. Replies are alternatives for the USER, never automatic messages.
 Never invent user feelings, reactions, knowledge, agreement or commitments. No placeholders or unprovided facts.
 Corrections are not acceptance: 'Got it—four PM', not 'Four PM works for me'. Use the user's voice, not assistant jargon.
 Never answer the user's question as the contact; avoid questions already asked and statements already made.
+Never infer call duration from this rolling context window. Replies are optional user speech, not answers addressed to the user. First-person factual claims need explicit user evidence; offering to show or clarify something now is an optional action, not a claim about feelings or availability.
 reply_to_turn_id is the latest contact turn. Replies/follow_up must cite latest_turn_id and account for the user's words.
 user_spoke_last is NOT a rule to wait; acknowledgments don't close a topic. Prefer concrete optional words for the next pause: clarification, support or a next step.
 Wait only for the CONTACT to finish or answer an existing question. No duplicate waiting advice. If the USER is mid-sentence, don't tell the contact to finish it or invent its continuation.
@@ -62,14 +63,34 @@ def reconcile_replies(update, turns, now=None):
         return update.model_copy(update={key: [] for key in CATEGORIES})
     if expired:
         return update.model_copy(update={"replies": [], "follow_up": []})
-    user_words = [normalized_words(turn.content) for turn in changed if turn.speaker_role.value == "user"]
     return update.model_copy(update={key: [item for item in getattr(update, key)
-        if not any(normalized_words(item.text) in words for words in user_words)]
+        if not any(reply_superseded(item, turn) for turn in changed)]
         for key in ("replies", "follow_up")})
 
 
 def normalized_words(text):
     return " " + re.sub(r"\W+", " ", text.casefold()).strip() + " "
+
+
+def reply_superseded(item, turn):
+    if turn.display_order <= max(item.turn_ids, default=0):
+        return False
+    if turn.speaker_role.value == "user":
+        return normalized_words(item.text) in normalized_words(turn.content)
+    # ponytail: conservative lexical supersession; paraphrases still need model evaluation.
+    # Keep unrelated continuations, but retire a suggestion once the contact addresses its subject.
+    stop = set("i you we they it that this the a an to of for is are was be have has do does can could would should will might think not so far about what which how your my me on in and or but just sure yes yeah no okay thanks like something anything say more now thing".split())
+    def subjects(text):
+        return {word.rstrip("s") for word in re.findall(r"[a-z]+", text.casefold()) if word not in stop and len(word) > 2}
+    if (turn.content.rstrip().endswith(("?", "—", "-", "...", "…"))
+        or re.search(r"\b(?:and|but|because|which|why|the|a|an)\s*$", turn.content, re.I)
+        or re.match(r"\s*(?:who|what|when|where|why|how|can|could|would|should|do|does|did|is|are)\b",turn.content,re.I)):
+        return False  # A question or unfinished continuation has not answered the suggestion.
+    quantity = r"\b(?:\d+(?:\.\d+)?|a|an|half|quarter|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty)\s+(?:seconds?|minutes?|hours?)\b"
+    if re.search(r"\b(?:so far|elapsed|call)\b",item.text,re.I) and re.search(quantity, item.text, re.I) and re.search(quantity, turn.content, re.I):
+        return True
+    distinguishing = subjects(item.text)
+    return (len(distinguishing) >= 2 or any(len(word) >= 5 for word in distinguishing)) and distinguishing <= subjects(turn.content)
 
 
 def selected_memory_context(memories, update):
@@ -119,7 +140,6 @@ def interpret_guidance(snapshot, *, ledger, client=None, model=LUNA_MODEL, reaso
             analyzed_order=max(turn.display_order for turn in snapshot.turns), context_at=snapshot.created_at)
     prepared = prepare_interpretation_request(snapshot, preserve_transcript=True)
     payload = json.loads(prepared.input_text)
-    payload["turn_ids"] = list(prepared.turn_orders)
     latest = max(snapshot.turns, key=lambda turn: turn.display_order)
     reply_to = max(turn.display_order for turn in snapshot.turns if turn.speaker_role.value == "selected_contact")
     payload["reply_to_turn_id"] = reply_to
@@ -162,14 +182,26 @@ def interpret_guidance(snapshot, *, ledger, client=None, model=LUNA_MODEL, reaso
             if category in {"replies", "follow_up"} and already_said:
                 test_log.emit("guidance_filtered", generation=snapshot.generation, snapshot_id=snapshot.snapshot_id, category=category, item=item, reason="already said")
                 continue
+            if (category in {"replies", "follow_up"} and latest.speaker_role.value == "user"
+                and re.search(r"\b(?:how long|how many minutes)\b.*\b(?:call|talk|talking|conversation)\b", latest.content, re.I)
+                and re.search(r"\b(?:seconds?|minutes?|hours?)\b", item.text, re.I)
+                and not item.text.rstrip().endswith("?")):
+                test_log.emit("guidance_filtered", generation=snapshot.generation, snapshot_id=snapshot.snapshot_id, category=category, item=item, reason="unverified answer to user call-duration question")
+                continue
             if (not 1 <= len(item.turn_ids) + len(item.memory_ids) <= 3
                 or (category == "remember" and not item.memory_ids)
                 or re.search(r"\[[^\]]+\]|<[^>]+>", item.text)):
                 test_log.emit("guidance_filtered", generation=snapshot.generation, snapshot_id=snapshot.snapshot_id, category=category, item=item, reason="evidence count, memory requirement or placeholder")
                 continue
-            personal_claim = re.search(r"\b(?:works? for me|see you|count me in|i(?:['’]ll| will| won['’]t| promise| agree| accept| feel|(?:['’]m| am) (?:not )?going to)"
-                r"|i can (?:make|attend|come|meet)|i(?:['’]m| am| was) (?:free|happy|glad|excited)|made me (?:laugh|smile))\b", item.text, re.I)
-            if personal_claim and not already_said:
+            personal_claims = re.finditer(r"\b(?:works? for me|see you|count me in|i(?:['’]ll| will)(?! (?:show(?! up\b)|clarify|rephrase)\b)|i(?: won['’]t| promise| agree| accept| feel| have(?! a question\b)| had| might have| don['’]t think i have)"
+                r"|i can (?:make|attend|come|meet)|i(?:['’]m| am| was) (?:doing |feeling )?(?:okay|good|fine|tired|free|happy|glad|excited|sad|upset|angry|nervous|confused|not sure yet)\b|made me (?:laugh|smile))", item.text, re.I)
+            unsupported_claim = any(not any(
+                any(normalized_words(re.split(r"[,.!?;—]", item.text[claim.start():], maxsplit=1)[0]) == normalized_words(clause.split(",", 1)[0])
+                    for clause in re.findall(r"[^.!?;—]+[.!?;—]?", turn.content)
+                    if not clause.rstrip().endswith("?") and not re.search(r"[\"“”]", clause))
+                for turn in snapshot.turns if turn.speaker_role.value == "user" and turn.display_order in item.turn_ids)
+                for claim in personal_claims)
+            if unsupported_claim:
                 test_log.emit("guidance_filtered", generation=snapshot.generation, snapshot_id=snapshot.snapshot_id, category=category, item=item, reason="unsupported personal claim")
                 continue
             evidence_confidence = [memory.confidence.value for memory in snapshot.memories
@@ -195,12 +227,12 @@ def interpret_guidance(snapshot, *, ledger, client=None, model=LUNA_MODEL, reaso
     # Preserve the local tone/cue safety policy while independently allowing useful
     # word-supported replies. Abstention about tone does not forbid a factual question.
     interpretation = policy or _calibrate_high_confidence(_restrict_evidence_to_present_modalities(
-        _canonical_interpretation(parsed.interpretation), modalities), snapshot)
+        _ground_interpretation(_canonical_interpretation(parsed.interpretation), snapshot, payload["turn_ids"]), modalities), snapshot)
     if policy is not None and policy.status.value == "updated" and len(policy.tones) == 1:
         # Keep abstention/conflict gates authoritative; a positive rule match need
         # not hide a second supported model hypothesis.
         additional = _calibrate_high_confidence(_restrict_evidence_to_present_modalities(
-            _canonical_interpretation(parsed.interpretation), modalities), snapshot)
+            _ground_interpretation(_canonical_interpretation(parsed.interpretation), snapshot, payload["turn_ids"]), modalities), snapshot)
         room = min(1, 3 - len(policy.tones) - len(policy.social_cues))
         extra = [tone for tone in additional.tones if tone.kind not in {t.kind for t in policy.tones}][:room]
         if extra:
@@ -287,16 +319,13 @@ class GuidanceDisplay:
         if guidance_context_reset(turn.content):
             self.invalidate(turn_ids=set(), memory_ids=set())
             return
-        if turn.speaker_role.value != "user":
-            return
-        words = normalized_words(turn.content)
         for category in ("replies", "follow_up"):
             self.items[category] = [item for item in self.items[category]
-                if normalized_words(item.candidate.text) not in words]
+                if not reply_superseded(item.candidate, turn)]
             if self.pending:
                 # Work on a copy: the accepted model result remains inspectable.
                 self.pending = self.pending.model_copy(update={category: [item for item in getattr(self.pending, category)
-                    if normalized_words(item.text) not in words]})
+                    if not reply_superseded(item, turn)]})
 
     def invalidate(self, *, turn_ids=None, memory_ids=None, new_topic=False):
         if new_topic:

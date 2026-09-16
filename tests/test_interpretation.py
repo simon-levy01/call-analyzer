@@ -29,7 +29,7 @@ from conversation_copilot.interpretation import (
     VisualAggregator,
     VisualBucket,
     VocalObservation,
-    build_snapshot,
+    build_snapshot as _build_snapshot,
     local_openai_api_key,
     prepare_interpretation_request,
 )
@@ -42,6 +42,11 @@ from conversation_copilot.f04_evaluation import (
 )
 
 
+def build_snapshot(items, **kwargs):
+    kwargs.setdefault("created_at", max(item.timestamp for item in items if item.timestamp is not None))
+    return _build_snapshot(items, **kwargs)
+
+
 def update(*, words="Possible warmth", evidence="Friendly wording"):
     return InterpretationUpdate(
         status="updated",
@@ -50,7 +55,7 @@ def update(*, words="Possible warmth", evidence="Friendly wording"):
                 kind="positive_warm",
                 confidence="medium",
                 hypothesis=words,
-                evidence=Evidence(explanation=evidence, modalities=["language"]),
+                evidence=Evidence(explanation=evidence, modalities=["language"], turn_ids=[2]),
             )
         ],
     )
@@ -148,7 +153,7 @@ def test_snapshot_keeps_three_minutes_of_short_turns():
     assert result.turns[0].timestamp >= result.turns[-1].timestamp - timedelta(minutes=3)
 
 
-def test_compact_payload_omits_repeated_speaker_and_prioritizes_text():
+def test_compact_payload_preserves_explicit_speakers_and_prioritizes_text():
     repeated = turns(8, content="short context")
     for item in repeated:
         item.speaker_role = SpeakerRole.SELECTED_CONTACT
@@ -192,7 +197,7 @@ def test_compact_payload_omits_repeated_speaker_and_prioritizes_text():
 
     assert len(payload["t"]) == 8
     assert payload["t"][0][0] == "c"
-    assert all(row[0] is None for row in payload["t"][1:])
+    assert all(row[0] == "c" for row in payload["t"])
     assert payload["v"][0][0] == 2
 
 
@@ -262,7 +267,7 @@ def test_openai_request_is_bounded_stateless_structured_text_and_accounted():
             generation=1,
         )
     )
-    assert prepared.estimated_input_tokens <= 1_650
+    assert prepared.estimated_input_tokens <= 1_850
     assert "ignore previous instructions" in prepared.input_text
 
     calls = []
@@ -273,19 +278,19 @@ def test_openai_request_is_bounded_stateless_structured_text_and_accounted():
             kind="other",
             confidence="medium",
             hypothesis="Extra wire hypothesis",
-            evidence=Evidence(explanation="Extra wire evidence", modalities=["language"]),
+            evidence=Evidence(explanation="Extra wire evidence", modalities=["language"], turn_ids=[2]),
         ).model_dump(),
         SocialCue(
             kind="humor",
             confidence="medium",
             hypothesis="Possible humor",
-            evidence=Evidence(explanation="Playful wording", modalities=["language"]),
+            evidence=Evidence(explanation="Playful wording", modalities=["language"], turn_ids=[2]),
         ).model_dump(),
         SocialCue(
             kind="sarcasm",
             confidence="low",
             hypothesis="Possible sarcasm",
-            evidence=Evidence(explanation="Possible contrast", modalities=["language"]),
+            evidence=Evidence(explanation="Possible contrast", modalities=["language"], turn_ids=[2]),
         ).model_dump(),
     ]
     response = SimpleNamespace(
@@ -436,7 +441,7 @@ def test_cautious_multimodal_policies_override_model_variance():
     assert urgent.tones[0].kind.value == "emotionally_intense"
     assert nervous.social_cues[0].kind.value == "uncertainty"
     assert relief.tones[0].kind.value == "positive_warm"
-    assert superseded == update()
+    assert superseded.status.value == "insufficient_evidence"  # Saved response cites old turn 2, not current turn 4.
     assert explicit_sarcasm.social_cues[0].kind.value == "sarcasm"
     assert humor.social_cues[0].kind.value == "humor"
     assert continued_humor.social_cues[0].kind.value == "humor"
@@ -793,7 +798,7 @@ def test_synthetic_replay_covers_catalogues_modalities_and_abstention():
             kind=kind,
             confidence="medium",
             hypothesis="Synthetic conversation-atmosphere hypothesis",
-            evidence=Evidence(explanation="Synthetic wording", modalities=["language"]),
+            evidence=Evidence(explanation="Synthetic wording", modalities=["language"], turn_ids=[2]),
         ).kind.value == kind
     for kind in (
         "humor", "sarcasm", "interest_engagement", "discomfort",
@@ -803,7 +808,7 @@ def test_synthetic_replay_covers_catalogues_modalities_and_abstention():
             kind=kind,
             confidence="low",
             hypothesis="The remote participant may show this cue",
-            evidence=Evidence(explanation="Synthetic remote evidence", modalities=["language"]),
+            evidence=Evidence(explanation="Synthetic remote evidence", modalities=["language"], turn_ids=[2]),
         )
         assert cue.kind.value == kind and "remote participant" in cue.hypothesis
     assert InterpretationUpdate(
@@ -860,7 +865,7 @@ def test_fixed_real_scenarios_are_complete_bounded_and_scoreable_before_spend():
     for index, scenario in enumerate(SCENARIOS, 1):
         for mode in ("transcript", "all"):
             item = scenario.snapshot(mode, index)
-            assert prepare_interpretation_request(item).estimated_input_tokens <= 1_650
+            assert prepare_interpretation_request(item).estimated_input_tokens <= 1_850
             expected = scenario.expected_status(mode)
             if expected == "updated" and scenario.acceptable_tones:
                 response = InterpretationUpdate(

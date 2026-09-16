@@ -1,5 +1,9 @@
 # Conversation Copilot Master Plan
 
+Correction-branch offline checkpoint:333tests pass;149requests replayed without errors. Actual tool-disabled Opus5 cleared the source for preliminary offline use; fresh semantic tests, user rechecks and final release review remain pending.
+
+**September 16 call corrections:** User requested prior-log analysis and isolated fixes, excluding echo. Baseline branch `codex/pre-call-fixes-20260916` (`75d5b27`), correction branch `codex/call-analysis-fixes-20260916`. [Implementation, offline comparisons and remaining gates](docs/CALL-FIXES-20260916.md). No main merge, new paid evaluation or F07 completion is claimed. User permits a needed +200 per individual token cap; original dollar/cost gates remain.
+
 **September 14 visual-model screening:** User authorized local downloads/comparisons of MediaPipe/F07, LibreFace, OpenFace2, Py-Feat XGBoost, OpenGraphAU and OpenFace3 with RAM prioritized. [Evidence and external dataset access](docs/F07-VISION-SCREENING.md). This is diagnostic research alongside F07, not a production replacement or a new tuning round. All original release gates and deadlines remain.
 Completed CPU screening: all six pipelines tested on DISFA development data and two new conversation clips; portrait peak resident memory ranged from 258 to 1,326 MiB. Current pipeline retained; independent annotated validation and full F07 gates remain pending.
 

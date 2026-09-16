@@ -53,7 +53,7 @@ def test_direct_tone_rule_does_not_hide_second_model_tone(monkeypatch):
     snapshot = EvaluationScenario("two-tones", "f06", "How do you feel?", "I feel calm and excited.").snapshot("transcript")
     output = guidance.GuidanceOutput.model_validate({"interpretation": {"status": "updated", "tones": [
         {"kind": "neutral_calm", "confidence": "medium", "hypothesis": "They describe feeling calm.",
-         "evidence": {"explanation": "They say they feel calm.", "modalities": ["language"]}}], "social_cues": []}})
+         "evidence": {"explanation": "They say they feel calm.", "modalities": ["language"], "turn_ids": [2]}}], "social_cues": []}})
     monkeypatch.setattr(guidance, "f06_structured_request", lambda *a, **k: (output, None))
     result = guidance.interpret_guidance(snapshot, ledger=UsageLedger())
     assert {tone.kind.value for tone in result.tones} == {"energetic_high_energy", "neutral_calm"}

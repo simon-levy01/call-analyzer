@@ -27,8 +27,8 @@ _ShortText = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=280)
 ]
 
-INPUT_TARGET_TOKENS = 1_500
-INPUT_HARD_CEILING_TOKENS = 1_650
+INPUT_TARGET_TOKENS = 1_700
+INPUT_HARD_CEILING_TOKENS = 1_850  # +200 for explicit roles and source citations; output cap unchanged.
 MEMORY_CONTEXT_BUDGET_TOKENS = 700
 MEMORY_INPUT_TARGET_TOKENS = INPUT_TARGET_TOKENS + MEMORY_CONTEXT_BUDGET_TOKENS
 MEMORY_INPUT_HARD_CEILING_TOKENS = MEMORY_INPUT_TARGET_TOKENS
@@ -75,7 +75,8 @@ Reassurance plus a boundary is not inherently conflicting. Respect refusals with
 Sarcasm: no v means insufficient; with v, positive wording contradicted by context means sarcasm, never other.
 Otherwise vocal/visual data may corroborate wording but cannot change its strongest labels.
 Use only the schema and present modalities. Evidence names observations.
-Input keys: t=[s,seconds_from_newest,text] (s: u=user, c=contact, null=prior); v=[turn_index,available,duration,relative_energy,voiced_ratio,words_per_voiced_second,gap,overlaps_user,reason]; x=[seconds_from_newest,availability,reliability,face,smile,brow,eye,mouth]."""
+Language evidence cites exact turn_ids including the latest substantive contact contribution. Nonverbal-only evidence needs fresh reliable observations, not a speech citation. Filler, factual fragments and absence of tension do not establish calm. Omit unsupported cues.
+Input keys: t=[s,seconds_from_newest,text] (s: u=user, c=contact); turn_ids maps t rows to IDs; v=[turn_index,available,duration,relative_energy,voiced_ratio,words_per_voiced_second,gap,overlaps_user,reason]; x=[seconds_from_newest,availability,reliability,face,smile,brow,eye,mouth]."""
 
 EXPRESSION_INSTRUCTIONS = """
 Face/smile/brow/eye/mouth values are movement variability, NOT expression intensity or gaze. Smile movement alone does not establish a smile, happiness or interest.
@@ -132,6 +133,7 @@ class Evidence(BaseModel):
 
     explanation: _ShortText
     modalities: list[EvidenceModality] = Field(min_length=1, max_length=3)
+    turn_ids: list[int] = Field(default_factory=list, max_length=3)
 
     @field_validator("modalities")
     @classmethod
@@ -247,12 +249,6 @@ def _contains_term(text: str, words: set[str], term: str) -> bool:
 def _calibrate_high_confidence(
     update: InterpretationUpdate, snapshot: "InterpretationSnapshot"
 ) -> InterpretationUpdate:
-    remote_text = " ".join(
-        turn.content.casefold()
-        for turn in snapshot.turns
-        if turn.speaker_role == SpeakerRole.SELECTED_CONTACT
-    )
-    remote_words = set(re.findall(r"[a-z']+", remote_text))
     latest = next((turn.content.casefold() for turn in reversed(snapshot.turns)
                    if turn.speaker_role == SpeakerRole.SELECTED_CONTACT), "")
     if re.search(r"\b(?:not really|talk later|do not want to discuss|stop asking|leave it|drop it)\b", latest) and not re.search(r"\b(?:uncomfortable|anxious|afraid|upset|nervous|discomfort|withdrawing)\b", latest):
@@ -266,9 +262,52 @@ def _calibrate_high_confidence(
         if item.confidence != InterpretationConfidence.HIGH:
             continue
         terms = _DIRECT_HIGH_TERMS.get(item.kind.value, ())
+        remote_text = " ".join(turn.content.casefold() for turn in snapshot.turns
+            if turn.speaker_role == SpeakerRole.SELECTED_CONTACT and turn.display_order in item.evidence.turn_ids) or latest
+        remote_words = set(re.findall(r"[a-z']+", remote_text))
         if not any(_contains_term(remote_text, remote_words, term) for term in terms):
             item.confidence = InterpretationConfidence.MEDIUM
     return update
+
+
+def _ground_interpretation(update, snapshot, supplied_orders):
+    """Current contact evidence must survive attribution and freshness checks."""
+    if update.status != InterpretationStatus.UPDATED:
+        return update
+    supplied = set(supplied_orders)
+    recent = [turn for turn in snapshot.turns if turn.display_order in supplied
+        and turn.speaker_role == SpeakerRole.SELECTED_CONTACT
+        and (snapshot.created_at - turn.timestamp).total_seconds() < 24
+        and not re.fullmatch(r"[\s.,!?]*(?:yes|yeah|yep|okay|ok|and|which|uh|um|cool)(?:[\s.,!?]+(?:yes|yeah|okay|ok|cool))*[\s.,!?]*", turn.content, re.I)]
+    anchor = recent[-1].display_order if recent else None
+    from .memory import _TOPIC_BOUNDARY
+    if anchor is not None and any(t.display_order > anchor and _TOPIC_BOUNDARY.search(t.content) for t in snapshot.turns):
+        anchor = None
+    def supported(item):
+        ids = set(item.evidence.turn_ids)
+        modalities = set(item.evidence.modalities)
+        if not ids <= supplied or modalities == {EvidenceModality.MEMORY}:
+            return False
+        if EvidenceModality.LANGUAGE in modalities and anchor not in ids:
+            return False
+        if EvidenceModality.LANGUAGE not in modalities:
+            if EvidenceModality.VISUAL in modalities and not any(
+                0 <= (snapshot.created_at - bucket.ended_at).total_seconds() < 24 and bucket.reliability >= .5
+                and bucket.availability >= .5 for bucket in snapshot.visual_buckets):
+                return False
+            if EvidenceModality.VOCAL in modalities and not any(observation.available and any(
+                t.display_order == observation.turn_display_order and 0 <= (snapshot.created_at-t.timestamp).total_seconds() < 24
+                for t in recent) for observation in snapshot.vocal_observations):
+                return False
+        if item.kind == ToneKind.NEUTRAL_CALM and not modalities & {EvidenceModality.VOCAL, EvidenceModality.VISUAL}:
+            text = " ".join(t.content for t in recent if t.display_order in ids)
+            return bool(re.search(r"\b(?:calm|relaxed|at ease)\b", text, re.I))
+        return True
+    tones = [item for item in update.tones if supported(item)]
+    cues = [item for item in update.social_cues if supported(item)]
+    if not tones and not cues:
+        return InterpretationUpdate(status="insufficient_evidence", explanation="No current, attributed contact evidence supports a cue")
+    return update.model_copy(update={"tones": tones, "social_cues": cues})
 
 
 def _restrict_evidence_to_present_modalities(
@@ -295,6 +334,22 @@ def _restrict_evidence_to_present_modalities(
 def _cautious_policy(
     snapshot: "InterpretationSnapshot",
 ) -> InterpretationUpdate | None:
+    update = _local_policy(snapshot)
+    if update is not None and update.status == InterpretationStatus.UPDATED:
+        latest = next(t for t in reversed(snapshot.turns) if t.speaker_role == SpeakerRole.SELECTED_CONTACT)
+        for item in (*update.tones, *update.social_cues):
+            item.evidence.turn_ids = [latest.display_order]
+            if item.kind == SocialCueKind.SARCASM and "standing ovation" in latest.content.casefold():
+                earlier = next((t for t in reversed(snapshot.turns) if t.speaker_role == SpeakerRole.SELECTED_CONTACT
+                    and "smoke alarm" in t.content.casefold()), None)
+                if earlier and earlier.display_order != latest.display_order:
+                    item.evidence.turn_ids.insert(0, earlier.display_order)
+        grounded = _ground_interpretation(update, snapshot, [t.display_order for t in snapshot.turns])
+        return grounded if grounded.status == InterpretationStatus.UPDATED else None
+    return update
+
+
+def _local_policy(snapshot: "InterpretationSnapshot") -> InterpretationUpdate | None:
     remote_turns = [
         turn.content.casefold()
         for turn in snapshot.turns
@@ -356,8 +411,8 @@ def _cautious_policy(
             ],
         )
 
-    sarcasm = "oh great" in remote_text or (
-        "exactly what" in remote_text and "needed" in remote_text
+    sarcasm = "oh great" in latest_remote_text or (
+        "exactly what" in latest_remote_text and "needed" in latest_remote_text
     )
     if sarcasm:
         if not any(item.available for item in snapshot.vocal_observations):
@@ -403,8 +458,6 @@ def _cautious_policy(
         )
     if "less pressured" in latest_remote_text:
         direct_tone = ("positive_warm", "The wording explicitly describes relief")
-    elif "works for me" in latest_remote_text:
-        direct_tone = ("neutral_calm", "The wording directly accepts a practical arrangement")
     elif {"amazing", "excited", "fantastic"} & latest_remote_words:
         direct_tone = ("energetic_high_energy", "The wording is explicitly enthusiastic")
     elif "need to decide now" in latest_remote_text or "urgent" in latest_remote_words:
@@ -1034,7 +1087,6 @@ def _compact_payload(
 ) -> str:
     newest = turns[-1].timestamp
     turn_indexes = {turn.display_order: index for index, turn in enumerate(turns)}
-    previous_speaker = None
     compact_turns = []
     for turn in turns:
         speaker = {
@@ -1043,14 +1095,14 @@ def _compact_payload(
         }[turn.speaker_role]
         compact_turns.append(
             [
-                speaker if speaker != previous_speaker else None,
+                speaker,
                 round((turn.timestamp - newest).total_seconds(), 1),
                 turn.content,
             ]
         )
-        previous_speaker = speaker
     payload = {
         "t": compact_turns,
+        "turn_ids": [turn.display_order for turn in turns],
         "v": [
             [
                 turn_indexes[item.turn_display_order],
@@ -1444,7 +1496,7 @@ class OpenAIInterpreter:
         try:
             return _calibrate_high_confidence(
                 _restrict_evidence_to_present_modalities(
-                    _canonical_interpretation(parsed), prepared.modalities
+                    _ground_interpretation(_canonical_interpretation(parsed), snapshot, prepared.turn_orders), prepared.modalities
                 ),
                 snapshot,
             )

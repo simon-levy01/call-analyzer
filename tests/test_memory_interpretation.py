@@ -79,7 +79,7 @@ def test_memory_context_requires_confirmation_is_strict_and_bounded():
     prepared = prepare_interpretation_request(snapshot)
     payload = json.loads(prepared.input_text)
     assert len(payload["m"]) <= 4
-    assert prepared.estimated_input_tokens <= 2_200
+    assert prepared.estimated_input_tokens <= 2_400
     assert all(len(item[1]) <= 180 for item in payload["m"])
 
 
@@ -114,7 +114,7 @@ def test_seven_hundred_token_memory_budget_keeps_four_maximum_length_excerpts():
     assert prepared.memory_count == 4
     assert len(json.loads(prepared.input_text)["m"]) == 4
     assert prepared.estimated_input_tokens > 1_800
-    assert prepared.estimated_input_tokens <= 2_200
+    assert prepared.estimated_input_tokens <= 2_400
 
 
 def test_memory_metadata_over_seven_hundred_tokens_drops_lowest_ranked_rows():
@@ -135,7 +135,7 @@ def test_memory_metadata_over_seven_hundred_tokens_drops_lowest_ranked_rows():
 
     assert prepared.memory_count == 1
     assert [row[0] for row in payload["m"]] == [item.revision_id for item in oversized[:prepared.memory_count]]
-    assert prepared.estimated_input_tokens <= 2_200
+    assert prepared.estimated_input_tokens <= 2_400
 
 
 def test_hard_ceiling_evicts_lowest_ranked_memory_and_updates_request_metadata():
@@ -147,7 +147,7 @@ def test_hard_ceiling_evicts_lowest_ranked_memory_and_updates_request_metadata()
                 SpeakerRole.SELECTED_CONTACT if index == 1 else SpeakerRole.USER
             ),
             source="fixture",
-            content="word " * 125,
+            content="word " * 155,
             timestamp=started + timedelta(seconds=index),
             display_order=index,
         )
@@ -174,7 +174,7 @@ def test_hard_ceiling_evicts_lowest_ranked_memory_and_updates_request_metadata()
     assert payload["m"][0][0] == memories[0].revision_id
     assert {value.value for value in prepared.modalities} == {"language", "memory"}
     assert "approved memories" in prepared.instructions
-    assert prepared.estimated_input_tokens <= 2_200
+    assert prepared.estimated_input_tokens <= 2_400
 
 
 def test_four_model_memories_show_only_three_visible_possibilities():
@@ -427,8 +427,8 @@ def test_separate_memory_allowance_trims_old_transcript_before_relevant_memory()
     memory_free_prepared = prepare_interpretation_request(
         snapshot.model_copy(update={"memories": []})
     )
-    assert memory_prepared.estimated_input_tokens <= 2_200
-    assert memory_free_prepared.estimated_input_tokens <= 1_500
+    assert memory_prepared.estimated_input_tokens <= 2_400
+    assert memory_free_prepared.estimated_input_tokens <= 1_700
     assert {value.value for value in memory_prepared.modalities} == {"language", "memory"}
     assert len(json.loads(memory_prepared.input_text)["t"]) == len(
         json.loads(memory_free_prepared.input_text)["t"]
@@ -462,7 +462,7 @@ def test_memory_aware_path_reaches_model_and_cannot_create_unsupported_high_conf
             SocialCue(
                 kind="uncertainty", confidence="high",
                 hypothesis="The remote participant may be uncertain",
-                evidence=Evidence(explanation="The indirect words fit approved context", modalities=[EvidenceModality.MEMORY]),
+                evidence=Evidence(explanation="The indirect words fit approved context", modalities=[EvidenceModality.MEMORY], turn_ids=[2]),
             )
         ],
     )
@@ -484,7 +484,7 @@ def test_memory_aware_path_reaches_model_and_cannot_create_unsupported_high_conf
     assert len(calls) == 1
     assert calls[0]["store"] is False and "approved memories" in calls[0]["instructions"]
     assert "include memory plus the present conversation modality" in calls[0]["instructions"]
-    assert result.social_cues[0].confidence.value == "medium"
+    assert result.status.value == "insufficient_evidence"  # Memory alone cannot establish current affect.
 
 
 def test_contact_generation_reset_discards_old_memory_derived_result():

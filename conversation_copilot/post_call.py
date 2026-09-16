@@ -37,12 +37,27 @@ Each statement cites exact supplied turn IDs. Every fact or commitment must be e
 feelings, diagnoses or intentions. Separate factual agreed actions from suggested advice. Omit empty sections and small talk.
 Do not turn banter into a literal activity or habit. For unclear 'stop this' or similar references, omit the detail rather than invent what stopped. Report speaker claims as claims, not independently verified outcomes.
 Preserve exact original dates, times and venues; never infer AM/PM, zone or omitted years. Mark partial if important coverage is omitted.
+speaker_names identifies roles; recording_dates gives full offset-bearing recording timestamps at date-run boundaries, not event dates. Preserve relative date wording; never invent the speaker's local calendar date or replace relative wording with an inferred absolute date.
+During consolidation verify draft claims against supplied source turns. Keep separate topics separate, retain attribution and uncertainty, and never increase draft confidence. Preserve brief personal concerns and concrete project feedback alongside longer practical discussions. An offer is not an agreed plan; a narrowed choice is not a final decision.
 """
 
 
 def _summary_payload(turns):
-    return {"turns": [{"id": t.display_order, "speaker": t.speaker_role.value, "speaker_name": t.speaker_name,
-            "date": t.timestamp.isoformat() if t.timestamp else None, "text": t.content} for t in turns]}
+    names = {}
+    dates = []
+    rows = []
+    for turn in turns:
+        role = turn.speaker_role.value
+        names.setdefault(role, turn.speaker_name)
+        row = {"id": turn.display_order, "speaker": role, "text": turn.content}
+        if names[role] != turn.speaker_name:
+            row["speaker_name"] = turn.speaker_name
+        stamp = turn.timestamp.isoformat() if turn.timestamp else None
+        date = stamp[:10] if stamp else None
+        if not dates or (dates[-1][1][:10] if dates[-1][1] else None) != date:
+            dates.append([turn.display_order, stamp])
+        rows.append(row)
+    return {"speaker_names": names, "recording_dates": dates, "turns": rows}
 
 
 def _whole_summary_fits(turns):
@@ -67,8 +82,7 @@ def review_estimate(store, record_id):
     extraction_cost = 0.0
     if not extraction:
         retry = store._connection.execute("SELECT prompt_version FROM proposal_batches WHERE id=?", (store.retryable_batch(record_id),)).fetchone()
-        settings = ({"max_turns": int(retry[0].split("/")[1])} if retry and retry[0].startswith("f06-context-v1/")
-                    else {"max_turns": 20, "legacy": True} if retry else {})
+        settings = {"prompt_version": retry[0]} if retry else {}
         extraction_cost = extraction_maximum_cost(store.record_turns(record_id), **settings)[1]
     remaining = max(0, len(chunks) - len(done))
     # Conservative one-attempt whole-job maximum. Retries need a new bounded authorization.
@@ -149,18 +163,54 @@ def process_review(store, record_id, *, ledger, client=None, extractor=None, can
                         supplied.append((statement["id"], statement["content"]))
                         evidence = [item[0] for item in db.execute("SELECT sequence FROM summary_evidence WHERE statement_id=?", (statement["id"],))]
                         statements.append({"section": statement["section"], "content": statement["content"],
-                                           "kind": statement["kind"], "evidence_turns": evidence})
+                                           "kind": statement["kind"], "confidence": statement["confidence"],
+                                           "sensitivity": statement["sensitivity"], "evidence_turns": evidence})
+            allowed_turns = {turn for statement in statements for turn in statement["evidence_turns"]}
+            # Include surrounding eligible source to resolve references without trusting a lossy draft.
+            source = [turn for turn in turns if any(abs(turn.display_order - order) <= 1 for order in allowed_turns)]
+            allowed_turns = {turn.display_order for turn in source}
             def consolidation_current():
-                return current() and all(store._summary_eligible(sid, for_cloud=True, require_approved=False, review_token=token)
+                return current() and {t.display_order for t in source} <= {t.display_order for t in store.summary_turns(record_id, for_cloud=True)} and all(store._summary_eligible(sid, for_cloud=True, require_approved=False, review_token=token)
                     and db.execute("SELECT content FROM summary_statements WHERE id=?", (sid,)).fetchone()[0] == content
                     for sid, content in supplied)
             output = SummaryOutput(partial=True)
             if statements:
-                output, usage = f06_structured_request(SummaryOutput, {"draft_statements": statements}, SUMMARY_INSTRUCTIONS,
-                    ledger=ledger, input_limit=6000, output_limit=1600, client=client, is_current=consolidation_current, priority=3, reasoning="low")
-            allowed_turns = {turn for statement in statements for turn in statement["evidence_turns"]}
+                payload = {"draft_statements": statements, "source": _summary_payload(source)}
+                def fits():
+                    return sum(estimate_english_tokens(value) for value in (
+                        json.dumps(payload, ensure_ascii=False, separators=(",", ":")), SUMMARY_INSTRUCTIONS,
+                        json.dumps(SummaryOutput.model_json_schema(), separators=(",", ":")))) + REQUEST_PROTOCOL_OVERHEAD_TOKENS <= 6000
+                if not fits():
+                    cited = {turn for item in statements for turn in item["evidence_turns"]}
+                    source = [turn for turn in source if turn.display_order in cited]
+                    payload["source"] = _summary_payload(source)
+                allowed_turns = {turn.display_order for turn in source}
+                if fits():
+                    output, usage = f06_structured_request(SummaryOutput, payload, SUMMARY_INSTRUCTIONS,
+                        ledger=ledger, input_limit=6000, output_limit=1600, client=client, is_current=consolidation_current, priority=3, reasoning="low")
+                else:
+                    # No unsupported paraphrasing: preserve bounded draft sentences verbatim and mark coverage partial.
+                    if not consolidation_current():
+                        raise ValueError("review sources changed")
+                    candidates = statements if len(statements) <= 16 else statements[:8] + statements[-8:]
+                    retained = []
+                    words = 0
+                    for item in candidates:
+                        count = len(item["content"].split())
+                        if words + count <= 500:
+                            retained.append(item)
+                            words += count
+                    output = SummaryOutput(statements=[SummaryStatementInput(**item) for item in retained], partial=True)
             if any(not set(statement.evidence_turns) <= allowed_turns for statement in output.statements):
                 raise ValueError("consolidation cites unsupplied turns")
+            rank = {"low": 0, "medium": 1, "high": 2}
+            for statement in output.statements:
+                contributors = [item for item in statements if set(item["evidence_turns"]) & set(statement.evidence_turns)]
+                contributors = contributors or statements
+                statement.confidence = min([statement.confidence, *(item["confidence"] for item in contributors)], key=rank.get)
+                # Conservative across the merge: citation overlap cannot prove absence of sensitive derivation.
+                if any(item["sensitivity"] == "sensitive" for item in statements):
+                    statement.sensitivity = "sensitive"
             output.partial = output.partial or len(turns) < len(original_turns) or any(
                 db.execute("SELECT partial FROM summary_versions WHERE id=?", (row["summary_id"],)).fetchone()[0] for row in rows[:2])
             output.partial = output.partial or len(supplied) < sum(len(store.summary_statements(row["summary_id"])) for row in rows[:2])

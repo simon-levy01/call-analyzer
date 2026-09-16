@@ -71,8 +71,8 @@ def test_sensitive_generated_topic_survives_consolidation_without_granting_cloud
                     confidence='high', evidence_turns=[turn['id']], sensitivity='sensitive' if turn['id']==1 else 'normal')]
             else:
                 assert any(1 in item['evidence_turns'] for item in payload['draft_statements'])
-                statements = [SummaryStatementInput(**item, confidence='high',
-                    sensitivity='sensitive' if 1 in item['evidence_turns'] else 'normal') for item in payload['draft_statements']]
+                statements = [SummaryStatementInput(**{**item, 'confidence':'high',
+                    'sensitivity':'sensitive' if 1 in item['evidence_turns'] else 'normal'}) for item in payload['draft_statements']]
             return SimpleNamespace(output_parsed=SummaryOutput(statements=statements), usage=SimpleNamespace(input_tokens=100, output_tokens=100))
         summary = process_review(store, record, ledger=UsageLedger(), extractor=FakeMemoryExtractor([ExtractionOutput() for _ in range(3)]),
             client=SimpleNamespace(responses=SimpleNamespace(parse=parse)))
