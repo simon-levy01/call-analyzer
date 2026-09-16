@@ -9,3 +9,7 @@ Mac. This extends the roadmap to Mac operation, validation, and packaging after
 the Windows MVP; it does not change the October 1 Windows delivery scope.
 The detailed feature plan and platform/runtime decisions will be made when F09
 starts on the Mac. See [the master plan](../../PLAN.md#f09--macos-support-planned-not-started).
+
+## Follow-up — 2026-09-15
+
+The user narrowed F08 to easy Windows installation and Claude review, with necessary setup checks, corrections and reviewed publication. Final demonstration preparation and a recorded fallback are deferred. F09 starts immediately after this smaller F08 is complete so the user can test on their MacBook; neither a polished demo nor waiting until October 1 is a dependency. Windows installation still targets October 1, while Mac completion has no committed date. F07 gates and the one-active-feature rule are unchanged.

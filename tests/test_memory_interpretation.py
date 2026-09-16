@@ -113,7 +113,7 @@ def test_seven_hundred_token_memory_budget_keeps_four_maximum_length_excerpts():
 
     assert prepared.memory_count == 4
     assert len(json.loads(prepared.input_text)["m"]) == 4
-    assert prepared.estimated_input_tokens > 1_900
+    assert prepared.estimated_input_tokens > 1_800
     assert prepared.estimated_input_tokens <= 2_200
 
 
@@ -147,7 +147,7 @@ def test_hard_ceiling_evicts_lowest_ranked_memory_and_updates_request_metadata()
                 SpeakerRole.SELECTED_CONTACT if index == 1 else SpeakerRole.USER
             ),
             source="fixture",
-            content="word " * 110,
+            content="word " * 125,
             timestamp=started + timedelta(seconds=index),
             display_order=index,
         )

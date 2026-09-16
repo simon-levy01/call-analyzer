@@ -3,16 +3,15 @@ from types import SimpleNamespace
 from conversation_copilot.guidance import GuidanceCandidate, GuidanceDisplay
 
 
-def test_new_speech_keeps_analysis_but_removes_old_replies_and_filters_memories():
-    from conversation_copilot.guidance import suppress_outdated_replies, selected_memory_context, GuidedInterpretation
+def test_recent_reply_ideas_keep_analysis_and_filter_memories():
+    from conversation_copilot.guidance import reconcile_replies, selected_memory_context, GuidedInterpretation
     original = GuidedInterpretation(snapshot_id=1, generation=1, status="insufficient_evidence", explanation="Limited evidence",
         replies=[GuidanceCandidate(text="Old reply", confidence="medium", turn_ids=[2])])
     original.remember = [GuidanceCandidate(text="Relevant fact", confidence="medium", memory_ids=["r1"])]
-    cleaned = suppress_outdated_replies(original, 2, 3)
+    cleaned = reconcile_replies(original, [])
     assert cleaned.status == original.status and cleaned.tones == original.tones
-    assert not cleaned.replies and not cleaned.follow_up
+    assert cleaned.replies and not cleaned.follow_up
     assert original.replies
-    assert suppress_outdated_replies(original, 2, 2) is original
     candidates = [SimpleNamespace(revision_id="r1"), SimpleNamespace(revision_id="irrelevant")]
     assert selected_memory_context(candidates, original) == candidates[:1]
 
@@ -82,7 +81,7 @@ def test_guidance_targets_contact_not_user_and_uses_requested_model(monkeypatch)
     assert [c.text for c in result.replies] == ["Would a reminder help?"] and not result.follow_up
     user_last = snapshot.model_copy(update={"turns": [*snapshot.turns, snapshot.turns[0].model_copy(update={"display_order": 3})]})
     result = guidance.interpret_guidance(user_last, ledger=UsageLedger(), model=TERRA_MODEL, reasoning="low")
-    assert [c.text for c in result.replies] == ["Pause and give them a moment to respond."] and not result.follow_up
+    assert not result.replies and not result.follow_up
     def next_move(schema, payload, instructions, **kwargs):
         assert payload['user_spoke_last'] and payload['reply_to_turn_id']==2 and payload['latest_turn_id']==3
         return guidance.GuidanceOutput(interpretation=_InterpretationWireUpdate(status='insufficient_evidence'), replies=[

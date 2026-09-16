@@ -480,6 +480,9 @@ class LiveVideoSession:
         self._last_processed_callback_index = 0
         self._signal_times: deque[float] = deque()
         self._check_frame_changes = check_frame_changes
+        self._selection_epoch = 0
+        self._selection_action: str | None = None
+        self._selection_changed_at = 0.0
 
     @property
     def worker_alive(self) -> bool:
@@ -504,10 +507,18 @@ class LiveVideoSession:
             raise
 
     def switch_face(self) -> None:
-        self.processor.switch_face()
+        self._change_selection("switch")
 
     def continue_tracking(self) -> None:
-        self.processor.continue_tracking()
+        self._change_selection("continue")
+
+    def _change_selection(self, action: str) -> None:
+        with self._lock:
+            self._selection_epoch += 1
+            self._selection_action = action
+            self._selection_changed_at = time.perf_counter()
+            self._signal = None
+            self._thumbnail = None
 
     def stop(self, timeout: float = 4.0) -> None:
         self._stop_event.set()
@@ -536,7 +547,18 @@ class LiveVideoSession:
                         break
                     continue
                 with self._lock:
+                    if packet.captured_at < self._selection_changed_at:
+                        packet = None
+                        continue
+                    epoch = self._selection_epoch
+                    action = self._selection_action
+                    self._selection_action = None
                     self._processing_frames = 1
+                # The vision worker alone mutates its tracker/processor.
+                if action == "switch":
+                    self.processor.switch_face()
+                elif action == "continue":
+                    self.processor.continue_tracking()
                 checksum = (
                     int(np.sum(packet.pixels, dtype=np.uint64))
                     if self._check_frame_changes
@@ -546,6 +568,10 @@ class LiveVideoSession:
                 result = self.processor.process(packet.pixels, timestamp_ms)
                 now = time.perf_counter()
                 with self._lock:
+                    if epoch != self._selection_epoch:
+                        self._processing_frames = 0
+                        packet = None
+                        continue
                     self._status = result.tracking_state
                     self._face_count = result.face_count
                     self._signal = result.signal
@@ -592,13 +618,15 @@ class LiveVideoSession:
     def snapshot(self) -> LiveSnapshot:
         with self._lock:
             signal = self._signal
+            if signal is not None and time.perf_counter() - signal.timestamp_ms / 1000 > 0.5:
+                signal = None
             return LiveSnapshot(
                 status=self.capture.stop_reason or self._status,
                 signal_rate=float(len(self._signal_times)),
                 face_count=self._face_count,
                 landmark_count=len(signal.landmarks) if signal else 0,
                 blendshape_count=len(signal.blendshapes) if signal else 0,
-                thumbnail_rgb=self._thumbnail,
+                thumbnail_rgb=self._thumbnail if signal is not None else None,
                 retained_raw_frames=self.capture.frames.retained_count,
                 processing_frames=self._processing_frames,
                 processed_count=self._processed_count,

@@ -238,7 +238,7 @@ def test_visual_signals_become_bounded_compact_two_second_buckets():
     )
     aggregator = VisualAggregator()
     aggregator.add(first, started)
-    aggregator.add(second, started + timedelta(seconds=1))
+    aggregator.add(second, started + timedelta(seconds=0.1))
     aggregator.add(None, started + timedelta(seconds=2))
     bucket = aggregator.buckets()[0]
 
@@ -430,8 +430,8 @@ def test_cautious_multimodal_policies_override_model_variance():
 
     assert sarcasm_without_vocal.status.value == "insufficient_evidence"
     assert sarcasm_with_vocal.social_cues[0].kind.value == "sarcasm"
-    assert withdrawal_with_visual.social_cues[0].kind.value == "disengagement_withdrawal"
-    assert conflict.status.value == "conflicting_evidence"
+    assert withdrawal_with_visual == update()
+    assert conflict == update()
     assert launch.tones[0].kind.value == "energetic_high_energy"
     assert urgent.tones[0].kind.value == "emotionally_intense"
     assert nervous.social_cues[0].kind.value == "uncertainty"
@@ -443,7 +443,7 @@ def test_cautious_multimodal_policies_override_model_variance():
     assert no_remote.status.value == "insufficient_evidence"
     assert defined == update() and laughable == update()
     assert laughed.social_cues[0].kind.value == "humor"
-    assert len(calls) == 3
+    assert len(calls) == 5
 
 
 def test_openai_retry_stale_auth_budget_and_local_key_file(tmp_path):

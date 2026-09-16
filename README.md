@@ -3,7 +3,7 @@
 For model evaluation choices, historical tests and reusable logs, read [project instructions](AGENTS.md) and the [testing index](docs/TESTING.md).
 
 The current application targets Windows. **F09 — macOS support** is scheduled
-after F08's Windows packaging and final demonstration, with no committed date.
+immediately after F08's easy Windows installation and Claude review, with no committed Mac completion date. Final demo preparation is deferred and does not block F09; there is no requirement to wait until October 1.
 The user will run F09 on a Mac for implementation and real-device validation;
 Mac installation and operation are not supported yet. See the [master plan](PLAN.md#f09--macos-support-planned-not-started).
 

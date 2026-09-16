@@ -3,10 +3,12 @@ import json
 import sqlite3
 import sys
 import textwrap
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from pydantic import ValidationError
+
+from . import test_log
 
 from .parser import parse_whatsapp_transcript
 from .memory import (
@@ -146,6 +148,7 @@ def show_window(summary: str) -> None:
     from .video import LiveVideoSession
     from .windows import list_call_windows, whatsapp_call_active
 
+    test_log.start()
     root = tk.Tk()
     root.title("Conversation Copilot")
     root.geometry("1280x680")
@@ -200,7 +203,6 @@ def show_window(summary: str) -> None:
     transcript_column = tk.LabelFrame(main_pane, text="Final transcript")
     main_pane.add(left_view, minsize=760, stretch="always")
     main_pane.add(transcript_column, minsize=320, stretch="always")
-    tk.Label(left_column, text=summary, justify="left", padx=12, pady=8).pack(anchor="w")
     tk.Label(left_column, text="Visible call windows").pack(anchor="w", padx=12)
     window_list = tk.Listbox(left_column, height=7)
     window_list.pack(fill="x", padx=12, pady=4)
@@ -355,6 +357,7 @@ def show_window(summary: str) -> None:
     turns: list[ConversationTurn] = []
     vocal_observations: list[VocalObservation] = []
     visual_aggregator = VisualAggregator()
+    capture_clock_origin = datetime.now(timezone.utc) - timedelta(seconds=time.perf_counter())
     usage_ledger: UsageLedger | None = None
     stable_interpretation = StableInterpretationCard()
     interpretation_coordinator: InterpretationCoordinator | None = None
@@ -447,7 +450,8 @@ def show_window(summary: str) -> None:
         return preview
 
     def render_guidance():
-        guidance_frame.configure(text="Live guidance" if selected_contact_id else "Live guidance — confirm a contact")
+        test_log.emit("display_guidance", contact_id=selected_contact_id, items={key: guidance_display.visible(key) for key in guidance_rows})
+        guidance_frame.configure(text="Reply ideas · recent context; use if still relevant" if selected_contact_id else "Live guidance — confirm a contact")
         for group in guidance_rows.values():
             group.pack_forget()
         for category, group in guidance_rows.items():
@@ -1071,6 +1075,8 @@ def show_window(summary: str) -> None:
         if replaced:
             interpretation_updated_at = datetime.now().astimezone().strftime("%H:%M:%S")
         update = stable_interpretation.update
+        if replaced:
+            test_log.emit("display_interpretation", update=update, note=note, message=stable_interpretation.message)
         if update is None:
             interpretation_status_label.configure(
                 text=(
@@ -1155,11 +1161,13 @@ def show_window(summary: str) -> None:
         interpretation_generation += 1
         next_interpretation_snapshot_id = 0
         latest_interpretation_snapshot = None
+        test_log.emit("context_reset", generation=interpretation_generation, contact_id=selected_contact_id)
+        visual_aggregator.reset()
         stable_interpretation.reset()
         guidance_display.reset()
         render_guidance()
         if interpretation_coordinator:
-            interpretation_coordinator.reset(interpretation_generation)
+            interpretation_coordinator.reset(interpretation_generation, preserve_cadence=True)
         render_interpretation(replaced=True)
 
     def set_selected_contact(contact_id: str | None) -> bool:
@@ -1178,6 +1186,7 @@ def show_window(summary: str) -> None:
         if changed:
             invalidate_memory_context()
         selected_contact_id = contact_id
+        test_log.emit("contact_selected", contact_id=contact_id, record_id=current_record_id, generation=interpretation_generation)
         selected_contact_label = contact.label if contact is not None else None
         speaker_name = selected_contact_label or call_speaker_fallback
         if audio_session is not None:
@@ -1993,6 +2002,7 @@ def show_window(summary: str) -> None:
     def begin_interpretation_session() -> None:
         nonlocal guidance_topic_start
         guidance_topic_start = 0
+        test_log.emit("call_start", contact_id=selected_contact_id)
         nonlocal usage_ledger, interpretation_coordinator
         nonlocal interpretation_generation, next_interpretation_snapshot_id
         nonlocal latest_interpretation_snapshot, interpretation_updated_at
@@ -2032,9 +2042,7 @@ def show_window(summary: str) -> None:
                     with MemoryStore(memory_store.path, verify=False) as store:
                         result = interpret_guidance(item, ledger=ledger, client=luna._client, model=LUNA_MODEL, reasoning="low",
                             is_current=lambda snapshot: current_guidance(snapshot, store))
-                        from .guidance import suppress_outdated_replies
-                        return suppress_outdated_replies(result, max(t.display_order for t in item.turns),
-                            turns[-1].display_order if turns else 0)
+                        return result
                 return luna(item)
             interpretation_coordinator = InterpretationCoordinator(combined, generation=interpretation_generation,
                 first_request_at=time.perf_counter() + 12, adaptive_cadence=True)
@@ -2063,16 +2071,14 @@ def show_window(summary: str) -> None:
         nonlocal guidance_topic_start
         if stopping or not turns:
             return
-        if turns[-1].speaker_role == SpeakerRole.USER:
-            guidance_display.items["replies"].clear()
-            guidance_display.items["follow_up"].clear()
-            guidance_display.pending = None
-            guidance_display.pending_categories.clear()
+        previous_guidance = repr(guidance_display.items)
+        guidance_display.on_speech(turns[-1])
+        if previous_guidance != repr(guidance_display.items):
             render_guidance()
-        import re
         from .memory import _TOPIC_BOUNDARY
         new_topic = bool(_TOPIC_BOUNDARY.search(turns[-1].content))
-        if new_topic or re.search(r"^\s*(?:correction|make that)\b", turns[-1].content, re.I):
+        from .guidance import guidance_context_reset
+        if guidance_context_reset(turns[-1].content):
             guidance_topic_start = turns[-1].display_order
             guidance_display.invalidate(new_topic=new_topic, turn_ids=set(), memory_ids=set())
             render_guidance()
@@ -2081,7 +2087,8 @@ def show_window(summary: str) -> None:
         generation = interpretation_generation
         captured_turns = [item.model_copy(deep=True) for item in turns]
         captured_vocal = list(vocal_observations)
-        captured_visual = visual_aggregator.buckets()
+        captured_at = datetime.now(timezone.utc)
+        captured_visual = visual_aggregator.buckets(captured_at)
         captured_contact_id = selected_contact_id
 
         def build_with_memory() -> None:
@@ -2105,6 +2112,7 @@ def show_window(summary: str) -> None:
                                 speaker_role=SpeakerRole.SELECTED_CONTACT,
                             ),
                         )
+                    test_log.emit("retrieval_result", generation=generation, snapshot_id=snapshot_id, contact_id=captured_contact_id, query=query, date_query=date_query, semantic_query=memory_semantic_input(captured_turns), result=result)
                     ambiguous = result.ambiguous
                     semantic_available = result.semantic_available
                     possible_contexts = [
@@ -2123,7 +2131,9 @@ def show_window(summary: str) -> None:
                     if not ambiguous:
                         contexts = [item for item in possible_contexts if item.sensitivity_safe]
                     with MemoryStore(memory_store.path, verify=False) as worker_store:
-                        preferences = [row for row in worker_store.list_current_memories(captured_contact_id)
+                        available_memories = worker_store.list_current_memories(captured_contact_id)
+                        test_log.emit("retrieval_corpus", generation=generation, snapshot_id=snapshot_id, contact_id=captured_contact_id, memories=[dict(row) for row in available_memories])
+                        preferences = [row for row in available_memories
                             if row["memory_type"] in {"communication_style", "relationship_preference"}
                             and not row["needs_review"] and (row["sensitivity"] == "normal" or row["cloud_allowed"])]
                     if len(preferences) > 1:
@@ -2144,6 +2154,7 @@ def show_window(summary: str) -> None:
                     visual_buckets=captured_visual,
                     contact_id=captured_contact_id,
                     retrieved_memories=contexts,
+                    created_at=captured_at,
                 )
                 prepared = prepare_interpretation_request(snapshot, preserve_transcript=True)
                 if prepared.memory_count != len(snapshot.memories):
@@ -2363,18 +2374,19 @@ def show_window(summary: str) -> None:
             interpretation_coordinator and not interpretation_coordinator.snapshot().in_flight and not stopping else "disabled")
         if interpretation_coordinator:
             for event in interpretation_coordinator.poll(now):
+                test_log.emit("coordinator_event", generation=interpretation_generation, result=event)
                 if event.kind == CoordinatorEventKind.ACCEPTED:
                     assert event.update is not None
                     if hasattr(event.update, "replies"):
-                        from .guidance import selected_memory_context
+                        from .guidance import selected_memory_context, reconcile_replies
+                        guidance_update = reconcile_replies(event.update, turns)
                         if latest_interpretation_snapshot:
-                            if event.snapshot_id < latest_interpretation_snapshot.snapshot_id:
-                                event.update.replies.clear()
-                                event.update.follow_up.clear()
                             stable_interpretation.offer_memory_possibilities(
-                                selected_memory_context(latest_interpretation_snapshot.memories, event.update), now)
+                                selected_memory_context(latest_interpretation_snapshot.memories, guidance_update), now)
                             memory_status_label.configure(text=f"Showing {len(stable_interpretation.memory_possibilities)} relevant memory context item(s)")
-                        guidance_display.offer(event.update, now)
+                        source_age = ((datetime.now(timezone.utc) - guidance_update.context_at).total_seconds()
+                                      if guidance_update.context_at is not None else 0)
+                        guidance_display.offer(guidance_update, now, source_age=source_age)
                         render_guidance()
                     if stable_interpretation.offer(event.update, now) == "replaced":
                         render_interpretation(replaced=True)
@@ -2409,10 +2421,7 @@ def show_window(summary: str) -> None:
                 activity = "Listening — guidance is active"
             else:
                 activity = "Listening — guidance is active"
-            if not guidance_display.all_items("replies"):
-                from .guidance import waiting_suggestion
-                role = turns[-1].speaker_role.value if turns else "selected_contact"
-                activity = waiting_suggestion(role) + (" Updating guidance…" if state.in_flight else "")
+            test_log.emit("guidance_waiting_state", state=state, activity=activity, last_speaker=turns[-1].speaker_role if turns else None)
             guidance_status.configure(text=activity)
         else:
             guidance_status.configure(text="Select a contact to enable guidance" if not selected_contact_id else "Start a call to receive live guidance")
@@ -2455,7 +2464,10 @@ def show_window(summary: str) -> None:
         if latest_interpretation_snapshot and interpretation_coordinator and not stopping:
             guidance_display.dismissed.clear()
             next_interpretation_snapshot_id += 1
-            latest_interpretation_snapshot = latest_interpretation_snapshot.model_copy(update={"snapshot_id": next_interpretation_snapshot_id, "manual": True})
+            checkpoint = datetime.now(timezone.utc)
+            latest_interpretation_snapshot = latest_interpretation_snapshot.model_copy(update={
+                "snapshot_id": next_interpretation_snapshot_id, "manual": True,
+                "created_at": checkpoint, "visual_buckets": list(visual_aggregator.buckets(checkpoint))})
             interpretation_coordinator.offer(latest_interpretation_snapshot, time.perf_counter(), manual=True)
             suggest_button.configure(state="disabled")
 
@@ -2628,6 +2640,7 @@ def show_window(summary: str) -> None:
         if stopping:
             return
         stopping = True
+        test_log.emit("call_stop", generation=interpretation_generation, records=usage_ledger.records if usage_ledger else (), committed_dollars=usage_ledger.committed_dollars if usage_ledger else 0)
         if usage_ledger:
             usage_ledger.stopped = True
         guidance_display.reset()
@@ -2678,6 +2691,7 @@ def show_window(summary: str) -> None:
             )
             return
         window = windows[selection[0]]
+        test_log.emit("call_window_selected", display_name=window.display_name, microphone=microphone_box.get(), playback=playback_box.get(), language=language_box.get())
         call_speaker_fallback = window.display_name
         turns.clear()
         vocal_observations.clear()
@@ -2770,6 +2784,7 @@ def show_window(summary: str) -> None:
                 break
             turn = _conversation_turn_from_audio(draft, len(turns) + 1)
             turns.append(turn)
+            test_log.emit("transcript", record_id=current_record_id, generation=interpretation_generation, turn=turn, vocal=draft.vocal)
             if memory_store is not None and current_record_id is not None:
                 try:
                     memory_store.append_turn(current_record_id, turn)
@@ -2782,18 +2797,30 @@ def show_window(summary: str) -> None:
             render_transcript_turns((turn,), replace=False)
 
     def switch() -> None:
+        test_log.emit("face_switch_requested")
         if session:
+            visual_aggregator.reset()
             if session.snapshot().status == "Face lost":
                 session.continue_tracking()
             else:
+                invalidate_memory_context()
                 session.switch_face()
 
     def poll_once() -> None:
         nonlocal audio_catalog, audio_runtime_error, session, audio_session, thumbnail_photo, stopping, current_record_id
+        if test_log.startup_error:
+            root.title("Conversation Copilot — LOG FAILED: " + test_log.startup_error)
+        elif test_log.active:
+            root.title("Conversation Copilot — " + ("LOG FAILED: " + test_log.active.error if test_log.active.error else "Private test logging ON"))
         current = session
         if current:
             snapshot = current.snapshot()
-            visual_aggregator.add(snapshot.current_signal, datetime.now(timezone.utc))
+            observed_at = capture_clock_origin + timedelta(seconds=time.perf_counter())
+            signal = snapshot.current_signal
+            captured_at = (capture_clock_origin + timedelta(seconds=signal.timestamp_ms / 1000)) if signal else None
+            visual_aggregator.add(signal, observed_at, captured_at=captured_at)
+            if test_log.active:
+                test_log.emit("visual", generation=interpretation_generation, contact_id=selected_contact_id, observed_at=observed_at, captured_at=captured_at, status=snapshot.status, face_count=snapshot.face_count, signal_timestamp_ms=signal.timestamp_ms if signal else None, face_box=signal.face_box if signal else None, blendshapes=dict(signal.blendshapes) if signal else None, expressions=visual_aggregator.expressions(), buckets=visual_aggregator.buckets(observed_at)[-1:])
             status_label.configure(text=snapshot.status)
             switch_button.configure(
                 text=(
@@ -2837,6 +2864,7 @@ def show_window(summary: str) -> None:
         current_audio = audio_session
         if current_audio:
             snapshot = current_audio.snapshot()
+            test_log.emit("audio_status", running=snapshot.running, microphone_status=snapshot.microphone_status, playback_status=snapshot.playback_status, fault=snapshot.fault)
             audio_status_label.configure(
                 text=(
                     snapshot.fault
@@ -2912,6 +2940,7 @@ def show_window(summary: str) -> None:
         try:
             poll_once()
         except Exception as exc:
+            test_log.emit("ui_poll_error", error_type=type(exc).__name__)
             status_label.configure(text=f"Update failed ({type(exc).__name__})")
         finally:
             root.after(100, poll)
@@ -2953,6 +2982,7 @@ def show_window(summary: str) -> None:
     refresh(initial_audio=True)
     poll()
     root.mainloop()
+    test_log.emit("app_closed")
 
 
 def main(argv: list[str] | None = None) -> int:

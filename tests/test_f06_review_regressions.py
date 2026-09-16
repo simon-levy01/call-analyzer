@@ -143,9 +143,8 @@ def test_recordless_approval_date_uses_query_zone_and_guidance_keeps_tone_stable
 @pytest.mark.parametrize('remote', ['I am fine; stop asking.', 'Oh great, exactly what I needed.', 'I do not want to discuss it.'])
 def test_combined_guidance_preserves_cautious_tone_without_discarding_factual_questions(monkeypatch, remote):
     from conversation_copilot import guidance
-    from conversation_copilot.interpretation import _cautious_policy, _InterpretationWireUpdate
+    from conversation_copilot.interpretation import _InterpretationWireUpdate
     snapshot = EvaluationScenario('cautious','f06','Would you like to discuss this?',remote).snapshot('transcript')
-    expected = _cautious_policy(snapshot)
     calls=[]
     def request(schema,payload,instructions,**kwargs):
         calls.append(payload)
@@ -154,8 +153,8 @@ def test_combined_guidance_preserves_cautious_tone_without_discarding_factual_qu
     monkeypatch.setattr(guidance,'f06_structured_request',request)
     result=interpret_guidance(snapshot,ledger=UsageLedger())
     assert len(calls)==1 and result.replies
-    assert result.status==expected.status and result.explanation==expected.explanation
-    assert result.tones==expected.tones and result.social_cues==expected.social_cues
+    assert result.status.value == 'insufficient_evidence'
+    assert not result.tones and not result.social_cues
 
 
 def test_no_remote_speech_returns_local_abstention_without_cloud(monkeypatch):
@@ -166,4 +165,4 @@ def test_no_remote_speech_returns_local_abstention_without_cloud(monkeypatch):
     monkeypatch.setattr(guidance,'f06_structured_request',forbidden)
     result=interpret_guidance(snapshot,ledger=UsageLedger())
     assert result.status.value=='insufficient_evidence'
-    assert [item.text for item in result.replies] == ['Pause and give them a moment to respond.']
+    assert not result.replies

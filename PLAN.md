@@ -1,11 +1,18 @@
 # Conversation Copilot Master Plan
 
+**September 14 visual-model screening:** User authorized local downloads/comparisons of MediaPipe/F07, LibreFace, OpenFace2, Py-Feat XGBoost, OpenGraphAU and OpenFace3 with RAM prioritized. [Evidence and external dataset access](docs/F07-VISION-SCREENING.md). This is diagnostic research alongside F07, not a production replacement or a new tuning round. All original release gates and deadlines remain.
+Completed CPU screening: all six pipelines tested on DISFA development data and two new conversation clips; portrait peak resident memory ranged from 258 to 1,326 MiB. Current pipeline retained; independent annotated validation and full F07 gates remain pending.
+
 **Approved:** 2026-08-10  
 **Windows MVP delivery deadline:** 2026-10-01
 
 **Status:** Active
 
-**Roadmap update approved:** 2026-09-05 — F09 adds macOS support after F08. The user will run F09 on a Mac; it has no committed completion date and does not change the Windows MVP deadline.
+**Latest F07 checkpoint — 2026-09-14:** User-requested before-live comparison completed: 144 independent Luna-low responses, 143 validated; 279 offline tests pass. Aggregate committed API cost $0.07768505/$0.30; cap did not stop tests. Tool-disabled Opus-5-only harness review cleared after corrections. Boundary/ownership failures and visual-only cost excess remain; no release pass. P1/P2/P3, permitted corrections, after-human comparison, final review and reviewed publication remain pending. [Results](docs/F07-VALIDATION.md). F01–F06 stay complete; September 23/27 and F08 October 1 deadlines unchanged.
+
+**F07 execution update — 2026-09-14:** S0 preflight is active under the user's implementation request. Source baseline and reusable media clocks/hashes are preserved. The user subsequently authorized provisional assistant screenshot annotations or a suitable dataset, with live checks later; independent annotations no longer block implementation. Remaining scenario/input/protocol freezes still apply. See [F07 validation](docs/F07-VALIDATION.md) and [dataset findings](docs/F07-DATASETS.md). F01–F06 remain complete; F07 is not complete and no release is claimed.
+
+**Roadmap update approved:** 2026-09-15 — F08 is narrowed to easy Windows installation and Claude review, including necessary installation checks and review corrections. Final presentation/demo preparation and a recorded fallback are deferred, not F08 completion gates. F09 macOS implementation/testing follows immediately after the smaller F08 is complete; it need not wait until October 1. F07 remains active with unchanged gates. October 1 remains the Windows installation delivery target, not a required presentation date; no Mac completion date is committed.
 
 ## F06 closure — user accepted 14 September 2026
 
@@ -25,7 +32,7 @@ This is the grand plan. It defines direction, sequence, and gates. Each feature 
 
 ## Definition of Finished
 
-By October 1, the application must demonstrate a complete one-to-one call loop on the development Windows computer:
+By October 1, the application must support a complete one-to-one call loop on the development Windows computer with easy installation. Formal presentation/demo preparation is deferred by the September 15 roadmap update:
 
 1. The user starts the assistant, selects a visible WhatsApp, Zoom, or dedicated Chrome-hosted Google Meet call window, and confirms or corrects the suggested contact.
 2. The app follows the largest remote face and processes visual signals without recording video. A brief miss may reacquire automatically; after six seconds without the selected face it pauses without silently choosing another face, and the user explicitly resumes with **Continue tracking**.
@@ -35,7 +42,7 @@ By October 1, the application must demonstrate a complete one-to-one call loop o
 6. Each interpretation item uses `low`, `medium`, or `high` confidence. The complete update may instead report insufficient or conflicting evidence, and it never presents emotion or intent as certain.
 7. It creates post-call summaries and memory proposals. Approved memories remain available across future text and voice/video interactions.
 8. Repeatable evaluation shows that the system is useful, responsive, contact-specific, and willing to abstain when evidence is weak.
-9. The Windows demo works live, with a recorded fallback available.
+9. Easy Windows installation and startup are verified, with Claude review and required corrections complete. A polished live presentation and recorded fallback are deferred; neither blocks F08 completion or F09.
 
 ## Product Principles
 
@@ -66,7 +73,7 @@ By October 1, the application must demonstrate a complete one-to-one call loop o
 - Contact-specific memories, relationship-specific interaction style, and shared context across imported text and calls.
 - Live replies, reminders, and follow-up suggestions.
 - Post-call summary and reviewed memory proposals.
-- Evaluation, Claude review gates, Windows packaging, and demo fallback.
+- Evaluation, Claude review gates, and easy Windows installation. Final demo preparation and a recorded fallback remain deferred work.
 
 ### Supporting, Not Headline Scope
 
@@ -79,7 +86,7 @@ By October 1, the application must demonstrate a complete one-to-one call loop o
 - Facial recognition or biometric identity during F01-F08. After the October 1 MVP, revisit opt-in contact face enrollment as a separate feature only with explicit consent, user-controlled deletion, multiple reference samples, measured false-match/false-reject behavior, and confirmation before a suggested match becomes the Selected Contact. F05 uses aliases and explicit contact selection; one saved screenshot is not treated as reliable identity evidence.
 - Hidden capture, employee/student scoring, or definitive emotion detection.
 - Native/private Zoom, WhatsApp, or Google Meet integrations when selected-window capture is sufficient.
-- macOS operation and packaging during F01-F08; scheduled separately as F09 after the Windows MVP.
+- macOS operation and packaging during F01-F08; F09 follows the reduced installation/review F08 immediately when complete, without waiting for a final demonstration or October 1.
 - Hardware wearables.
 - Cloud accounts or server-hosted memory.
 
@@ -99,7 +106,7 @@ These are preferred starting points, not permanent choices. Each feature plan mu
 | Durable storage and search | SQLite/FTS5 plus bounded local BGE-small similarity | Exact lifecycle/contact filtering remains SQL-first; vectors stay in the same database and are scored locally |
 | Vocal observations | Simple local remote-speaker energy/rate/pause/overlap features from existing samples/timing | Add a vocal-analysis dependency only after measured uplift failure and an approved plan revision |
 
-GPU acceleration is allowed and should be used when it improves the demo, but the basic MediaPipe path should remain CPU-capable. The F01-F08 release target is Windows; a MacBook is not required for the October 1 demonstration. F09 adds macOS as a supported platform only after implementation and validation on a real Mac.
+GPU acceleration is allowed when useful, but the basic MediaPipe path should remain CPU-capable. The F01-F08 release target is Windows; a MacBook is not required for the October 1 installation delivery target. F09 follows F08 completion and adds macOS as a supported platform only after implementation and validation on a real Mac.
 
 ## Reuse and Lessons from the Autistic Analyzer POC
 
@@ -135,30 +142,33 @@ Target dates are completion targets. If one slips, apply the trimming order inst
 | F04 — Multimodal tone and cue interpretation | Sep 9 | Stable English-only conversation-atmosphere hypotheses and remote social cues combine bounded language, local vocal, and local visual evidence |
 | [F05 — Contact memory and personalization](plans/F05-contact-memory-personalization.md) | Sep 16 | Approved long-term memory, aliases, provenance, retrieval, supersession, and relationship-specific style |
 | [F06 — Live guidance, Ask Memory, and post-call review](plans/F06-live-guidance-ask-memory-post-call-review.md) | Complete for now — Sep 14 | Replies, reminders, follow-ups, manually approved summaries, existing memory-proposal review, and natural-language questions over approved local evidence |
-| F07 — Evaluation and calibration | Sep 27 | Repeatable scenarios, measured errors/latency/abstention, tuned update behavior, and evaluated facial-expression observations |
-| F08 — Windows packaging and final demonstration | Oct 1 | Reliable live Windows demo, clean setup, limitations, and recorded fallback |
-| F09 — macOS support | After F08; no committed date | Run and validate on the user's Mac: selected-window capture, two-sided audio, local transcription, existing guidance/memory, and Mac setup/packaging while preserving Windows operation |
+| [F07 — Evaluation and calibration](plans/F07-evaluation-calibration.md) | Sep 27 | First candidate under evaluation; review corrections and measured failures recorded. Human/held-out/release gates pending |
+| F08 — Easy Windows installation and Claude review | After F07; by Oct 1, sooner if ready | Simple install/startup, required setup checks, Claude review/corrections and reviewed publication; no final demo or recorded fallback gate |
+| F09 — macOS support | Immediately after F08 completion; no committed finish date | Enable testing on the user's Mac: selected-window capture, two-sided audio, local transcription, existing guidance/memory, and Mac setup/packaging while preserving Windows operation |
 
-### F07 — Facial-expression interpretation improvement (planned; not started)
+### F07 — Evaluation and calibration (first candidate under evaluation)
 
-User requested 2026-09-13; included in F07 after F06 acceptance and before F08 packaging.
-Trello: [F07 roadmap and planning brief](https://trello.com/c/68EGr9Sh).
-Create the detailed F07 plan and permanent feature column when F07 begins; F06 is accepted for now; F07 has not started.
-Compare existing movement-only buckets with compact MediaPipe expression levels, duration and onset/offset,
-starting with smile-like and explicitly defined frown-like configurations. Confidence in an observed expression
-is separate from confidence about emotional meaning. A sustained smile must not disappear merely because
-its movement is low; speaking, head movement, occlusion and face loss must not masquerade as expressions.
-Align observations with contact speech and test whether they improve guidance, not just visual citation counts.
-Reuse local features before considering another model. Preserve no raw-frame retention/upload and no identity inference.
-Acceptance includes labeled expression precision/recall and calibration, matched no-visual/current-visual/improved-visual
-replays, useful versus incorrect suggestions, latency/CPU/token cost, a consenting live test and both Opus 5 review gates.
-Choose numerical thresholds before tuning in the F07 plan; no claim of improved performance until measured.
+September 14: implemented first persistent-expression/shared-calibration candidate and ran 24 Luna-low API tuning responses ($0.010754 of the newly authorized $0.30 total). Dataset replay and API outputs expose inadequate mouth-corner recall and an attribution regression; no release pass is claimed. One tuning round used. Automated cleanup investigation and preliminary Opus review are in progress. See [F07 validation](docs/F07-VALIDATION.md); final 144 comparisons, participant checks, freeze/final review and reviewed publication remain outstanding.
+
+Latest correction checkpoint: **278 tests passed; verified tool-disabled Opus 5 preliminary correction review cleared P1 development**. Failed extraction wording reverted; first candidate/source/results preserved. P1 consent/setup/results and second-round/freeze decisions are next. Final release gates remain pending; no commit/push yet.
+
+The [feature plan](plans/F07-evaluation-calibration.md) was approved on 2026-09-14, including self-review revisions. It owns expression levels/duration/timing, targeted reminder/boundary/garbled-attribution calibration, matched visual and unchanged-production comparisons, numerical gates and three consenting participant checks. Local observations update continuously; automatic cloud guidance remains speech-triggered. Luna low and the existing privacy/selected-face boundaries remain unchanged.
+
+Stop tuning September 23 and finish by September 27, using the approved fallback if improvements fail their gates. Both verified Claude Opus 5 review gates, actual user testing, corrections and commit/push verification remain required. F01–F06 stay complete; F08 retains the October 1 Windows installation target and may finish earlier, allowing F09 to start immediately. Execution status: [F07 roadmap card](https://trello.com/c/68EGr9Sh) and its permanent feature column. No implementation or inference ran during planning.
+
+### F08 — Easy Windows installation and Claude review (planned; not started)
+
+Scope reduced by the user on September 15 to enable earlier Mac development/testing. After F07 closes, create the focused F08 plan and permanent feature column. Choose the simplest reliable installation/startup path, including required dependencies/models, user-supplied API-key setup and short setup/troubleshooting instructions; do not choose an installer technology prematurely.
+
+Verify installation in a clean supported Windows environment and startup outside the development checkout. Preserve existing local data and keep credentials/private logs out of distributable files. Retain the normal preliminary/final Claude review, focused installation/user checks, necessary corrections and reviewed commit/push verification. Do not reopen unrelated accepted feature gates or turn this into new functionality or an open-ended whole-program rewrite.
+
+Final demo rehearsal, presentation materials, recorded fallback and demo-only polish are explicitly excluded. Track them as deferred presentation work with a date to be chosen later; do not make them a hidden dependency of F09. October 1 remains the installation delivery target, not a wait-until date. F09 starts as soon as F08 is accepted and published.
 
 ### F09 — macOS support (planned; not started)
 
 Trello: [F09 roadmap card](https://trello.com/c/fCrlrZ8P/91-f09-macos-support-after-f08).
 
-Start after F08 is complete. The user will run this feature on a Mac. At that point, record its chip, memory, and macOS version and choose the supported hardware/OS baseline from measured results. Create `plans/F09-macos-support.md` and the permanent F09 Trello column immediately before implementation, following the existing per-feature workflow. Until then, keep F09 as a Feature Backlog roadmap card; do not start a second active feature or prebuild portability abstractions.
+Start immediately after F08's easy Windows installation and Claude review are complete; do not wait for October 1 or final demo preparation. The user will run this feature on a Mac so they can test the application there as well as on Windows. At that point, record its chip, memory, and macOS version and choose the supported hardware/OS baseline from measured results. Create `plans/F09-macos-support.md` and the permanent F09 Trello column immediately before implementation, following the existing per-feature workflow. Until then, keep F09 as a Feature Backlog roadmap card; do not start a second active feature or prebuild portability abstractions. Prioritize an early working Mac call path for user testing; full Mac acceptance still requires the checks below, not a polished presentation.
 
 Reuse the existing Python UI, interpretation, contact memory, and local face-processing logic wherever compatible. F09 owns Mac window discovery/capture, microphone and call-audio capture with explicit selection and permissions, a local transcription runtime that does not require NVIDIA CUDA, conditional platform dependencies/imports, native storage paths, and Mac setup/packaging. Choose capture and transcription implementations in the F09 plan after an early on-Mac capture/accuracy/latency check; do not assume the current Windows dependencies or GPU path work on Mac.
 
@@ -299,9 +309,9 @@ If the schedule slips, remove work in this order:
 2. Deep/private Zoom, WhatsApp, or Google Meet integrations beyond selected-window capture.
 3. Polished text UI and WhatsApp Web convenience features.
 4. Paid Hume/prosody experiments and extra emotion models.
-5. Broad hardware optimization. macOS support is already outside the October 1 scope and remains scheduled as F09 after F08.
+5. Broad hardware optimization. macOS support remains F09 immediately after the reduced F08; it has no October 1 completion commitment and is not blocked by deferred demo preparation.
 
-Do not trim the working video capture path, evidence-backed multimodal interpretation, contact-aware guidance, uncertainty, repeatable evaluation, or the live Windows demo.
+Do not trim the working video capture path, evidence-backed multimodal interpretation, contact-aware guidance, uncertainty, repeatable evaluation, or working Windows operation. Formal demo preparation and a recorded fallback are deferred by the September 15 decision.
 
 **F06 post-call tuning — 2026-09-13:** User-authorized 1.5x extraction reservation (6,000→9,000), whole-transcript summary input up to 9,000, and Ask input/evidence +300 tokens (6,300/4,700). Post-call Luna low; live settings unchanged. Saved 88-turn call replay used only extraction and summary, two final requests costing $0.00265096; four variants total $0.02796231. See `docs/F06-POST-CALL-CONTEXT-TEST.md` for actual output and remaining generic-memory limitations. Automated checks: 268 passed; user retest and final review/release remain pending.
 

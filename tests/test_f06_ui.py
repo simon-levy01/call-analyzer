@@ -2,6 +2,7 @@
 import tkinter as tk
 import sqlite3
 import threading
+import gc
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from conversation_copilot import audio, memory, windows, ask_memory
@@ -190,6 +191,12 @@ def test_ask_ui_uses_independent_scope_and_current_source(tmp_path, monkeypatch)
         root.after(10000, root.destroy)
         return root
     monkeypatch.setattr(tk, "Tk", create_root)
-    show_window("F06 isolated UI fixture")
+    try:
+        show_window("F06 isolated UI fixture")
+    finally:
+        # Captured callbacks retain Tk cycles after destroy. Collect on the Tk
+        # thread before later coordinator tests can trigger worker-thread GC.
+        commands.clear()
+        gc.collect()
     assert failures == []
     assert completed

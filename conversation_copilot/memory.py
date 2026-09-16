@@ -18,6 +18,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from .models import ConversationTurn, SpeakerRole
+from . import test_log
 
 
 SCHEMA_VERSION = 4
@@ -2563,6 +2564,7 @@ Garbled speech cannot establish ownership or a comparison; omit that claim unles
 Before returning, scan BOTH speakers for missed specific opinions, project feedback, commitments and named
 people. Recheck every proposed life event against surrounding turns: retrieving/displaying a job memory is not getting a job. Remove general model-improvement predictions. Then check ownership, useful detail and source support. Do not manufacture items to fill a quota.
 Repeated boundary turns are context; avoid repeating an unchanged fact from an earlier chunk.
+Put citations only in evidence_turns, not content. Completed work is not a future commitment. A temporary dispute or preference about a THIRD party is shared_reference, not a standing communication_style/relationship_preference for the user. Omit routine greetings even when agreed. Banter is not a literal life event unless the context supports that reading.
 Return at most 12 proposals, each at most 280 characters and citing at most 20 supplied turn IDs.
 """
 MAX_EXTRACTION_TURNS = 200
@@ -2690,7 +2692,7 @@ class OpenAIMemoryExtractor:
                 max_output_tokens=MAX_EXTRACTION_OUTPUT_TOKENS,
             )
             try:
-                response = self._client.responses.parse(
+                response = test_log.parse_response(self._client,
                     model=self.model, reasoning={"effort": self.reasoning}, instructions=EXTRACTION_INSTRUCTIONS,
                     input=payload, text_format=ExtractionOutput, text={"verbosity": "low"},
                     max_output_tokens=MAX_EXTRACTION_OUTPUT_TOKENS, store=False,

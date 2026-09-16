@@ -1,14 +1,52 @@
 # Evaluation handoff and reusable history
 
+September 16 completed-call diagnostic: user explicitly selected isolated Astra low and Sol high agent testing, with an independent root assessment; no new paid API inference. Private frozen evidence, exact tester instructions and raw assessments are in `build/call-audit-20260916/`. The 240-turn call has eight approved memories, one pending proposal and an approved seven-statement summary. Source hashes and log sequence continuity were verified. This is analysis only: no production changes or edits to approved personal data. Findings concern speaker/echo uncertainty, grounding and staleness, visual availability, draft-only summary consolidation and transient-memory scope. The selected-contact retrieval corpus was empty during this call, so it does not establish a retrieval omission. Final agent comparison is in the private `REPORT.md`; these exposed failures are development evidence, not a held-out pass or F07 completion.
+
+September15 two-call real API follow-up: [comparison and cost projection](TWO-CALL-API-COMPARISON-20260915.md). 78 Luna live checkpoints plus16 paired/repeated Luna/Terra summary/extraction requests;93 structured answers, one truncated-JSON failure; $0.21179406 committed under the single explicit $0.40 cap. Saved evidence, source/input hashes, non-blinded assessments, replay and cumulative ledger are private in `build/two-call-api-20260915/`. Initial failure was not retried; continuation retained its full charge and all previous records. No production changes/model switch/memory approvals.72 targeted offline tests and runner mock guards pass. Read the report before claiming guidance quality, facial contribution or a Terra win. The previous diagnosis's “no new paid inference” describes that earlier phase only; this follow-up supplies fresh API evidence but not live GUI acceptance or review clearance.
+
+September 15 long-call diagnosis: [findings, isolated Sol/root comparisons and guidance corrections](LIVE-CALL-DIAGNOSIS-20260915.md). Private exact evidence: `build/call-diagnosis-20260915/`. No new paid inference. Read the report's limits before treating agent answers or replay as API acceptance. The new guidance semantics retain source-aged, optional recent-context ideas; empty results are no longer waiting advice. Sensor pruning preserves a recent sample from both modalities. Future opt-in extraction logging now includes raw bounded requests/responses. This is an unreviewed development checkpoint, not F07 closure.
+
+September 15 live diagnostic logging: explicitly launch with `COPILOT_TEST_LOG=1` to write a fresh private `build/live-evidence-*/events.jsonl` and exact Python source snapshot. Logging is off by default. Records include selected-face numeric blendshapes/box, expression durations/uncertainty, recent aggregate buckets, transcripts and vocal features, retrieval query/results/current selected-contact memory corpus, bounded model inputs/schema/raw responses, usage/releases, candidate-filter reasons, coordinator acceptance/staleness and displayed/waiting guidance. No raw frames, landmarks, raw audio or credentials are recorded. Existing evidence is never overwritten; local evidence copies persist independently of later in-app deletion. This supports numeric/text replay and supplied-evidence diagnosis, not rerunning a vision/audio model without original media or proving causal visual influence. A missing queue record/serialization failure/disk error marks the title LOG FAILED; do not treat that session as complete evidence. Resource samples, when launched alongside the app, are separate process CPU/resident/private snapshots, not calibrated full-app benchmarks. 52 affected offline checks pass (`tests/test_live_log.py` plus guidance/budget/expression/UI suites). Private review evidence: `build/live-logging-review-20260915/`; actual tool-disabled Opus 5 cleared the corrected instrumentation for preliminary live diagnostics; no final F07 acceptance implied. Active September 15 evidence began under `build/live-evidence-20260915-220254-7287a894/`, with launch/resource logs in `build/live-logged-launch-20260915-220252/`.
+
+Local memory diagnostic started September 15: [first-slice report](LOCAL-MEMORY-EVALUATION.md).
+Fresh private evidence is under `build/memory-evaluation-20260915T083732Z/`.
+`tools/evaluation/memory_evaluation.py RUN --preserve-history` verifies the frozen source
+and copies/audits named historical evidence without inference; it refuses an existing
+history destination. This is initial preparation, not the complete evaluation runner.
+The existing 40-question F06 fixture passed 40/40 with cached BGE (35/40 lexical-only)
+in a one-off replay; its socket guard has not been independently verified by the reviewer.
+111 affected tests passed after harness corrections. New held-out evaluation, Hindsight execution, complete resource
+costs, human testing and final reviewed publication remain pending. Production stays unchanged.
+Actual Opus 5 cleared the private initial checkpoint only, not the complete experiment.
+The new repository-ignore check requires Git and a repository checkout when running pytest.
+
+Latest user-authorized local vision downloads/screening: [F07-VISION-SCREENING.md](F07-VISION-SCREENING.md). Private scripts, models, numeric predictions and process-tree RAM samples are under `build/f07-pretrained-20260914/`. CPU diagnostic results are separate from the Luna API comparison and do not pass full-app resource or independent accuracy gates.
+
 Read ../AGENTS.md for the standing API-versus-agent choice rule. This index is project-wide, not chat-specific. No inference is authorized by merely reading a report or running a historical script.
 
 ## Start here
+
+Pretrained visual-model comparison research: [models, external validation clips and resource metrics](F07-PRETRAINED-MODELS.md). Proposed challengers are LibreFace, OpenFace 2.2 and Py-Feat XGBoost against existing MediaPipe/F07. GFT/MMI access and checkpoint overlap need verification. That research snapshot precedes the completed local screening linked above; no production replacement or independent accuracy winner is claimed.
+
+Latest F07 before-P1 comparison: **144 independent API responses, 143 validated; 279 offline tests passed**. [Results](F07-VALIDATION.md) include boundary/attribution failures and the visual-only cost excess. Aggregate committed cost **$0.07768505/$0.30**, remaining **$0.22231495**; do not reset the ledger. Exact evidence: `build/f07-implementation-20260914/api-comparison-before-p1-v2/`; malformed interrupted attempt remains separately preserved. Actual tool-disabled Opus 5 cleared the corrected harness, not final release. Human checks and after-human repeat remain pending.
+
+Reusable runner: `tools/evaluation/f07_comparison.py`, regression check `tests/test_f07_comparison.py`. `prepare` is offline; `run` is paid. Use the original freeze and a new `api-*` child. For the later comparison, prepare with `--stage after-human`; explicitly choose `--later-reserve-usd` for `run` to draw from the reserve while carrying all prior charges. Do not run a paid repeat before its authorized human/correction sequence, or treat exposed families as fresh holdout. Frozen requests, conditions, failures and independent-repeat denominators must remain intact. The private output-review packet has **no human scores**.
+
+F07 first candidate: [validation report](F07-VALIDATION.md), `tests/test_f07_expressions.py` and `tools/evaluation/f07_api.py`. Private exact evidence/source freezes: `build/f07-implementation-20260914/`. Twenty-four API tuning responses at Luna low cost $0.010754 under the newly authorized $0.30 aggregate cap; carry that spend forward. Dataset replay exposed poor mouth-corner recall; extraction prompt candidate produced an attribution error. No release or human-test clearance is claimed. The final 144-response design remains pending.
+
+Latest F07 correction: **278 passed** (`tests-clock-correction.xml`), extraction candidate reverted, and actual tool-disabled **Opus 5 only** follow-up cleared P1 development (`clock-review.json`). Earlier failures/reviews remain preserved. [Participant script](F07-MANUAL-CHECK.md) has remaining consent/budget/evidence setup requirements; no human outcome or final release gate is claimed passed.
 
 Run offline checks on Windows: `.venv/Scripts/python.exe -X utf8 -m pytest -q`.
 
 Historical experiment scripts are in `build/`. Many execute paid inference immediately on import or launch, use fixed output paths, contain old prompt versions or reference historical budgets. Read them first; use a fresh output directory and a newly applicable budget for API mode. Do not import a paid runner to reuse its helpers. Tests in `tests/` are the maintained application checks, including fixture replay and lifecycle checks.
 
 ## Suite map
+
+DISFA local development probe (September 14): [dataset assessment](F07-DATASETS.md); `tools/evaluation/disfa.py`, `tests/test_disfa.py`; ignored exact sources/labels/probe evidence in `build/datasets/DISFA/` and `build/f07-disfa-20260914-v2/`. Three development subjects, 24 reserved, six windows, 582 local MediaPipe signal samples. This is downloaded signal-model processing, not new Luna inference or calibrated accuracy evidence.
+
+F07 S0 preflight started September 14: [validation status](F07-VALIDATION.md), [timing annotation protocol](F07-TIMING-PROTOCOL.md), exact local evidence in `build/f07-preflight-20260914-033817/`. Source baseline and media timestamps/hashes preserved; independent expression annotations are missing. No F07 application implementation, model evaluation, human testing or review pass is claimed.
+
+Later September 14: [dataset feasibility and seven assistant-authored podcast point annotations](F07-DATASETS.md). The user authorized this provisional route before implementation; independent timing remains unverified rather than blocking code start. No comparative Luna inference, dataset download or human validation was performed.
 
 | Coverage | Report | Scripts / artifacts |
 |---|---|---|
@@ -85,3 +123,12 @@ September14 completion: all258 historical agent answers,12 new agent answers and
 A private snapshot is in `evaluation-history/f06-pre-live-luna-20260914.zip`, with hashes in `evaluation-history/pre-live-luna-manifest.json`. This archive supplements the earlier history/local archives and is not automatically synced by Git.
 
 F06 closure (2026-09-14): user accepted the current work and known Luna limitations as complete for now and authorized publication. Another live call is optional future work. F07 remains unstarted. See PLAN.md for the explicit closure exception and Trello for the release SHA.
+
+
+## September 15 supplied-evidence API comparison
+
+See [MEMORY-ANSWER-COMPARISON.md](MEMORY-ANSWER-COMPARISON.md): 24 existing fictional cases, two fresh Luna low API responses each, $0.02322885 estimated total under the explicit $0.30 cap; 48 matching historical Gemma/Qwen outputs reused. The current assistant supplied frozen reference answers and non-blinded judgments. This is not a retrieval, held-out, live-user or Hindsight completion gate.
+
+Exact evidence is private in `build/memory-answer-comparison-20260915T093115Z/`. Do not rerun that directory. `memory_answer_comparison.py --api-cap USER_APPROVED_CAP --run-dir FRESH_PREPARED_DIRECTORY` requires 24 frozen numbered inputs and a reference file, uses the shared reservation ledger, disables retries, and rejects an existing result/dispatch lock. It does not resume interrupted runs or prepare a new case set. An interruption retains its reservations; never reset the ledger to restart. The standing cap for explicitly requested Luna low API testing is $0.30 total unless overridden by the user.
+
+Run `.venv/Scripts/python.exe tools/evaluation/check_memory_answer_comparison.py` for self-contained offline cap/no-retry/overwrite checks. This sends no requests and needs no private case archive. See the report for review and publication status.

@@ -1,5 +1,12 @@
 # Conversation Copilot
 
+**September 15 two-call API evaluation:** Completed the user-authorized $0.40 comparison: 94 requests attempted, 93 structured answers, $0.21179406 committed including one failed-answer reservation. [Results](docs/TWO-CALL-API-COMPARISON-20260915.md). Waiting-only guidance is reduced, but speaker/context/repetition failures remain. Visual rows reach all recent snapshots; no new successful response cites visual evidence. Terra improves some memory categorization but is not a consistent factual upgrade. Production stays Luna low for all stages; no new production changes, memory edits or release. At recorded speech density, current long-call chunk/merge behavior materially increases hypothetical Terra post-call cost. Preserve the private evidence and ledger in `build/two-call-api-20260915/`; do not rerun/reset it.
+
+**September 15 long-call correction checkpoint:** User requested isolated Sol High and root diagnostics without API spend, and fixes prioritizing guidance. See [diagnosis](docs/LIVE-CALL-DIAGNOSIS-20260915.md). Live replies now remain as optional recent-context ideas (24-second source-age bound, explicit resets/repetition removal), instead of clearing on every utterance. No automatic waiting fallback; facial rows no longer lose all budget before older vocal rows. Prompt changes are not yet fresh-Luna-validated; Claude review/live acceptance remain pending. Preserve the ignored private source/input/output evidence and unrelated dirty work; no F07 completion or automatic release is implied.
+
+**September 14 vision-model revision:** User explicitly requested downloading and locally benchmarking the pretrained visual-model shortlist, prioritizing RAM, plus external validation clips. This selects local vision inference; Luna low remains selected and local language-model comparisons stay set aside. Private downloads/results: `build/f07-pretrained-20260914/`; [vision screening](docs/F07-VISION-SCREENING.md). This does not replace the production model, spend API budget or waive F07 review/human/acceptance gates.
+Completed CPU screening: all six pipelines tested on DISFA development data and two new conversation clips; portrait peak resident memory ranged from 258 to 1,326 MiB. Current pipeline retained; independent annotated validation and full F07 gates remain pending.
+
 A private assistive application that helps an autistic user interpret and respond during a selected one-to-one conversation while preserving long-term, contact-specific context.
 
 ## Language
@@ -79,6 +86,14 @@ _Avoid_: voice emotion, emotion score, vocal truth
 **Observation**:
 A time-bounded piece of visible, vocal, or linguistic information produced during an assisted call before interpretation.
 _Avoid_: emotion, conclusion
+
+**Visible Expression**:
+A time-bounded visible facial configuration of the selected contact, including smile-like mouth corners, lowered brows or lowered mouth corners. These configurations may occur separately or together without establishing an inner emotion or social meaning.
+_Avoid_: detected feeling, frown emotion, emotional truth
+
+**Observation Confidence**:
+The strength of support that a visible configuration was actually observable during the stated interval. It is separate from confidence in any emotional or conversational interpretation of that configuration.
+_Avoid_: emotion probability, certainty of meaning, movement amount
 
 **Tone Hypothesis**:
 A cautious possible description of the recent conversation atmosphere using the controlled F04 kinds positive/warm, neutral/calm, sad/low-energy, tense/negative, energetic/high-energy, or emotionally intense.
@@ -227,6 +242,16 @@ _Avoid_: temporary status column, sprint
 **Claude Review Gate**:
 The independent QA and code-review checkpoints before user testing and after user testing and corrections, both required before a code feature is complete.
 _Avoid_: optional review, final polish
+
+## Roadmap priority — 15 September 2026
+
+F07 remains active with its existing acceptance gates. The user narrowed F08 to easy Windows installation and Claude review, including necessary clean-install/startup checks, corrections and reviewed publication. Final presentation/demo preparation and a recorded fallback are deferred, not completion gates. F09 macOS implementation follows immediately after the reduced F08 so the user can test on their MacBook; do not wait until October 1 or for a polished demo. Keep one implementation feature active at a time. October 1 remains the Windows installation delivery target; no Mac completion date is committed. See PLAN.md for the current F08/F09 scope; older demo dependencies are superseded.
+
+## F07 working state — 14 September 2026
+
+Latest user sequence: evaluate before live checks, then again afterward. First full provisional comparison completed **144 independent Luna-low responses / 143 validated**, with **279 offline tests passed**. Aggregate committed spend is **$0.07768505 of $0.30**, leaving **$0.22231495**, including the preserved interrupted fixture attempt and its unresolved reservation. No new cap. Opus-5-only tool-disabled correction review cleared the harness; production preliminary review remains clear for P1. Boundary/attribution failures and visual-only cost excess prevent release acceptance. P1/P2/P3, permitted corrections, after-human comparison and final review/publication are pending. Exposed families used for changes become regression cases; a rerun does not restore holdout status. Details in [F07 validation](docs/F07-VALIDATION.md). The paragraph below records the earlier tuning checkpoint.
+
+The approved F07 plan is being implemented. A persistent-expression/shared-calibration candidate exists, with frozen unchanged-production source and private DISFA/API evidence. Luna low remains selected. User authorized real API evaluation with a new **$0.30 aggregate cap**; $0.010754 has been consumed, and every later test/live reservation must carry that spend forward. One tuning round has run; final held-out comparisons and human results are pending. No release or F07 completion is claimed. See [F07 validation](docs/F07-VALIDATION.md) for the candidate's poor mouth-corner recall, rejected extraction prompt, verified Opus review findings/corrections and current test evidence. Keep final 144 comparisons/two repeats and all deadlines/gates unchanged.
 
 ## F06 closure — user accepted 14 September 2026
 
