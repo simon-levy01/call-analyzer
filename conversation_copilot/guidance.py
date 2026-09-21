@@ -32,7 +32,7 @@ reply_to_turn_id is the latest contact turn. Replies/follow_up must cite latest_
 user_spoke_last is NOT a rule to wait; acknowledgments don't close a topic. Prefer concrete optional words for the next pause: clarification, support or a next step.
 Wait only for the CONTACT to finish or answer an existing question. No duplicate waiting advice. If the USER is mid-sentence, don't tell the contact to finish it or invent its continuation.
 Default to observed user phrasing. Approved communication_style/relationship_preference may refine style; cite preference_ids. Relationship labels imply no style; clarify conflicting preferences.
-Cite 1–3 supplied turn_ids and/or memory revision IDs. Remember requires relevant approved memory_ids. Ask rather than assume uncertain plans.
+Cite up to 3 supplied turn_ids plus up to 3 memory revision IDs per candidate; use only relevant sources, with at least one citation overall. Remember requires relevant approved memory_ids. Ask rather than assume uncertain plans.
 possible-loss-reference is unconfirmed. Offer 'Possibly related:' plus the memory's exact factual meaning. Keep uncertainty in the reminder, not an identity-check question.
 Offer natural support without naming unconfirmed people/events or asking 'Is this about ...?'. 'I am sorry for your loss' can fit supported bereavement; 'lost' alone never establishes death.
 No diagnosis, certain emotion, invented agreement or invented preference. Use only current evidence.
@@ -188,7 +188,7 @@ def interpret_guidance(snapshot, *, ledger, client=None, model=LUNA_MODEL, reaso
                 and not item.text.rstrip().endswith("?")):
                 test_log.emit("guidance_filtered", generation=snapshot.generation, snapshot_id=snapshot.snapshot_id, category=category, item=item, reason="unverified answer to user call-duration question")
                 continue
-            if (not 1 <= len(item.turn_ids) + len(item.memory_ids) <= 3
+            if (not item.turn_ids and not item.memory_ids
                 or (category == "remember" and not item.memory_ids)
                 or re.search(r"\[[^\]]+\]|<[^>]+>", item.text)):
                 test_log.emit("guidance_filtered", generation=snapshot.generation, snapshot_id=snapshot.snapshot_id, category=category, item=item, reason="evidence count, memory requirement or placeholder")

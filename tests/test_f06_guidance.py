@@ -3,6 +3,34 @@ from types import SimpleNamespace
 from conversation_copilot.guidance import GuidanceCandidate, GuidanceDisplay
 
 
+def test_citation_lists_are_independently_bounded_and_require_supplied_memory(monkeypatch):
+    import pytest
+    from conversation_copilot import guidance
+    from conversation_copilot.f04_evaluation import EvaluationScenario
+    from conversation_copilot.interpretation import Evidence, RetrievedMemoryContext, UsageLedger
+
+    snapshot = EvaluationScenario("citation-lists", "f06", "What about the trip?", "The dates changed.").snapshot("transcript")
+    memories = tuple(RetrievedMemoryContext(memory_id=f"m{i}", revision_id=f"r{i}", excerpt=f"Trip detail {i}",
+        memory_type="event_date", confidence="high", sensitivity_safe=True, rank=i, relevance="trip") for i in range(1, 4))
+    snapshot = snapshot.model_copy(update={"contact_id": "contact", "memories": memories,
+        "turns": (*snapshot.turns, snapshot.turns[-1].model_copy(update={"display_order": 3, "content": "The hotel changed too."}))})
+    item = GuidanceCandidate(text="Possibly related: the saved trip details.", confidence="low", turn_ids=[1, 2, 3], memory_ids=["r1", "r2", "r3"])
+    output = guidance.GuidanceOutput.model_validate({"interpretation": {"status": "insufficient_evidence", "explanation": "Factual update"}, "remember": [item]})
+    monkeypatch.setattr(guidance, "f06_structured_request", lambda *a, **k: (output.model_copy(deep=True), None))
+    assert guidance.interpret_guidance(snapshot, ledger=UsageLedger()).remember == [item]
+    item.memory_ids = []
+    assert not guidance.interpret_guidance(snapshot, ledger=UsageLedger()).remember
+    item.memory_ids = ["not-supplied"]
+    with pytest.raises(ValueError, match="unavailable evidence"):
+        guidance.interpret_guidance(snapshot, ledger=UsageLedger())
+    for field in ("turn_ids", "memory_ids"):
+        with pytest.raises(ValueError):
+            GuidanceCandidate(text="Too many", confidence="low", **{field: list(range(4)) if field == "turn_ids" else ["a", "b", "c", "d"]})
+    assert Evidence(explanation="Four supporting turns", modalities=["language"], turn_ids=[1, 2, 3, 4]).turn_ids == [1, 2, 3, 4]
+    with pytest.raises(ValueError):
+        Evidence(explanation="Too many", modalities=["language"], turn_ids=[1, 2, 3, 4, 5])
+
+
 def test_empty_updated_wire_abstains_without_losing_valid_reply(monkeypatch):
     from conversation_copilot import guidance
     from conversation_copilot.f04_evaluation import EvaluationScenario

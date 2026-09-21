@@ -133,7 +133,7 @@ class Evidence(BaseModel):
 
     explanation: _ShortText
     modalities: list[EvidenceModality] = Field(min_length=1, max_length=3)
-    turn_ids: list[int] = Field(default_factory=list, max_length=3)
+    turn_ids: list[int] = Field(default_factory=list, max_length=4)
 
     @field_validator("modalities")
     @classmethod
