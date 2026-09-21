@@ -1,5 +1,9 @@
 # Project session instructions
 
+## Current accepted checkpoint (21 September 2026)
+
+F07 is accepted by the user as a limited checkpoint, with current main retained and the newer semantic experiment excluded. API, independent visual/resource and three-participant acceptance checks remain deferred/unverified, not passed. No new inference or tuning is authorized by this status; preserve all evidence and cumulative budgets. F08 Windows installation and Claude review is next, due October 1. See docs/F07-CLOSEOUT-20260921.md for final review/publication status. The dated September 14 pre-live state below is historical.
+
 Read CONTEXT.md, PLAN.md and docs/TESTING.md before implementation or evaluation work. These instructions apply to every future session in this repository.
 
 ## User's model-testing preference (13 September 2026)

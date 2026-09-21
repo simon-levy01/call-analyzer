@@ -1,5 +1,7 @@
 # Conversation Copilot Master Plan
 
+**Current status — September 21:** F07 accepted by the user as a limited checkpoint; current main retained and new semantic experiment excluded. Missing API, visual/resource and three-participant gates are deferred, not passed. F08 Windows installation/review is next, due October 1. See [closeout](docs/F07-CLOSEOUT-20260921.md) for review/publication status. Earlier dated status entries below are historical.
+
 September 21: reviewed current fixes/citation checkpoint published on main `addfe9b`, with local/origin/GitHub equality verified. Further semantic fixes isolated on `codex/call-semantic-fixes-20260921`, consuming the second/final calibration round; 336 offline tests pass. Full shortest-call Luna-low agent comparison completed: 64 fresh answers +2 exact reuses, 32/33 local passes per arm, both full post-call scratch checks pass. The candidate reduces some role/repetition errors but loses useful memories and adds unsupported summary details; do not merge the whole candidate. Verified tool-disabled Opus5 review/follow-up cleared the experimental checkpoint and docs-only main publication; the mistaken missing-schema-bound finding was retracted, citation pruning remains unvalidated, and remaining suggestions are untested hypotheses. No further calibration round remains. [Report](docs/CALL-SEMANTIC-AGENT-20260921.md). No F07 acceptance or candidate merge claimed.
 
 September 21 publication request: user explicitly authorized current fixes plus the bounded citation correction on main, then further semantic work on a new branch. 335 offline tests pass; fresh verified tool-disabled Opus 5 review cleared checkpoint publication; baseline addfe9b was published with local/origin/GitHub equality verified. This is a checkpoint, not F07 acceptance. [Scope and evidence](docs/CITATION-MAIN-20260921.md).
@@ -160,11 +162,11 @@ Target dates are completion targets. If one slips, apply the trimming order inst
 | F04 — Multimodal tone and cue interpretation | Sep 9 | Stable English-only conversation-atmosphere hypotheses and remote social cues combine bounded language, local vocal, and local visual evidence |
 | [F05 — Contact memory and personalization](plans/F05-contact-memory-personalization.md) | Sep 16 | Approved long-term memory, aliases, provenance, retrieval, supersession, and relationship-specific style |
 | [F06 — Live guidance, Ask Memory, and post-call review](plans/F06-live-guidance-ask-memory-post-call-review.md) | Complete for now — Sep 14 | Replies, reminders, follow-ups, manually approved summaries, existing memory-proposal review, and natural-language questions over approved local evidence |
-| [F07 — Evaluation and calibration](plans/F07-evaluation-calibration.md) | Sep 27 | First candidate under evaluation; review corrections and measured failures recorded. Human/held-out/release gates pending |
+| [F07 — Evaluation and calibration](plans/F07-evaluation-calibration.md) | Sep 27 | Accepted limited checkpoint September 21; original validation gates deferred/unverified; see closeout |
 | F08 — Easy Windows installation and Claude review | After F07; by Oct 1, sooner if ready | Simple install/startup, required setup checks, Claude review/corrections and reviewed publication; no final demo or recorded fallback gate |
 | F09 — macOS support | Immediately after F08 completion; no committed finish date | Enable testing on the user's Mac: selected-window capture, two-sided audio, local transcription, existing guidance/memory, and Mac setup/packaging while preserving Windows operation |
 
-### F07 — Evaluation and calibration (first candidate under evaluation)
+### F07 — Evaluation and calibration (accepted limited checkpoint)
 
 September 14: implemented first persistent-expression/shared-calibration candidate and ran 24 Luna-low API tuning responses ($0.010754 of the newly authorized $0.30 total). Dataset replay and API outputs expose inadequate mouth-corner recall and an attribution regression; no release pass is claimed. One tuning round used. Automated cleanup investigation and preliminary Opus review are in progress. See [F07 validation](docs/F07-VALIDATION.md); final 144 comparisons, participant checks, freeze/final review and reviewed publication remain outstanding.
 

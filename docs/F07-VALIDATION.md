@@ -1,5 +1,7 @@
 # F07 validation
 
+**September 21 current disposition:** The user accepts current main as a limited F07 checkpoint and moves on. [Closeout](F07-CLOSEOUT-20260921.md) records retained code, rejected experiment, known failures and deferred gates. This supersedes historical active/release-pending status below; it does not convert any failed or unmeasured gate into a pass.
+
 Additional local vision screening completed for six pipelines on DISFA development windows and two downloaded conversation clips. [RAM, latency, quality and limits](F07-VISION-SCREENING.md). No API spend or production change; original human, review and release gates remain pending.
 
 ## September 14 provisional comparison — before live testing
