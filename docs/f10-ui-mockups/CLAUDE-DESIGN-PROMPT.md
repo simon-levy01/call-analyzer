@@ -2,6 +2,8 @@
 
 Implement the F10 Conversation Copilot desktop UI from the supplied reference images and the current GitHub repository. The current branch is a functional checkpoint: its Tk UI is wired to the existing operations, but its visual implementation is not accepted and does not match the mockups. Replace the presentation layer so the rendered product closely matches the images, while preserving the working system behavior and privacy/data boundaries.
 
+Repository: https://github.com/simon-levy01/conversation-assistant — use the latest `main` branch.
+
 Read these files before editing:
 
 - `AGENTS.md`
