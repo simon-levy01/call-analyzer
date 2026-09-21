@@ -31,6 +31,7 @@ from conversation_copilot.interpretation import (
     VocalObservation,
     build_snapshot as _build_snapshot,
     local_openai_api_key,
+    save_local_openai_api_key,
     prepare_interpretation_request,
 )
 from conversation_copilot.models import ConversationTurn, SpeakerRole
@@ -45,6 +46,16 @@ from conversation_copilot.f04_evaluation import (
 def build_snapshot(items, **kwargs):
     kwargs.setdefault("created_at", max(item.timestamp for item in items if item.timestamp is not None))
     return _build_snapshot(items, **kwargs)
+
+
+def test_save_local_openai_key_replaces_only_key(tmp_path):
+    key_file = tmp_path / ".env.local"
+    key_file.write_text("UNCHANGED=yes\nOPENAI_API_KEY=old\n", encoding="utf-8")
+    save_local_openai_api_key("new-secret", key_file)
+    assert key_file.read_text(encoding="utf-8") == "UNCHANGED=yes\nOPENAI_API_KEY=new-secret\n"
+    assert local_openai_api_key(key_file, {}) == "new-secret"
+    with pytest.raises(ValueError):
+        save_local_openai_api_key("bad key", key_file)
 
 
 def update(*, words="Possible warmth", evidence="Friendly wording"):
@@ -118,7 +129,7 @@ def test_strict_interpretation_contracts_and_abstention():
     with pytest.raises(ValidationError):
         InterpretationUpdate(status="insufficient_evidence", tones=[accepted.tones[0]])
     with pytest.raises(ValidationError):
-        InterpretationUpdate(status="updated", tones=[accepted.tones[0]] * 4)
+        InterpretationUpdate(status="updated", tones=[accepted.tones[0]] * 5)
 
     cue = SocialCue(
         kind="uncertainty",
@@ -127,12 +138,11 @@ def test_strict_interpretation_contracts_and_abstention():
         evidence={"explanation": "Hesitant wording", "modalities": ["language"]},
     )
     assert cue.kind.value == "uncertainty"
-    with pytest.raises(ValidationError):
-        InterpretationUpdate(
-            status="updated",
-            tones=[accepted.tones[0]] * 2,
-            social_cues=[cue] * 2,
-        )
+    assert len(InterpretationUpdate(
+        status="updated",
+        tones=[accepted.tones[0]] * 4,
+        social_cues=[cue] * 4,
+    ).tones) == 4
 
 
 def test_snapshot_drops_oldest_complete_turns_and_stays_bounded():
@@ -311,10 +321,10 @@ def test_openai_request_is_bounded_stateless_structured_text_and_accounted():
     result = OpenAIInterpreter(client=client, ledger=ledger)(snapshot(1, 2))
 
     assert [item.kind.value for item in result.tones] == ["positive_warm"]
-    assert [item.kind.value for item in result.social_cues] == ["other", "humor"]
-    assert len(result.tones) + len(result.social_cues) == 3
+    assert [item.kind.value for item in result.social_cues] == ["other", "humor", "sarcasm"]
+    assert len(result.tones) + len(result.social_cues) == 4
     assert calls[0]["store"] is False
-    assert calls[0]["max_output_tokens"] == 400
+    assert calls[0]["max_output_tokens"] == 800
     assert calls[0]["text"] == {"verbosity": "low"}
     assert calls[0]["text_format"] is not InterpretationUpdate
     assert "tools" not in calls[0] and "previous_response_id" not in calls[0]
@@ -344,6 +354,7 @@ def test_openai_discards_evidence_modalities_missing_from_the_request():
         evidence=Evidence(
             explanation="Only a claimed memory",
             modalities=["memory"],
+            memory_ids=["missing-revision"],
         ),
     )
     mixed = interpret(InterpretationUpdate(

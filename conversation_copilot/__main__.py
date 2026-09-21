@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import sqlite3
 import sys
 import textwrap
@@ -112,7 +113,7 @@ def show_window(summary: str) -> None:
         InterpretationBudgetExceeded,
         InterpretationCoordinator,
         LUNA_MODEL,
-        LIVE_BUDGET_CEILING_DOLLARS,
+        TERRA_MODEL,
         OpenAIInterpreter,
         RetrievedMemoryContext,
         StableInterpretationCard,
@@ -122,12 +123,13 @@ def show_window(summary: str) -> None:
         build_snapshot,
         conservative_request_cost,
         format_interpretation_body,
+        local_openai_api_key,
+        save_local_openai_api_key,
         prepare_interpretation_request,
     )
     from .models import ConversationTurn, SpeakerRole
     from .guidance import CATEGORIES, GuidanceDisplay, interpret_guidance
     from .ask_memory import AskSession, memory_source, validate_sources, cloud_answer, ASK_INPUT_LIMIT, ASK_OUTPUT_LIMIT
-    from .interpretation import BudgetLimits
     from .post_call import process_review, review_estimate
     from .memory import (
         AmbiguousContact,
@@ -151,61 +153,37 @@ def show_window(summary: str) -> None:
     test_log.start()
     root = tk.Tk()
     root.title("Conversation Copilot")
-    root.geometry("1280x680")
-    root.minsize(1000, 560)
-    main_pane = tk.PanedWindow(root, orient=tk.HORIZONTAL, sashrelief=tk.RAISED)
-    main_pane.pack(fill="both", expand=True)
-    left_view = tk.Frame(main_pane)
-    left_canvas = tk.Canvas(left_view, highlightthickness=0, yscrollincrement=24, xscrollincrement=24)
-    vertical_scroll = ttk.Scrollbar(left_view, orient="vertical", command=left_canvas.yview)
-    horizontal_scroll = ttk.Scrollbar(left_view, orient="horizontal", command=left_canvas.xview)
-    left_canvas.configure(yscrollcommand=vertical_scroll.set, xscrollcommand=horizontal_scroll.set)
-    left_view.rowconfigure(0, weight=1)
-    left_view.columnconfigure(0, weight=1)
-    left_canvas.grid(row=0, column=0, sticky="nsew")
-    vertical_scroll.grid(row=0, column=1, sticky="ns")
-    horizontal_scroll.grid(row=1, column=0, sticky="ew")
-    left_column = tk.Frame(left_canvas)
-    left_content = left_canvas.create_window(0, 0, window=left_column, anchor="nw")
-    def resize_left(_event=None):
-        left_canvas.itemconfigure(left_content, width=max(left_canvas.winfo_width(), left_column.winfo_reqwidth()))
-        left_canvas.configure(scrollregion=left_canvas.bbox("all"))
-    left_column.bind("<Configure>", resize_left)
-    left_canvas.bind("<Configure>", resize_left)
-    def scroll_left(event):
-        widget = event.widget
-        if widget.winfo_toplevel() != root or isinstance(widget, (tk.Text, tk.Listbox, tk.Scale, ttk.Combobox)):
-            return
-        while widget is not None and widget != left_view:
-            widget = widget.master
-        if widget is left_view and event.delta:
-            scroll = left_canvas.xview_scroll if event.state & 1 else left_canvas.yview_scroll
-            scroll(-int(event.delta / 120) or (-1 if event.delta > 0 else 1), "units")
-            return "break"
-    root.bind("<MouseWheel>", scroll_left, add="+")
-    def reveal_control(event):
-        widget = event.widget
-        while widget is not None and widget != left_column:
-            widget = widget.master
-        if widget is not left_column:
-            return
-        bounds = left_canvas.bbox("all")
-        for position, size, viewport, extent, view, move in (
-            (event.widget.winfo_rooty() - left_column.winfo_rooty(), event.widget.winfo_height(), left_canvas.winfo_height(), bounds[3], left_canvas.yview, left_canvas.yview_moveto),
-            (event.widget.winfo_rootx() - left_column.winfo_rootx(), event.widget.winfo_width(), left_canvas.winfo_width(), bounds[2], left_canvas.xview, left_canvas.xview_moveto),
-        ):
-            start = view()[0] * extent
-            if position < start or position + size > start + viewport:
-                move(max(0, position if position < start else position + size - viewport) / max(1, extent))
-    root.bind("<FocusIn>", reveal_control, add="+")
-    left_canvas.bind("<Prior>", lambda _event: left_canvas.yview_scroll(-1, "pages"))
-    left_canvas.bind("<Next>", lambda _event: left_canvas.yview_scroll(1, "pages"))
-    transcript_column = tk.LabelFrame(main_pane, text="Final transcript")
-    main_pane.add(left_view, minsize=760, stretch="always")
-    main_pane.add(transcript_column, minsize=320, stretch="always")
-    tk.Label(left_column, text="Visible call windows").pack(anchor="w", padx=12)
-    window_list = tk.Listbox(left_column, height=7)
-    window_list.pack(fill="x", padx=12, pady=4)
+    settings_path = Path(os.environ.get("APPDATA", str(Path.home()))) / "ConversationCopilot" / "settings.json"
+    try:
+        ui_settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        ui_settings = {}
+    root.geometry("1120x730")
+    root.minsize(900, 640)
+    root.configure(bg="#f4f1eb")
+    style = ttk.Style(root)
+    style.configure("Primary.TButton", font=("Segoe UI", 10, "bold"), padding=(12, 8))
+    style.configure("Quiet.TButton", padding=(9, 6))
+    screen_host = tk.Frame(root, bg="#f4f1eb")
+    screen_host.pack(fill="both", expand=True)
+    home_screen = tk.Frame(screen_host, bg="#f4f1eb")
+    live_screen = tk.Frame(screen_host, bg="#f4f1eb")
+    home_screen.pack(fill="both", expand=True)
+
+    home_header = tk.Frame(home_screen, bg="#f4f1eb")
+    home_header.pack(fill="x", padx=22, pady=(18, 10))
+    tk.Label(home_header, text="Conversation Copilot", font=("Segoe UI", 22, "bold"), bg="#f4f1eb").pack(side="left")
+    settings_button = ttk.Button(home_header, text="Settings", style="Quiet.TButton")
+    settings_button.pack(side="right")
+    home_body = tk.Frame(home_screen, bg="#f4f1eb")
+    home_body.pack(fill="both", expand=True, padx=18, pady=(0, 18))
+    home_body.columnconfigure(0, weight=3, uniform="home")
+    home_body.columnconfigure(1, weight=2, uniform="home")
+    home_body.rowconfigure(0, weight=1)
+    left_column = tk.Frame(home_body, bg="#f4f1eb")
+    left_column.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+    home_right = tk.Frame(home_body, bg="#f4f1eb")
+    home_right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
     memory_store = None
     memory_startup_error = ""
     semantic_backfill_lock = threading.Lock()
@@ -214,44 +192,43 @@ def show_window(summary: str) -> None:
         memory_store = MemoryStore()
     except MemoryStoreUnavailable as exc:
         memory_startup_error = str(exc)
-    contact_frame = tk.LabelFrame(left_column, text="Selected Contact — confirm before memory is used")
-    contact_frame.pack(fill="x", padx=12, pady=4)
+    contact_frame = tk.LabelFrame(left_column, text="Contact", font=("Segoe UI", 10, "bold"), bg="#ffffff", padx=8, pady=6)
+    contact_frame.pack(fill="x", pady=(0, 10))
     contact_query = tk.Entry(contact_frame)
-    contact_query.grid(row=0, column=0, sticky="ew", padx=6, pady=5)
+    contact_query.grid(row=0, column=0, sticky="ew", padx=4, pady=4)
     contact_box = ttk.Combobox(contact_frame, state="readonly", width=35)
-    contact_box.grid(row=0, column=1, sticky="ew", padx=6, pady=5)
+    contact_box.grid(row=0, column=1, columnspan=2, sticky="ew", padx=4, pady=4)
     contact_search_button = tk.Button(contact_frame, text="Search")
-    contact_search_button.grid(row=0, column=2, padx=3)
+    contact_search_button.grid(row=0, column=3, padx=3)
     contact_select_button = tk.Button(contact_frame, text="Select")
-    contact_select_button.grid(row=0, column=3, padx=3)
+    contact_select_button.grid(row=0, column=4, padx=3)
     contact_create_button = tk.Button(contact_frame, text="Create Contact")
-    contact_create_button.grid(row=0, column=4, padx=3)
+    contact_create_button.grid(row=1, column=0, padx=3, pady=4, sticky="ew")
     contact_clear_button = tk.Button(contact_frame, text="Clear")
-    contact_clear_button.grid(row=0, column=5, padx=3)
+    contact_clear_button.grid(row=1, column=1, padx=3, pady=4, sticky="ew")
     memory_manage_button = tk.Button(contact_frame, text="Manage memory")
-    memory_manage_button.grid(row=0, column=6, padx=3)
+    memory_manage_button.grid(row=1, column=2, padx=3, pady=4, sticky="ew")
     import_button = tk.Button(contact_frame, text="Import chat")
-    import_button.grid(row=0, column=7, padx=3)
+    import_button.grid(row=1, column=3, padx=3, pady=4, sticky="ew")
     unassigned_button = tk.Button(contact_frame, text="Unassigned")
-    unassigned_button.grid(row=0, column=8, padx=3)
     contact_frame.columnconfigure(0, weight=1)
     contact_frame.columnconfigure(1, weight=1)
     confirmed_contact_label = tk.Label(contact_frame, text="Confirmed contact: none", anchor="w")
-    confirmed_contact_label.grid(row=1, column=0, columnspan=9, sticky="ew", padx=6)
+    confirmed_contact_label.grid(row=2, column=0, columnspan=5, sticky="ew", padx=6)
     memory_status_label = tk.Label(
         contact_frame,
         text=(memory_startup_error or "No contact confirmed — retrieval and extraction are off"),
         anchor="w",
     )
-    memory_status_label.grid(row=2, column=0, columnspan=9, sticky="ew", padx=6, pady=(0, 5))
+    memory_status_label.grid(row=3, column=0, columnspan=5, sticky="ew", padx=6, pady=(0, 5))
     tk.Label(
         contact_frame,
         text="Assigned calls retain attributed text locally; after Stop, bounded text may be sent to OpenAI for proposals (store=false).",
         fg="#7a3f00",
         anchor="w",
-    ).grid(row=3, column=0, columnspan=9, sticky="ew", padx=6, pady=(0, 5))
-    audio_controls = tk.LabelFrame(left_column, text="Two-sided local transcription")
-    audio_controls.pack(fill="x", padx=12, pady=6)
+    ).grid(row=4, column=0, columnspan=5, sticky="ew", padx=6, pady=(0, 5))
+    audio_controls = tk.LabelFrame(left_column, text="Audio", font=("Segoe UI", 10, "bold"), bg="#ffffff", padx=8, pady=6)
+    audio_controls.pack(fill="x", pady=(0, 10))
     tk.Label(audio_controls, text="Microphone").grid(row=0, column=0, sticky="w", padx=6, pady=4)
     microphone_box = ttk.Combobox(audio_controls, state="readonly", width=54)
     microphone_box.grid(row=0, column=1, sticky="ew", padx=6, pady=4)
@@ -277,31 +254,64 @@ def show_window(summary: str) -> None:
     sensitivity.set(DEFAULT_MICROPHONE_THRESHOLD)
     sensitivity.grid(row=4, column=1, sticky="ew", padx=6, pady=4)
     audio_controls.columnconfigure(1, weight=1)
-    controls = tk.Frame(left_column)
-    controls.pack(fill="x", padx=12)
+    controls = tk.LabelFrame(home_right, text="Call window", font=("Segoe UI", 10, "bold"), bg="#ffffff", padx=8, pady=8)
+    controls.pack(fill="x", pady=(0, 10))
+    window_list = tk.Listbox(controls, height=6, exportselection=False)
+    window_list.pack(fill="x", pady=(0, 6))
     refresh_button = tk.Button(controls, text="Refresh")
-    start_button = tk.Button(controls, text="Start")
-    stop_button = tk.Button(controls, text="Stop", state="disabled")
-    switch_button = tk.Button(controls, text="Switch face", state="disabled")
-    for button in (refresh_button, start_button, stop_button, switch_button):
-        button.pack(side="left", padx=(0, 6))
-    selected_label = tk.Label(left_column, text="Selected: none", anchor="w")
-    selected_label.pack(fill="x", padx=12, pady=(10, 0))
-    status_label = tk.Label(left_column, text="Select a call window", anchor="w")
-    status_label.pack(fill="x", padx=12)
-    metrics_label = tk.Label(left_column, text="Signals: 0/s · faces: 0 · landmarks: 0 · blendshapes: 0")
-    metrics_label.pack(anchor="w", padx=12)
-    audio_status_label = tk.Label(left_column, text="Audio devices loading", anchor="w")
-    audio_status_label.pack(fill="x", padx=12)
-    interpretation_frame = tk.LabelFrame(left_column, text="Conversation interpretation")
-    interpretation_frame.pack(fill="x", padx=12, pady=6)
+    refresh_button.pack(side="left")
+    selected_label = tk.Label(controls, text="Selected: none", anchor="w", bg="#ffffff")
+    selected_label.pack(side="left", fill="x", expand=True, padx=8)
+
+    model_frame = tk.LabelFrame(home_right, text="Live and Ask model", font=("Segoe UI", 10, "bold"), bg="#ffffff", padx=8, pady=8)
+    model_frame.pack(fill="x", pady=(0, 10))
+    live_model_choice = tk.StringVar(value="Luna low")
+    model_box = ttk.Combobox(model_frame, state="readonly", textvariable=live_model_choice, values=("Luna low", "Terra low"))
+    model_box.pack(fill="x")
+    tk.Label(model_frame, text="Review and memory generation always use Terra low. Usage is cumulative and shown during calls.", bg="#ffffff", fg="#555555", justify="left", wraplength=360).pack(fill="x", pady=(6, 0))
+
+    home_actions = tk.LabelFrame(home_right, text="Prepare", font=("Segoe UI", 10, "bold"), bg="#ffffff", padx=8, pady=8)
+    home_actions.pack(fill="x", pady=(0, 10))
+    ask_button = tk.Button(home_actions, text="Ask Memory")
+    ask_button.pack(fill="x", pady=2)
+    review_button = tk.Button(home_actions, text="Conversation history")
+    review_button.pack(fill="x", pady=2)
+    start_button = ttk.Button(home_right, text="Start call", style="Primary.TButton")
+    start_button.pack(fill="x", pady=(2, 8))
+    status_label = tk.Label(home_right, text="Select a call window", anchor="w", justify="left", bg="#f4f1eb", wraplength=400)
+    status_label.pack(fill="x")
+    audio_status_label = tk.Label(home_right, text="Audio devices loading", anchor="w", justify="left", bg="#f4f1eb", wraplength=400)
+    audio_status_label.pack(fill="x", pady=(3, 0))
+
+    live_header = tk.Frame(live_screen, bg="#f4f1eb")
+    live_header.pack(fill="x", padx=12, pady=(10, 5))
+    live_contact_label = tk.Label(live_header, text="Live call", font=("Segoe UI", 15, "bold"), bg="#f4f1eb")
+    live_contact_label.pack(side="left")
+    stop_button = ttk.Button(live_header, text="End call", style="Primary.TButton", state="disabled")
+    stop_button.pack(side="right")
+    live_meta_label = tk.Label(live_screen, text="Luna low · $0.0000 this call", anchor="w", bg="#f4f1eb", fg="#555555")
+    live_meta_label.pack(fill="x", padx=12)
+    live_status = tk.Frame(live_screen, bg="#ffffff", bd=1, relief="solid")
+    live_status.pack(fill="x", padx=12, pady=6)
+    live_audio_label = tk.Label(live_status, text="Audio starting", bg="#ffffff", anchor="w")
+    live_audio_label.pack(side="left", padx=8, pady=6)
+    live_face_label = tk.Label(live_status, text="Face selected", bg="#ffffff", anchor="w")
+    live_face_label.pack(side="left", padx=8, pady=6)
+    switch_button = tk.Button(live_status, text="Switch face", state="disabled")
+    switch_button.pack(side="right", padx=6, pady=4)
+    suggest_button = tk.Button(live_status, text="Refresh all", state="disabled")
+    suggest_button.pack(side="right", padx=2, pady=4)
+
+    hidden_state = tk.Frame(live_screen)
+    metrics_label = tk.Label(hidden_state, text="")
+    interpretation_frame = tk.Frame(hidden_state)
     interpretation_status_label = tk.Label(
         interpretation_frame,
         text="Waiting for a call",
         anchor="w",
         font=("TkDefaultFont", 10, "bold"),
     )
-    interpretation_status_label.pack(fill="x", padx=8, pady=(6, 2))
+    interpretation_status_label.pack()
     interpretation_body_label = tk.Label(
         interpretation_frame,
         text="Hypotheses only — never a claim about true emotion or intention.",
@@ -309,46 +319,43 @@ def show_window(summary: str) -> None:
         justify="left",
         wraplength=710,
     )
-    interpretation_body_label.pack(fill="x", padx=8)
+    interpretation_body_label.pack()
     interpretation_meta_label = tk.Label(
         interpretation_frame,
         text="This call's estimated interpretation spend: $0.0000",
         anchor="w",
     )
-    interpretation_meta_label.pack(fill="x", padx=8, pady=(2, 4))
-    tk.Label(interpretation_frame, text="Live guidance: Luna · low reasoning", anchor="w").pack(fill="x", padx=8)
-    terra_controls = tk.Frame(interpretation_frame)
-    terra_controls.pack(fill="x", padx=8, pady=(0, 6))
-    tk.Label(terra_controls, text="Luna reasoning").pack(side="left")
+    interpretation_meta_label.pack()
+    terra_controls = tk.Frame(hidden_state)
+    tk.Label(terra_controls, text="Reasoning").pack(side="left")
     terra_reasoning = ttk.Combobox(
-        terra_controls, state="disabled", values=("none", "low"), width=8
+        terra_controls, state="disabled", values=("low",), width=8
     )
-    terra_reasoning.current(1)
+    terra_reasoning.current(0)
     terra_reasoning.pack(side="left", padx=6)
     terra_button = tk.Button(
-        terra_controls, text="Check with Luna", state="disabled"
+        terra_controls, text="Check now", state="disabled"
     )
     terra_button.pack(side="left")
-    suggest_button = tk.Button(terra_controls, text="Suggest now", state="disabled")
-    suggest_button.pack(side="left", padx=6)
-    ask_button = tk.Button(terra_controls, text="Ask Memory")
-    ask_button.pack(side="left", padx=6)
-    review_button = tk.Button(terra_controls, text="Review conversation")
-    review_button.pack(side="left", padx=6)
-    guidance_frame = tk.LabelFrame(transcript_column, text="Live guidance — confirm a contact")
-    guidance_frame.pack(fill="x", padx=8, pady=6)
-    guidance_status = tk.Label(guidance_frame, text="Select a contact to enable guidance", anchor="w", wraplength=300)
+    guidance_frame = tk.Frame(live_screen, bg="#f4f1eb")
+    guidance_frame.pack(fill="both", expand=True, padx=12, pady=(0, 6))
+    guidance_status = tk.Label(guidance_frame, text="Select a contact to enable guidance", anchor="w", bg="#f4f1eb", wraplength=460)
     guidance_status.pack(fill="x")
     guidance_rows = {}
     guidance_display = GuidanceDisplay()
-    for category, label in zip(CATEGORIES, ("Next move", "Remember", "Follow up")):
-        group = tk.LabelFrame(guidance_frame, text=label)
+    for category, label in (("tones", "Possible tone"), ("social_cues", "Social cue"), ("replies", "Potential responses"), ("remember", "Related memory"), ("follow_up", "Follow-up")):
+        group = tk.LabelFrame(guidance_frame, text=label, font=("Segoe UI", 9, "bold"), bg="#ffffff", padx=5, pady=3)
+        group.pack(fill="x", pady=2)
         guidance_rows[category] = group
-    thumbnail_label = tk.Label(transcript_column, text="No selected face", width=160, height=120)
-    transcript_title = tk.Label(transcript_column, text="Finalized attributed text", anchor="w")
-    transcript_title.pack(fill="x", padx=8, pady=(6, 0))
-    transcript = tk.Text(transcript_column, state="disabled", wrap="word")
-    transcript.pack(fill="both", expand=True, padx=8, pady=(2, 8))
+    live_footer = tk.Frame(live_screen, bg="#f4f1eb")
+    live_footer.pack(fill="x", padx=12, pady=(0, 10))
+    transcript_button = tk.Button(live_footer, text="Transcript")
+    transcript_button.pack(side="left")
+    live_ask_button = tk.Button(live_footer, text="Ask Memory")
+    live_ask_button.pack(side="left", padx=5)
+    thumbnail_label = tk.Label(hidden_state, text="No selected face")
+    transcript_title = tk.Label(hidden_state, text="Finalized attributed text")
+    transcript = tk.Text(hidden_state, state="disabled", wrap="word")
 
     windows = []
     session: LiveVideoSession | None = None
@@ -383,11 +390,43 @@ def show_window(summary: str) -> None:
     local_pending = {"ask": None, "live": None}
     local_done = queue.SimpleQueue()
     ask_dialog = None
-    outside_ask_ledger = UsageLedger(BudgetLimits(warning_dollars=0.10, hard_dollars=0.13))
+    outside_ask_ledger = UsageLedger.product()
     review_running = set()
     review_errors = {}
     review_dialogs = {}
     review_results = queue.SimpleQueue()
+
+    def apply_readability() -> None:
+        import tkinter.font as tkfont
+        size = {"Default": 9, "Large": 11, "Extra large": 13}.get(ui_settings.get("text_size"), 9)
+        for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont"):
+            tkfont.nametofont(name).configure(size=size)
+        high = bool(ui_settings.get("high_contrast"))
+        def recolor(widget):
+            options = widget.configure()
+            try:
+                if "background" in options and not isinstance(widget, (tk.Entry, tk.Text, tk.Listbox)):
+                    if high:
+                        if not hasattr(widget, "_normal_background"):
+                            widget._normal_background = widget.cget("background")
+                        widget.configure(background="#000000")
+                    elif hasattr(widget, "_normal_background"):
+                        widget.configure(background=widget._normal_background)
+                if "foreground" in options and not isinstance(widget, (tk.Entry, tk.Text, tk.Listbox)):
+                    if high:
+                        if not hasattr(widget, "_normal_foreground"):
+                            widget._normal_foreground = widget.cget("foreground")
+                        widget.configure(foreground="#ffffff")
+                    elif hasattr(widget, "_normal_foreground"):
+                        widget.configure(foreground=widget._normal_foreground)
+            except tk.TclError:
+                pass
+            for child in widget.winfo_children():
+                recolor(child)
+        recolor(root)
+
+    def selected_live_model():
+        return TERRA_MODEL if live_model_choice.get().startswith("Terra") else LUNA_MODEL
 
     def submit_local(kind, work):
         local_pending[kind] = work
@@ -450,48 +489,88 @@ def show_window(summary: str) -> None:
         return preview
 
     def render_guidance():
-        test_log.emit("display_guidance", contact_id=selected_contact_id, items={key: guidance_display.visible(key) for key in guidance_rows})
-        guidance_frame.configure(text="Reply ideas · recent context; use if still relevant" if selected_contact_id else "Live guidance — confirm a contact")
-        for group in guidance_rows.values():
-            group.pack_forget()
+        update = guidance_display.filter_update(stable_interpretation.update) if stable_interpretation.update else None
+        displayed = {
+            category: ((list(getattr(update, category)) if update else [])
+                       if category in {"tones", "social_cues"} else guidance_display.visible(category))
+            for category in guidance_rows
+        }
+        test_log.emit("display_guidance", contact_id=selected_contact_id, items=displayed)
+        guidance_status.configure(text=(
+            "Suggestions are possibilities, not facts."
+            if selected_contact_id else "Confirm a contact to enable memory-aware guidance."
+        ))
+
+        def exact_sources(candidate):
+            evidence_generation = interpretation_generation
+            evidence = candidate.evidence if hasattr(candidate, "evidence") else candidate
+            matching = [turn for turn in turns if turn.display_order in evidence.turn_ids]
+            sources = []
+            lines = [f"{turn.timestamp}: {turn.speaker_name}: {turn.content}" for turn in matching]
+            if memory_store and selected_contact_id:
+                revisions = {*evidence.memory_ids, *getattr(evidence, "preference_ids", [])}
+                for revision_id in revisions:
+                    row = memory_store._connection.execute(
+                        "SELECT memory_id FROM memory_revisions WHERE id=?", (revision_id,)
+                    ).fetchone()
+                    source = memory_source(memory_store, row[0], selected_contact_id, display_limit=None) if row else None
+                    if source and source.revision_id == revision_id:
+                        sources.append(source)
+                        lines.append(f"{source.kind} · {source.source_date}: {source.content}")
+            return "\n\n".join(lines) or "Exact source is no longer available.", lambda: (
+                evidence_generation == interpretation_generation and not stopping
+                and all(turn in turns for turn in matching)
+                and validate_sources(memory_store, tuple(sources), display_limit=None)
+            )
+
+        def pop_out(category, candidate, content, why=""):
+            popup = tk.Toplevel(root)
+            popup.title(guidance_rows[category].cget("text"))
+            popup.geometry("430x230")
+            tk.Label(popup, text=content, font=("Segoe UI", 12, "bold"), wraplength=390,
+                     justify="left", anchor="w").pack(fill="x", padx=14, pady=(14, 5))
+            if why:
+                tk.Label(popup, text=why, wraplength=390, justify="left", anchor="w",
+                         fg="#555555").pack(fill="x", padx=14)
+            tk.Label(popup, text=f"Captured {datetime.now().astimezone().strftime('%H:%M:%S')} · {selected_contact_label or 'No contact'}",
+                     fg="#666666").pack(anchor="w", padx=14, pady=8)
+            actions = tk.Frame(popup)
+            actions.pack(fill="x", padx=14, pady=8)
+            def open_sources():
+                try:
+                    text, valid = exact_sources(candidate)
+                    show_evidence(popup, text, valid)
+                except (sqlite3.Error, ValueError, KeyError):
+                    messagebox.showinfo("Sources", "Exact source is unavailable; reopen the current suggestion.", parent=popup)
+            tk.Button(actions, text="Sources", command=open_sources).pack(side="left")
+            tk.Button(actions, text="Close", command=popup.destroy).pack(side="right")
+
         for category, group in guidance_rows.items():
-            if guidance_display.visible(category):
-                group.pack(fill="x")
             for child in group.winfo_children():
                 child.destroy()
-            for index, item in enumerate(guidance_display.visible(category)):
-                tk.Label(group, text=f"{item.candidate.text} ({item.candidate.confidence})", justify="left",
-                         wraplength=300, anchor="w").pack(fill="x")
-                actions = tk.Frame(group)
-                actions.pack(fill="x")
+            items = displayed[category]
+            if not items:
+                tk.Label(group, text="Nothing useful to show yet.", bg="#ffffff", fg="#777777",
+                         anchor="w").pack(fill="x")
+                continue
+            for index, wrapped in enumerate(items):
+                candidate = wrapped if category in {"tones", "social_cues"} else wrapped.candidate
+                content = candidate.hypothesis if hasattr(candidate, "hypothesis") else candidate.text
+                if category == "remember" and not content.casefold().startswith("possibly related"):
+                    content = "Possibly related: " + content
+                why = ""
+                if category in {"tones", "social_cues"}:
+                    modalities = ", ".join(str(value.value).replace("_", " ") for value in candidate.evidence.modalities)
+                    why = f"Why: cautious reading of recent {modalities or 'conversation'} cues."
+                row = tk.Frame(group, bg="#ffffff")
+                row.pack(fill="x", pady=1)
+                text = content + (f"\n{why}" if why else "")
+                tk.Label(row, text=text, justify="left", wraplength=330, anchor="w", bg="#ffffff").pack(side="left", fill="x", expand=True)
                 def dismiss(category=category, index=index):
-                    guidance_display.dismiss(category, index)
+                    guidance_display.dismiss(category, index, update=update)
                     render_guidance()
-                tk.Button(actions, text="Dismiss", command=dismiss).pack(side="right")
-                def evidence(candidate=item.candidate):
-                    try:
-                        evidence_generation = interpretation_generation
-                        sources = []
-                        matching = [turn for turn in turns if turn.display_order in candidate.turn_ids]
-                        lines = [f"{turn.timestamp}: {turn.speaker_name}: {turn.content}" for turn in matching]
-                        if memory_store and selected_contact_id:
-                            for revision_id in {*candidate.memory_ids, *candidate.preference_ids}:
-                                row = memory_store._connection.execute("SELECT memory_id FROM memory_revisions WHERE id=?", (revision_id,)).fetchone()
-                                source = memory_source(memory_store, row[0], selected_contact_id, display_limit=None) if row else None
-                                if source and source.revision_id == revision_id:
-                                    sources.append(source)
-                                    lines.append(f"{source.kind} · {source.source_date}: {source.content}")
-                        show_evidence(root, "\n\n".join(lines) or "Evidence no longer available.", lambda:
-                            evidence_generation == interpretation_generation and not stopping and
-                            all(turn in turns for turn in matching) and validate_sources(memory_store, tuple(sources), display_limit=None))
-                    except (sqlite3.Error, ValueError, KeyError):
-                        memory_status_label.configure(text="Evidence unavailable or store busy; try again.")
-                tk.Button(actions, text="Evidence", command=evidence).pack(side="right")
-            if len(guidance_display.all_items(category)) > 2 and category not in guidance_display.expanded:
-                def more(category=category):
-                    guidance_display.expanded.add(category)
-                    render_guidance()
-                tk.Button(group, text="More", command=more).pack(anchor="e")
+                tk.Button(row, text="Dismiss", command=dismiss).pack(side="right", padx=(3, 0))
+                tk.Button(row, text="Pop out", command=lambda c=category, x=candidate, t=content, w=why: pop_out(c, x, t, w)).pack(side="right")
 
     def open_ask():
         nonlocal ask_dialog
@@ -506,17 +585,17 @@ def show_window(summary: str) -> None:
             memory_status_label.configure(text=f"Ask unavailable or memory store busy: {exc}")
             return
         dialog = ask_dialog = tk.Toplevel(root)
-        dialog.title("Ask Memory — independent contact scope")
-        dialog.geometry("760x620")
+        dialog.title("Ask Memory")
+        dialog.geometry("720x560")
         state = AskSession(selected_contact_id)
         results = queue.SimpleQueue()
         shown = [None]
         last_source_check = [0.0]
         running = [False]
         page = [0]
-        scope = ttk.Combobox(dialog, state="readonly", values=["Choose contact", "All contacts (local discovery)", *[c.label for c in contacts]])
+        scope = ttk.Combobox(dialog, state="readonly", values=["Choose contact", *[c.label for c in contacts]])
         scope.pack(fill="x", padx=8, pady=8)
-        scope.current(next((i + 2 for i, c in enumerate(contacts) if c.id == selected_contact_id), 0))
+        scope.current(next((i + 1 for i, c in enumerate(contacts) if c.id == selected_contact_id), 0))
         question = tk.Entry(dialog)
         question.pack(fill="x", padx=8)
         reference = tk.Label(dialog, text=f"Query reference: {datetime.now().astimezone().isoformat()} · date queries: DD/MM/YYYY or ISO")
@@ -548,11 +627,11 @@ def show_window(summary: str) -> None:
         def change_scope(_event=None):
             index = scope.current()
             clear()
-            state.set_scope(contacts[index - 2].id if index >= 2 else None, all_contacts=index == 1)
+            state.set_scope(contacts[index - 1].id if index >= 1 else None)
 
         scope.bind("<<ComboboxSelected>>", change_scope)
 
-        def ask(use_cloud=False, *, page_forward=False):
+        def ask(use_cloud=True, *, page_forward=False):
             if running[0]:
                 return
             text = question.get().strip()
@@ -572,13 +651,8 @@ def show_window(summary: str) -> None:
             live = audio_session is not None and not stopping
             ledger = usage_ledger if live else outside_ask_ledger
             if use_cloud:
-                if state.all_contacts or not state.contact_id:
-                    status.configure(text="Choose one contact for Luna to search.")
-                    return
-                estimate = conservative_request_cost(LUNA_MODEL, ASK_INPUT_LIMIT, max_output_tokens=ASK_OUTPUT_LIMIT)
-                if not messagebox.askyesno("Use cloud help", f"Ask Luna low using this contact's permitted approved history (bounded if large)?\n"
-                    f"Conservative maximum ${estimate:.4f}; answer cap $0.04.\n"
-                    f"{'Call live ceiling $0.27' if live else 'Outside-call allowance $0.13 per app run'}.", parent=dialog):
+                if not state.contact_id:
+                    status.configure(text="Choose one contact to search.")
                     return
             running[0] = True
             status.configure(text="Pending — capture and transcription continue.")
@@ -591,7 +665,7 @@ def show_window(summary: str) -> None:
                         result = cloud_answer(worker_store, text, selected_sources, ledger=ledger, live=live,
                             contact_id=worker_state.contact_id, event_id=worker_state.event_id,
                             reference=query_reference, date_mode=date_mode,
-                            is_current=lambda: generation == state.generation) if use_cloud else worker_state.answer(worker_store, text, offset=query_offset, reference=query_reference, date_mode=date_mode)
+                            is_current=lambda: generation == state.generation, model=selected_live_model(), reasoning="low") if use_cloud else worker_state.answer(worker_store, text, offset=query_offset, reference=query_reference, date_mode=date_mode)
                     results.put((generation, result, None, worker_state))
                 except Exception as exc:
                     results.put((generation, None, type(exc).__name__, None))
@@ -602,14 +676,8 @@ def show_window(summary: str) -> None:
             else:
                 submit_local("ask", work)
 
-        tk.Button(controls, text="Ask locally", command=ask).pack(side="left")
-        tk.Button(controls, text="Use cloud help", command=lambda: ask(True)).pack(side="left", padx=6)
+        tk.Button(controls, text="Submit", command=ask).pack(side="left")
         tk.Button(controls, text="New question", command=clear).pack(side="left")
-        def next_page():
-            if state.all_contacts and not running[0]:
-                page[0] += 12
-                ask(page_forward=True)
-        tk.Button(controls, text="Next discovery page", command=next_page).pack(side="left", padx=6)
         question.bind("<Return>", lambda _event: ask())
 
         def chosen_source():
@@ -620,19 +688,6 @@ def show_window(summary: str) -> None:
             source = chosen_source()
             if source is None:
                 return
-            if state.all_contacts:
-                try:
-                    contacts[:] = memory_store.list_contacts(limit=10000)
-                except (ValueError, KeyError, sqlite3.Error) as exc:
-                    status.configure(text=f"Contact selection unavailable or memory store busy: {exc}")
-                    return
-                scope.configure(values=["Choose contact", "All contacts (local discovery)", *[c.label for c in contacts]])
-                index = next((i + 2 for i, c in enumerate(contacts) if c.id == source.contact_id), None)
-                if index is None:
-                    status.configure(text="Contact changed; ask again.")
-                    return
-                state.set_scope(source.contact_id)
-                scope.current(index)
             state.choose_event(source.id)
             status.configure(text="Event selected. Ask a short follow-up; evidence will be checked again.")
 
@@ -721,6 +776,20 @@ def show_window(summary: str) -> None:
         question.focus_set()
 
     ask_button.configure(command=open_ask)
+    live_ask_button.configure(command=open_ask)
+
+    def open_transcript() -> None:
+        dialog = tk.Toplevel(root)
+        dialog.title("Live transcript")
+        dialog.geometry("520x540")
+        box = tk.Text(dialog, wrap="word", state="normal")
+        box.pack(fill="both", expand=True, padx=10, pady=10)
+        box.insert("1.0", "".join(f"{turn.speaker_name}: {turn.content}\n" for turn in turns)
+                   or "No finalized transcript text yet.")
+        box.configure(state="disabled")
+        tk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=(0, 10))
+
+    transcript_button.configure(command=open_transcript)
 
     def open_review(record_id=None):
         if memory_store is None:
@@ -755,10 +824,14 @@ def show_window(summary: str) -> None:
         dialog = tk.Toplevel(root)
         review_dialogs[record_id] = dialog
         dialog.bind("<Destroy>", lambda event: review_dialogs.pop(record_id, None) if event.widget is dialog else None)
-        dialog.title("Post-call review — summary and linked memories")
-        dialog.geometry("1200x760")
-        label = tk.Label(dialog, text="Summary draft — not searchable until approved", anchor="w")
-        label.pack(fill="x", padx=8, pady=8)
+        dialog.title("Summary and memories")
+        dialog.geometry("1120x720")
+        review_header = tk.Frame(dialog)
+        review_header.pack(fill="x", padx=12, pady=(10, 3))
+        tk.Label(review_header, text="Summary and memories", font=("Segoe UI", 18, "bold")).pack(side="left")
+        tk.Button(review_header, text="Back to Home", command=dialog.destroy).pack(side="right")
+        label = tk.Label(dialog, text="Draft · not searchable until approved", anchor="w")
+        label.pack(fill="x", padx=12, pady=(0, 8))
         panes = tk.PanedWindow(dialog, orient=tk.HORIZONTAL)
         panes.pack(fill="both", expand=True)
         summary_panel = tk.Frame(panes)
@@ -808,15 +881,39 @@ def show_window(summary: str) -> None:
             if not chosen or not messagebox.askyesno("Review selected memories", f"{'Approve' if approve else 'Reject'} these memories?\n\n" + "\n".join(item["content"] for item in chosen), parent=dialog):
                 return
             try:
-                memory_store.review_proposals([item["id"] for item in chosen], approve=approve)
+                memory_store.review_record_proposals(
+                    record_id, [item["id"] for item in chosen], approve=approve,
+                    expected_pending={item["id"]: item["content"] for item in chosen},
+                )
+                invalidate_memory_context()
+                reload()
+            except (ValueError, KeyError, sqlite3.Error) as exc:
+                label.configure(text=f"Memory review unavailable: {exc}")
+        def review_all_memories(approve=True):
+            pending = [dict(row) for row in memory_store.record_pending_proposals(record_id)]
+            if not pending or not messagebox.askyesno("Review all memories", f"{'Approve' if approve else 'Reject'} all {len(pending)} pending memories from this conversation?", parent=dialog):
+                return
+            try:
+                memory_store.review_record_proposals(
+                    record_id, None, approve=approve,
+                    expected_pending={item["id"]: item["content"] for item in pending},
+                )
                 invalidate_memory_context()
                 reload()
             except (ValueError, KeyError, sqlite3.Error) as exc:
                 label.configure(text=f"Memory review unavailable: {exc}")
         memory_actions = tk.Frame(memory_panel)
         memory_actions.pack(fill="x")
-        for text, command in (("Edit linked memory", edit_review_memory), ("Approve selected memories", approve_review_memories), ("Reject selected memories", lambda: approve_review_memories(False))):
-            tk.Button(memory_actions, text=text, command=command).pack(fill="x", padx=8, pady=2)
+        for text, command in (
+            ("Select all", lambda: memories.selection_set(0, tk.END)),
+            ("Clear", lambda: memories.selection_clear(0, tk.END)),
+            ("Edit", edit_review_memory),
+            ("Approve selected", approve_review_memories),
+            ("Reject selected", lambda: approve_review_memories(False)),
+            ("Approve all", review_all_memories),
+            ("Reject all", lambda: review_all_memories(False)),
+        ):
+            tk.Button(memory_actions, text=text, command=command).pack(side="left", padx=2, pady=4)
         def reload():
             try:
                 selection = listing.curselection()
@@ -868,7 +965,7 @@ def show_window(summary: str) -> None:
                         if item["state"] != "approved" and memory_store._connection.execute("SELECT 1 FROM proposal_batches WHERE id=? AND record_id=?", (item["batch_id"], record_id)).fetchone():
                             memory_rows.append({"id": item["id"], "content": item["content"], "state": item["state"]})
                 for index, item in enumerate(memory_rows):
-                    memories.insert(tk.END, f"{item['state']} · {item['content']}")
+                    memories.insert(tk.END, f"{'☐ ' if item['state'] == 'pending' else ''}{item['state']} · {item['content']}")
                     if item["id"] in selected_memories:
                         memories.selection_set(index)
                 if not version:
@@ -892,14 +989,11 @@ def show_window(summary: str) -> None:
         controls.pack(fill="x", padx=8, pady=8)
         def generate():
             try:
-                chunks, estimate = review_estimate(memory_store, record_id)
+                review_estimate(memory_store, record_id)
             except Exception as exc:
                 label.configure(text=f"Review unavailable: {exc}")
                 return
-            if messagebox.askyesno("Process remaining review", f"Process one selected conversation in {chunks} bounded chunks?\n"
-                f"One-attempt whole-job maximum: ${estimate:.4f}.\n"
-                "This run is capped at $0.25; any remaining work stays pending. Completed chunks are reused.", parent=dialog):
-                start_review_job(record_id, UsageLedger(BudgetLimits(warning_dollars=0.15, hard_dollars=0.25)))
+            start_review_job(record_id, UsageLedger.product())
         def approve():
             approving = version_id[0]
             expected = {s["id"]: (s["content"], s["excluded"]) for s in rows}
@@ -916,6 +1010,25 @@ def show_window(summary: str) -> None:
                     return
                 invalidate_memory_context()
                 reload()
+        def approve_everything():
+            approving = version_id[0]
+            if not approving:
+                label.configure(text="Generate a summary before approving everything.")
+                return
+            expected = {s["id"]: (s["content"], s["excluded"]) for s in rows}
+            pending = [dict(row) for row in memory_store.record_pending_proposals(record_id)]
+            if not messagebox.askyesno("Approve all", f"Approve the summary and all {len(pending)} pending memories from this conversation?", parent=dialog):
+                return
+            try:
+                memory_store.approve_all_memories_and_summary(
+                    approving,
+                    expected_pending={item["id"]: item["content"] for item in pending},
+                    expected_statements=expected,
+                )
+                invalidate_memory_context()
+                reload()
+            except Exception as exc:
+                label.configure(text=f"Approval unavailable: {exc}")
         def edit(remove=False, restore=False):
             if not listing.curselection():
                 return
@@ -1032,13 +1145,33 @@ def show_window(summary: str) -> None:
                     label.configure(text="Conversation or assigned contact is unavailable.")
             except (ValueError, KeyError, sqlite3.Error) as exc:
                 label.configure(text=f"Memory proposals unavailable or memory store busy: {exc}")
+        def transcript_source():
+            try:
+                record_turns = memory_store.record_turns(record_id)
+                show_evidence(dialog, "\n".join(
+                    f"{turn.timestamp} · {turn.speaker_name}: {turn.content}" for turn in record_turns
+                ) or "No transcript text was retained.", lambda: memory_store.record_turns(record_id) == record_turns)
+            except (ValueError, KeyError, sqlite3.Error) as exc:
+                label.configure(text=f"Transcript unavailable: {exc}")
+        def summary_versions():
+            versions = memory_store._connection.execute(
+                "SELECT id,state,created_at,partial FROM summary_versions WHERE record_id=? ORDER BY created_at DESC,rowid DESC",
+                (record_id,),
+            ).fetchall()
+            popup = tk.Toplevel(dialog)
+            popup.title("Summary versions")
+            listing_versions = tk.Listbox(popup, width=80, height=12)
+            listing_versions.pack(fill="both", expand=True, padx=10, pady=10)
+            for version in versions:
+                listing_versions.insert(tk.END, f"{version['created_at']} · {version['state']} · {'partial' if version['partial'] else 'bounded'} · {version['id']}")
+            tk.Button(popup, text="Close", command=popup.destroy).pack(pady=(0, 10))
         for text, command in (("Generate summary / process remaining", generate), ("Approve summary", approve),
-                              ("Open exact source", evidence), ("Mark sensitive / block cloud", lambda: permission(False)),
-                              ("Allow sensitive statement in cloud", lambda: permission(True)),
+                              ("Approve all memories + summary", approve_everything), ("Open exact source", evidence),
                               ("Edit / Save changes", edit), ("Remove statement", lambda: edit(remove=True)),
                               ("Restore excluded statement", lambda: edit(restore=True)), ("Delete summary", delete),
                               ("Review legacy source exclusions", review_legacy_sources),
-                              ("Review memory proposals separately", proposals)):
+                              ("Summary versions", summary_versions), ("Transcript and source", transcript_source),
+                              ("Contact and data", proposals), ("Review later", dialog.destroy)):
             tk.Button(controls, text=text, command=command).pack(anchor="w", fill="x")
         def refresh_review():
             if dialog.winfo_exists():
@@ -1099,6 +1232,9 @@ def show_window(summary: str) -> None:
         interpretation_meta_label.configure(
             text=f"This call's estimated interpretation spend: ${spend:.4f}{updated}{warning}{extra}"
         )
+        live_meta_label.configure(text=f"{live_model_choice.get()} · ${spend:.4f} this call")
+        if replaced:
+            render_guidance()
 
     def set_interpretation_unavailable(message: str, now: float) -> None:
         stable_interpretation.show_unavailable(message, now)
@@ -1813,12 +1949,9 @@ def show_window(summary: str) -> None:
                         return
                     record_turns = memory_store.record_turns(record["id"])
                     try:
-                        _chunks, estimate = extraction_maximum_cost(record_turns)
+                        _chunks, _estimate = extraction_maximum_cost(record_turns)
                     except ValueError as exc:
                         messagebox.showerror("Retry analysis", str(exc), parent=dialog)
-                        return
-                    if estimate > 0.25:
-                        messagebox.showwarning("Retry analysis", f"Estimated maximum ${estimate:.4f} exceeds the $0.25 run limit.", parent=dialog)
                         return
                     worker_path = memory_store.path
                     retry_batch = memory_store.retryable_batch(record["id"])
@@ -1890,7 +2023,7 @@ def show_window(summary: str) -> None:
             ("Add", add_memory), ("Correct", correct_selected), ("Delete selected", delete_selected),
             ("Approve selected", lambda: review_selected(True)), ("Reject selected", lambda: review_selected(False)),
             ("Reopen", reopen_selected), ("Delete rejected", delete_rejected_selected),
-            ("Cloud permission", toggle_cloud_permission), ("Connect", connect_selected),
+            ("Connect", connect_selected),
             ("Edit contact", edit_contact), ("Aliases", manage_aliases),
             ("Retry analysis", lambda: choose_record("retry")),
             ("Delete source", lambda: choose_record("delete")), ("Reassign source", lambda: choose_record("reassign")),
@@ -1936,17 +2069,9 @@ def show_window(summary: str) -> None:
             messagebox.showerror("Import chat", f"Participant mapping failed ({type(exc).__name__}).")
             return
         try:
-            estimated_chunks, estimate = extraction_maximum_cost(preview.turns)
+            extraction_maximum_cost(preview.turns)
         except ValueError:
             memory_status_label.configure(text="Imported conversation saved; a turn exceeds the extraction limit, so analysis did not run")
-            return
-        if estimate > 0.25:
-            memory_status_label.configure(text=f"Imported conversation saved; ${estimate:.4f} estimate exceeds the $0.25 run limit")
-            return
-        if not messagebox.askyesno(
-            "Analyze import", f"Saved attributed text only. Send {estimated_chunks} bounded text chunk(s) to OpenAI with store=false?\nMaximum estimated cost: ${estimate:.4f}",
-        ):
-            memory_status_label.configure(text="Imported conversation saved; analysis waits for explicit retry")
             return
         worker_path = memory_store.path
 
@@ -1990,6 +2115,92 @@ def show_window(summary: str) -> None:
 
         tk.Button(dialog, text="Assign to confirmed contact", command=assign_selected).pack(pady=(0, 8))
 
+    def open_settings() -> None:
+        dialog = tk.Toplevel(root)
+        dialog.title("Settings")
+        dialog.geometry("820x680")
+        dialog.minsize(720, 620)
+        header = tk.Frame(dialog)
+        header.pack(fill="x", padx=18, pady=(14, 8))
+        tk.Label(header, text="Settings", font=("Segoe UI", 20, "bold")).pack(side="left")
+        tk.Button(header, text="Back to Home", command=dialog.destroy).pack(side="right")
+        body = tk.Frame(dialog)
+        body.pack(fill="both", expand=True, padx=18, pady=(0, 14))
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=1)
+
+        api = tk.LabelFrame(body, text="API key", padx=10, pady=8)
+        api.grid(row=0, column=0, columnspan=2, sticky="ew", pady=5)
+        configured = bool(local_openai_api_key())
+        tk.Label(api, text="System key in use" if configured else "No API key configured",
+                 font=("Segoe UI", 10, "bold"), anchor="w").pack(fill="x")
+        tk.Label(api, text="The saved key is never shown. Enter a replacement only when you want to change it.",
+                 anchor="w", justify="left").pack(fill="x")
+        key_row = tk.Frame(api)
+        key_row.pack(fill="x", pady=(7, 0))
+        key_entry = tk.Entry(key_row, show="•")
+        key_entry.pack(side="left", fill="x", expand=True)
+        key_status = tk.Label(api, text="", anchor="w")
+        key_status.pack(fill="x")
+        def save_key():
+            try:
+                save_local_openai_api_key(key_entry.get())
+            except (OSError, ValueError) as exc:
+                key_status.configure(text=str(exc), fg="#9b1c1c")
+                return
+            key_entry.delete(0, tk.END)
+            key_status.configure(text="Replacement saved privately.", fg="#1f6b3c")
+        tk.Button(key_row, text="Save override", command=save_key).pack(side="left", padx=(6, 0))
+
+        readability = tk.LabelFrame(body, text="Readability", padx=10, pady=8)
+        readability.grid(row=1, column=0, sticky="nsew", padx=(0, 5), pady=5)
+        text_size = tk.StringVar(value=ui_settings.get("text_size", "Default"))
+        for name in ("Default", "Large", "Extra large"):
+            tk.Radiobutton(readability, text=name, value=name, variable=text_size).pack(anchor="w")
+        high_contrast = tk.BooleanVar(value=bool(ui_settings.get("high_contrast")))
+        reduce_motion = tk.BooleanVar(value=bool(ui_settings.get("reduce_motion")))
+        tk.Checkbutton(readability, text="High contrast", variable=high_contrast).pack(anchor="w")
+        tk.Checkbutton(readability, text="Reduce motion", variable=reduce_motion).pack(anchor="w")
+        preview = tk.Label(readability, text="Preview: clear, calm guidance", font=("Segoe UI", 11, "bold"))
+        preview.pack(fill="x", pady=(8, 0))
+
+        privacy = tk.LabelFrame(body, text="Privacy and cloud", padx=10, pady=8)
+        privacy.grid(row=1, column=1, sticky="nsew", padx=(5, 0), pady=5)
+        tk.Label(privacy, text="Eligible call context is sent only for Live, Ask, and Review requests. OpenAI requests use store=false.",
+                 justify="left", wraplength=330, anchor="w").pack(fill="x")
+        tk.Label(privacy, text="Transcription, face tracking, contact data, and exact source review stay local.",
+                 justify="left", wraplength=330, anchor="w", fg="#555555").pack(fill="x", pady=(8, 0))
+
+        contact = tk.LabelFrame(body, text="Selected contact", padx=10, pady=8)
+        contact.grid(row=2, column=0, columnspan=2, sticky="ew", pady=5)
+        tk.Label(contact, text=selected_contact_label or "No contact selected", font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        contact_actions = tk.Frame(contact)
+        contact_actions.pack(fill="x", pady=(6, 0))
+        for text in ("Edit aliases", "Merge", "Export", "Delete"):
+            tk.Button(contact_actions, text=text, command=manage_memory).pack(side="left", padx=(0, 5))
+
+        help_box = tk.LabelFrame(body, text="Help", padx=10, pady=8)
+        help_box.grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
+        for title, detail in (
+            ("What the cues mean", "Cues are cautious possibilities based on recent context, never facts about a person."),
+            ("Where my data goes", "Contact data and raw sources stay local; bounded eligible context is used only for requested cloud features."),
+            ("Keyboard and accessibility", "Use Tab and Shift+Tab to move, Enter or Space to activate, and Escape to close supporting windows."),
+        ):
+            tk.Button(help_box, text=title, anchor="w", command=lambda t=title, d=detail: messagebox.showinfo(t, d, parent=dialog)).pack(fill="x", pady=2)
+
+        def save_settings():
+            ui_settings.update({"text_size": text_size.get(), "high_contrast": high_contrast.get(),
+                                "reduce_motion": reduce_motion.get()})
+            apply_readability()
+            settings_path.parent.mkdir(parents=True, exist_ok=True)
+            settings_path.write_text(json.dumps(ui_settings, sort_keys=True), encoding="utf-8")
+            messagebox.showinfo("Settings", "Settings saved.", parent=dialog)
+
+        ttk.Button(body, text="Save settings", style="Primary.TButton", command=save_settings).grid(
+            row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0)
+        )
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+
     contact_search_button.configure(command=refresh_contact_choices)
     contact_select_button.configure(command=select_contact)
     contact_create_button.configure(command=create_contact)
@@ -1997,6 +2208,7 @@ def show_window(summary: str) -> None:
     memory_manage_button.configure(command=manage_memory)
     import_button.configure(command=import_chat)
     unassigned_button.configure(command=show_unassigned)
+    settings_button.configure(command=open_settings)
     refresh_contact_choices()
 
     def begin_interpretation_session() -> None:
@@ -2017,9 +2229,10 @@ def show_window(summary: str) -> None:
         render_guidance()
         usage_ledger = None
         try:
-            usage_ledger = UsageLedger(BudgetLimits(warning_dollars=0.15, hard_dollars=0.35))
-            luna = OpenAIInterpreter(
-                model=LUNA_MODEL,
+            usage_ledger = UsageLedger.product()
+            live_model = selected_live_model()
+            interpreter = OpenAIInterpreter(
+                model=live_model,
                 reasoning="low",
                 ledger=usage_ledger,
                 live=True,
@@ -2040,10 +2253,10 @@ def show_window(summary: str) -> None:
             def combined(item):
                 if item.contact_id:
                     with MemoryStore(memory_store.path, verify=False) as store:
-                        result = interpret_guidance(item, ledger=ledger, client=luna._client, model=LUNA_MODEL, reasoning="low",
+                        result = interpret_guidance(item, ledger=ledger, client=interpreter._client, model=live_model, reasoning="low",
                             is_current=lambda snapshot: current_guidance(snapshot, store))
                         return result
-                return luna(item)
+                return interpreter(item)
             interpretation_coordinator = InterpretationCoordinator(combined, generation=interpretation_generation,
                 first_request_at=time.perf_counter() + 12, adaptive_cadence=True)
         except InterpretationAuthenticationUnavailable:
@@ -2314,12 +2527,7 @@ def show_window(summary: str) -> None:
             )
             render_interpretation(replaced=True)
             return
-        maximum = conservative_request_cost(
-            LUNA_MODEL, prepared.estimated_input_tokens
-        )
-        if ledger.committed_dollars + maximum > min(LIVE_BUDGET_CEILING_DOLLARS, ledger.limits.hard_dollars):
-            render_interpretation(note="Session budget reached — Luna unavailable")
-            return
+        maximum = conservative_request_cost(LUNA_MODEL, prepared.estimated_input_tokens)
         if not messagebox.askyesno(
             "Check with Luna",
             f"Run one Luna {terra_reasoning.get()} request on the newest snapshot?\n\n"
@@ -2473,6 +2681,31 @@ def show_window(summary: str) -> None:
 
     suggest_button.configure(command=suggest_now)
 
+    def show_home() -> None:
+        live_screen.pack_forget()
+        home_screen.pack(fill="both", expand=True)
+        screen_host.pack_propagate(False)
+        screen_host.configure(width=1120, height=730)
+        root.pack_propagate(False)
+        root.minsize(900, 640)
+        root.geometry("1120x730")
+        model_box.configure(state="readonly")
+
+    def show_live() -> None:
+        home_screen.pack_forget()
+        live_screen.pack(fill="both", expand=True)
+        root.minsize(470, 650)
+        height = min(860, max(650, root.winfo_screenheight() - 90))
+        width = 510
+        screen_host.pack_propagate(False)
+        screen_host.configure(width=width, height=height)
+        root.pack_propagate(False)
+        x = max(0, root.winfo_screenwidth() - width - 24)
+        root.geometry(f"{width}x{height}+{x}+28")
+        live_contact_label.configure(text=selected_contact_label or call_speaker_fallback)
+        live_meta_label.configure(text=f"{live_model_choice.get()} · $0.0000 this call")
+        model_box.configure(state="disabled")
+
     def set_running(running: bool) -> None:
         window_list.configure(state="disabled" if running else "normal")
         refresh_button.configure(state="disabled" if running else "normal")
@@ -2498,6 +2731,10 @@ def show_window(summary: str) -> None:
         terra_button.configure(
             state="normal" if terra_state == "readonly" else "disabled"
         )
+        if running:
+            show_live()
+        elif not stopping:
+            show_home()
 
     def populate_audio_choices(*, initial: bool) -> None:
         if audio_catalog is None:
@@ -2615,7 +2852,7 @@ def show_window(summary: str) -> None:
 
         ledger = usage_ledger
         try:
-            _chunks, estimate = review_estimate(memory_store, record_id)
+            _chunks, _estimate = review_estimate(memory_store, record_id)
         except KeyError:
             memory_status_label.configure(text="Conversation record unavailable; memory analysis did not run")
             return
@@ -2623,9 +2860,9 @@ def show_window(summary: str) -> None:
             memory_status_label.configure(text="Conversation saved; a turn exceeds the extraction limit, so analysis did not run")
             return
         open_review(record_id)
-        if ledger is None or ledger.committed_dollars + estimate > ledger.limits.hard_dollars:
+        if ledger is None:
             memory_status_label.configure(
-                text="Conversation saved; review remains pending until an explicit estimated continuation"
+                text="Conversation saved; review remains pending until generation is available"
             )
             current_record_id = None
             return
@@ -2822,6 +3059,7 @@ def show_window(summary: str) -> None:
             if test_log.active:
                 test_log.emit("visual", generation=interpretation_generation, contact_id=selected_contact_id, observed_at=observed_at, captured_at=captured_at, status=snapshot.status, face_count=snapshot.face_count, signal_timestamp_ms=signal.timestamp_ms if signal else None, face_box=signal.face_box if signal else None, blendshapes=dict(signal.blendshapes) if signal else None, expressions=visual_aggregator.expressions(), buckets=visual_aggregator.buckets(observed_at)[-1:])
             status_label.configure(text="Face tracking paused — select Continue tracking" if snapshot.status == "Face lost" else snapshot.status)
+            live_face_label.configure(text="Face lost" if snapshot.status == "Face lost" else "Face selected")
             switch_button.configure(
                 text=(
                     "Continue tracking"
@@ -2836,17 +3074,7 @@ def show_window(summary: str) -> None:
                     f"blendshapes: {snapshot.blendshape_count}"
                 )
             )
-            if snapshot.thumbnail_rgb is not None:
-                if not thumbnail_label.winfo_manager():
-                    thumbnail_label.pack(pady=6, before=transcript_title)
-                height, width = snapshot.thumbnail_rgb.shape[:2]
-                ppm = f"P6 {width} {height} 255\n".encode() + snapshot.thumbnail_rgb.tobytes()
-                thumbnail_photo = tk.PhotoImage(data=ppm, format="PPM")
-                thumbnail_label.configure(image=thumbnail_photo, text="")
-            else:
-                thumbnail_photo = None
-                thumbnail_label.configure(image="", text="No selected face")
-                thumbnail_label.pack_forget()
+            thumbnail_photo = None
             if not current.worker_alive and not current.capture.worker_alive:
                 if _keep_audio_after_video_end(audio_session):
                     session = None
@@ -2871,6 +3099,7 @@ def show_window(summary: str) -> None:
                     or f"Mic: {snapshot.microphone_status} · Playback: {snapshot.playback_status}"
                 )
             )
+            live_audio_label.configure(text=snapshot.fault or f"Mic {snapshot.microphone_status} · Call {snapshot.playback_status}")
             drain_audio_results(current_audio)
             if snapshot.fault and not snapshot.running and not stopping:
                 audio_session = None
@@ -2979,6 +3208,7 @@ def show_window(summary: str) -> None:
     stop_button.configure(command=stop)
     switch_button.configure(command=switch)
     root.protocol("WM_DELETE_WINDOW", close)
+    apply_readability()
     refresh(initial_audio=True)
     poll()
     root.mainloop()

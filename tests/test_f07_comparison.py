@@ -35,4 +35,4 @@ def test_comparison_vocabulary_and_nonvisual_evidence_are_matched():
     inputs=[json.loads(r['input']) for r in requests]
     assert all({k:v for k,v in item.items() if k!='x'}=={k:v for k,v in inputs[0].items() if k!='x'} for item in inputs)
     assert inputs[1]['x'][0]==inputs[2]['x'][0][:8]
-    assert all(r['max_output_tokens']==1200 and r['reasoning']=={'effort':'low'} and r['store'] is False for r in requests)
+    assert all(r['max_output_tokens']==1800 and r['reasoning']=={'effort':'low'} and r['store'] is False for r in requests)

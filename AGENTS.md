@@ -1,8 +1,12 @@
 # Project session instructions
 
+## F10 planning decisions — 21 September 2026
+
+Read `plans/F10-ui-ux-accessibility.md` for the latest user-approved screen requirements and stated implementation assumptions. The three-screen plan supersedes conflicting older F10 inventory text: Home, Live and shared current/historical Review; Luna/Terra low selector for Live/Ask, fixed Terra low memory generation (summary pipeline included as a stated planning interpretation); four items/category, Refresh all/Dismiss/popups, 18-second face-loss buffer; automatic cloud permission for all otherwise eligible content and no normal-product dollar caps. Keep cumulative usage/cost accounting, source/approval/deletion boundaries and historical evaluation budgets. These product choices do not authorize fresh evaluation inference or remove evaluation caps. Implementation and required Claude/user acceptance remain pending. Normal UI need not retain testing/monitoring controls.
+
 ## Current accepted checkpoint (21 September 2026)
 
-F07 is accepted by the user as a limited checkpoint, with current main retained and the newer semantic experiment excluded. API, independent visual/resource and three-participant acceptance checks remain deferred/unverified, not passed. No new inference or tuning is authorized by this status; preserve all evidence and cumulative budgets. F08 Windows installation and Claude review is next, due October 1. See docs/F07-CLOSEOUT-20260921.md for final review/publication status. The dated September 14 pre-live state below is historical.
+F07 is accepted by the user as a limited checkpoint, with current main retained and the newer semantic experiment excluded. API, independent visual/resource and three-participant acceptance checks remain deferred/unverified, not passed. No new inference or tuning is authorized by this status; preserve all evidence and cumulative budgets. User's September 21 UI-first revision makes F10 UI/UX and accessibility next, followed by F08 Windows installation/review and F09 macOS; keep these stable feature IDs. October 1 remains the usable Windows MVP target with documented source setup, not a dedicated-installer or Mac deadline. Read the F10 screen/state inventory in PLAN.md; the detailed feature plan and permanent Trello column are created in the next planning session. Claude review remains mandatory for UI work. See docs/F07-CLOSEOUT-20260921.md for F07 review/publication status; its next-feature statement and the dated September 14 state below are historical.
 
 Read CONTEXT.md, PLAN.md and docs/TESTING.md before implementation or evaluation work. These instructions apply to every future session in this repository.
 

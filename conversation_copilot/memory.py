@@ -1242,6 +1242,47 @@ class MemoryStore:
                 )
         return ()
 
+    def record_pending_proposals(self, record_id: str) -> list[sqlite3.Row]:
+        return self._connection.execute(
+            """SELECT p.* FROM memory_proposals p JOIN proposal_batches b ON b.id=p.batch_id
+               JOIN conversation_records r ON r.id=b.record_id
+               WHERE b.record_id=? AND b.record_generation=r.generation
+               AND r.contact_id IS NOT NULL AND b.status IN ('pending_review','complete')
+               AND p.state='pending' ORDER BY p.created_at,p.id""",
+            (record_id,),
+        ).fetchall()
+
+    def review_record_proposals(
+        self,
+        record_id: str,
+        proposal_ids: Sequence[str] | None,
+        *,
+        approve: bool,
+        expected_pending: dict[str, str],
+    ) -> tuple[str, ...]:
+        """Atomically review a checked selection, or every pending item when IDs is None."""
+        selected_ids = None if proposal_ids is None else tuple(dict.fromkeys(proposal_ids))
+        if selected_ids == ():
+            raise ValueError("choose at least one pending proposal")
+        with self.transaction() as db:
+            pending = self.record_pending_proposals(record_id)
+            chosen = pending if selected_ids is None else [row for row in pending if row["id"] in selected_ids]
+            actual = {row["id"]: row["content"] for row in chosen}
+            if (selected_ids is not None and len(chosen) != len(selected_ids)) or actual != expected_pending:
+                raise ValueError("pending memories changed; review the selection again")
+            if approve:
+                return tuple(self._approve_proposal(db, row["id"]) for row in chosen)
+            for row in chosen:
+                db.execute(
+                    "UPDATE memory_proposals SET state='rejected',reviewed_at=? WHERE id=? AND state='pending'",
+                    (_now(), row["id"]),
+                )
+                db.execute(
+                    "UPDATE summary_statements SET excluded=1 WHERE id IN (SELECT statement_id FROM summary_dependencies WHERE proposal_id=?)",
+                    (row["id"],),
+                )
+        return ()
+
     def _approve_proposal(
         self, db: sqlite3.Connection, proposal_id: str, edited_content: str | None = None
     ) -> str:
@@ -1764,8 +1805,6 @@ class MemoryStore:
         if eligible_memory_ids is not None:
             clauses.append("m.id IN (SELECT value FROM json_each(?))")
             params.append(json.dumps(list(eligible_memory_ids)))
-        if for_cloud:
-            clauses.append("(r.sensitivity='normal' OR r.cloud_allowed=1)")
         if memory_types:
             if any(item not in MEMORY_TYPES for item in memory_types):
                 raise ValueError("unknown memory type filter")
@@ -2088,7 +2127,7 @@ class MemoryStore:
             RetrievedMemory(
                 rows[revision_id]["memory_id"], revision_id, rows[revision_id]["contact_id"],
                 rows[revision_id]["content"], rows[revision_id]["memory_type"], rows[revision_id]["confidence"],
-                rows[revision_id]["sensitivity"], rows[revision_id]["sensitivity"] == "normal" or bool(rows[revision_id]["cloud_allowed"]),
+                rows[revision_id]["sensitivity"], True,
                 rank, "+".join(reasons[revision_id] + (["possible-loss-reference"]
                     if grief_reference and revision_id in loss_ids and revision_id not in loss_lexical_ids else [])),
             )
@@ -2179,21 +2218,6 @@ class MemoryStore:
             "SELECT sequence FROM summary_exclusions WHERE record_id=?", (record_id,))}
         if 0 in exclusions:
             return []
-        if for_cloud:
-            exclusions.update(row[0] for row in self._connection.execute(
-                """SELECT e.sequence FROM summary_evidence e JOIN summary_statements s ON s.id=e.statement_id
-                   JOIN summary_versions v ON v.id=s.summary_id WHERE e.record_id=? AND v.state='approved'
-                   AND s.sensitivity='sensitive' AND s.cloud_allowed=0""", (record_id,)))
-            for row in self._connection.execute(
-                """SELECT s.turn_sequences FROM memory_sources s JOIN memory_revisions r ON r.id=s.revision_id
-                   JOIN memories m ON m.current_revision_id=r.id
-                   WHERE s.record_id=? AND m.deleted_at IS NULL AND r.sensitivity='sensitive' AND r.cloud_allowed=0""",
-                (record_id,),
-            ):
-                sequences = json.loads(row[0])
-                if not sequences:
-                    return []
-                exclusions.update(sequences)
         return [turn for turn in self.record_turns(record_id, cache=turn_cache) if turn.display_order not in exclusions]
 
     def create_summary_draft(
@@ -2292,17 +2316,6 @@ class MemoryStore:
             return False
         if require_approved and (row["state"] != "approved" or row["kind"] == "advice"):
             return False
-        if for_cloud and row["sensitivity"] == "sensitive" and not row["cloud_allowed"]:
-            # A model's sensitivity label must not remove already-authorized
-            # evidence midway through its review. This grants no future cloud
-            # permission; explicit edits/restrictions and source gates still win.
-            owned_draft = (review_token and not require_approved and row["state"] == "draft"
-                and row["origin"] == "model" and row["corrected_at"] is None
-                and db.execute("""SELECT 1 FROM review_chunks c JOIN review_jobs j ON j.record_id=c.record_id
-                    WHERE c.summary_id=? AND j.created_at=? AND j.state='running'""",
-                    (row["summary_id"], review_token)).fetchone())
-            if not owned_draft:
-                return False
         evidence = db.execute("SELECT * FROM summary_evidence WHERE statement_id=?", (statement_id,)).fetchall()
         cache = turn_cache if turn_cache is not None else {}
         key = (row["record_id"], for_cloud)
@@ -2319,8 +2332,6 @@ class MemoryStore:
                 ).fetchone()
                 if memory is None or memory["deleted_at"] or memory["needs_review"] or memory["contact_id"] != row["contact_id"]:
                     return False
-                if for_cloud and memory["sensitivity"] == "sensitive" and not memory["cloud_allowed"]:
-                    return False
         return True
 
     def _reindex_summaries(self, db: sqlite3.Connection) -> None:
@@ -2335,7 +2346,8 @@ class MemoryStore:
                 db.execute("INSERT INTO summary_search VALUES (?,?)", (row["id"], row["content"]))
 
     def approve_summary(self, summary_id: str, *, expected_pending: dict[str, str] | None = None,
-                        expected_statements: dict[str, tuple[str, int]] | None = None) -> None:
+                        expected_statements: dict[str, tuple[str, int]] | None = None,
+                        approve_all_pending: bool = False) -> None:
         with self.transaction() as db:
             version = db.execute("SELECT * FROM summary_versions WHERE id=?", (summary_id,)).fetchone()
             if version is None or version["state"] not in {"draft", "approved"}:
@@ -2347,10 +2359,11 @@ class MemoryStore:
             for row in self.summary_statements(summary_id):
                 if not row["excluded"] and not self._summary_eligible(row["id"], require_approved=False):
                     raise ValueError("summary evidence changed; review its sources")
-            pending = db.execute(
-                """SELECT DISTINCT p.id,p.content FROM memory_proposals p JOIN summary_dependencies d ON d.proposal_id=p.id
-                   JOIN summary_statements s ON s.id=d.statement_id
-                   WHERE s.summary_id=? AND s.excluded=0 AND p.state='pending'""", (summary_id,)).fetchall()
+            pending = (self.record_pending_proposals(version["record_id"])
+                if approve_all_pending else db.execute(
+                    """SELECT DISTINCT p.id,p.content FROM memory_proposals p JOIN summary_dependencies d ON d.proposal_id=p.id
+                       JOIN summary_statements s ON s.id=d.statement_id
+                       WHERE s.summary_id=? AND s.excluded=0 AND p.state='pending'""", (summary_id,)).fetchall())
             if expected_pending is not None and expected_pending != {p["id"]: p["content"] for p in pending}:
                 raise ValueError("linked memories changed; review the approval again")
             for proposal in pending:
@@ -2358,6 +2371,20 @@ class MemoryStore:
             db.execute("UPDATE summary_versions SET state='replaced' WHERE record_id=? AND state='approved'", (version["record_id"],))
             db.execute("UPDATE summary_versions SET state='approved',approved_at=? WHERE id=?", (_now(), summary_id))
             self._reindex_summaries(db)
+
+    def approve_all_memories_and_summary(
+        self,
+        summary_id: str,
+        *,
+        expected_pending: dict[str, str],
+        expected_statements: dict[str, tuple[str, int]],
+    ) -> None:
+        self.approve_summary(
+            summary_id,
+            expected_pending=expected_pending,
+            expected_statements=expected_statements,
+            approve_all_pending=True,
+        )
 
     def edit_review_sentence(self, statement_id: str, content: str, *, expected_content: str, links: dict[str, str]) -> None:
         """Save a sentence and explicitly selected linked facts in one transaction."""
@@ -2645,14 +2672,14 @@ def extraction_chunks(
 
 def extraction_maximum_cost(
     turns: Sequence[ConversationTurn], *, max_turns: int = MAX_EXTRACTION_TURNS, legacy: bool = False,
-    prompt_version: str | None = None,
+    prompt_version: str | None = None, model: str | None = None,
 ) -> tuple[int, float]:
-    from .interpretation import conservative_request_cost
+    from .interpretation import REVIEW_MODEL, conservative_request_cost
 
     chunks = extraction_chunks(turns, max_turns=max_turns, legacy=legacy, prompt_version=prompt_version)
     return len(chunks), sum(
         conservative_request_cost(
-            "gpt-5.6-luna",
+            model or REVIEW_MODEL,
             extraction_reservation_tokens(chunk),
             max_output_tokens=MAX_EXTRACTION_OUTPUT_TOKENS,
         )
@@ -2664,20 +2691,22 @@ class OpenAIMemoryExtractor:
     def __init__(
         self,
         *,
-        model: str = "gpt-5.6-luna",
-        reasoning: Literal["none", "low"] = "none",
+        model: str | None = None,
+        reasoning: Literal["low"] = "low",
         ledger: Any | None = None,
         client: Any | None = None,
         is_current: Callable[[], bool] = lambda: True,
     ) -> None:
         from .interpretation import (
-            BudgetLimits,
             InterpretationAuthenticationUnavailable,
+            REVIEW_MODEL,
+            REVIEW_REASONING,
             UsageLedger,
             local_openai_api_key,
         )
 
-        if reasoning not in {"none", "low"} or model != "gpt-5.6-luna":
+        model = model or REVIEW_MODEL
+        if reasoning != REVIEW_REASONING or model != REVIEW_MODEL:
             raise ValueError("unsupported extraction profile")
         if client is None:
             key = local_openai_api_key()
@@ -2688,7 +2717,7 @@ class OpenAIMemoryExtractor:
             client = OpenAI(api_key=key, max_retries=0, timeout=20.0)
         self.model = model
         self.reasoning = reasoning
-        self.ledger = ledger if ledger is not None else UsageLedger(BudgetLimits(0.15, 0.25, 2.0))
+        self.ledger = ledger if ledger is not None else UsageLedger.product()
         self._client = client
         self._is_current = is_current
 
@@ -2774,9 +2803,14 @@ def analyze_record(
     *,
     batch_id: str | None = None,
     chunk_turns: int = MAX_EXTRACTION_TURNS,
-    model: str = "gpt-5.6-luna",
-    reasoning: str = "none",
+    model: str | None = None,
+    reasoning: str | None = None,
 ) -> str:
+    from .interpretation import REVIEW_MODEL, REVIEW_REASONING
+    model = model or REVIEW_MODEL
+    reasoning = reasoning or REVIEW_REASONING
+    if model != REVIEW_MODEL or reasoning != REVIEW_REASONING:
+        raise ValueError("memory generation uses Terra low")
     turns = store.record_turns(record_id)
     if not turns:
         raise ValueError("conversation record has no attributed text")

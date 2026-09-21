@@ -28,7 +28,7 @@ ASSET_HASHES = {
 }
 
 _CROP_MARGIN = 0.25
-_LOST_AFTER_MS = 6_000
+_LOST_AFTER_MS = 18_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -358,12 +358,12 @@ def replay_steps() -> list[ReplayStep]:
         ReplayStep("switch", 2_000, frame(*both_2), True),
         ReplayStep("switched-follow", 2_200, frame((70, 65, 340), (460, 85, 270))),
         ReplayStep("long-miss-start", 2_600, frame(*only_a)),
-        ReplayStep("long-miss-middle", 7_000, frame(*only_a)),
-        ReplayStep("face-lost", 8_600, frame(*only_a)),
-        ReplayStep("no-silent-reselect", 8_800, frame(*both_2)),
+        ReplayStep("long-miss-middle", 14_000, frame(*only_a)),
+        ReplayStep("face-lost", 20_600, frame(*only_a)),
+        ReplayStep("no-silent-reselect", 20_800, frame(*both_2)),
         ReplayStep(
             "continued-selected-face",
-            8_900,
+            20_900,
             frame(*both_2),
             continue_tracking=True,
         ),

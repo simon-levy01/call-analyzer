@@ -121,11 +121,11 @@ def _fixed_retrieval(store: MemoryStore) -> dict[str, object]:
     deleted = store.create_memory(maya.id, "Maya owns a red bicycle")
     store.delete_memory(deleted)
     deleted_safe = not production_retrieve(maya.id, "red bicycle").matches
-    sensitive_blocked = not production_retrieve(maya.id, "Pepper", for_cloud=True).matches
+    sensitive_automatic = bool(production_retrieve(maya.id, "Pepper", for_cloud=True).matches)
     store.set_cloud_permission(pepper, True)
-    sensitive_allowed = bool(production_retrieve(maya.id, "Pepper", for_cloud=True).matches)
+    historical_permission_allowed = bool(production_retrieve(maya.id, "Pepper", for_cloud=True).matches)
     store.set_cloud_permission(pepper, False)
-    sensitive_revoked = not production_retrieve(maya.id, "Pepper", for_cloud=True).matches
+    historical_permission_revoked = bool(production_retrieve(maya.id, "Pepper", for_cloud=True).matches)
 
     competing = store.create_memory(
         maya.id, "Maya moved apartment on August 18", memory_type="event_date",
@@ -164,7 +164,8 @@ def _fixed_retrieval(store: MemoryStore) -> dict[str, object]:
         social_cues=[SocialCue(
             kind="uncertainty", confidence="high",
             hypothesis="The remote participant may be uncertain",
-            evidence=Evidence(explanation="The approved memory may fit", modalities=["memory"]),
+            evidence=Evidence(explanation="The approved memory may fit", modalities=["memory"],
+                              memory_ids=[context.revision_id]),
         )],
     )
     calibrated = _calibrate_high_confidence(memory_only_high, build_snapshot(
@@ -180,9 +181,9 @@ def _fixed_retrieval(store: MemoryStore) -> dict[str, object]:
         "rejected": rejected_safe,
         "superseded": superseded_safe,
         "deleted": deleted_safe,
-        "sensitive_blocked": sensitive_blocked,
-        "sensitive_allowed": sensitive_allowed,
-        "sensitive_revoked": sensitive_revoked,
+        "sensitive_automatic": sensitive_automatic,
+        "historical_permission_allowed": historical_permission_allowed,
+        "historical_permission_revoked": historical_permission_revoked,
         "memory_free_ceiling": no_memory.estimated_input_tokens <= 1_650 and '"m"' not in no_memory.input_text,
         "memory_ceiling": with_memory.estimated_input_tokens <= 2_200 and '"m"' in with_memory.input_text,
     }

@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .interpretation import LUNA_MODEL, LIVE_ASK_MODELS, LIVE_ASK_REASONING
 from .memory import MemoryStore, normalize_alias
 
 
@@ -69,14 +70,17 @@ def _cloud_evidence(source):
 
 
 def cloud_answer(store, question, sources=(), *, ledger, contact_id=None, event_id=None,
-                 reference=None, date_mode=None, live=False, client=None, is_current=lambda: True):
+                 reference=None, date_mode=None, live=False, client=None, is_current=lambda: True,
+                 model=LUNA_MODEL, reasoning=LIVE_ASK_REASONING):
     from .interpretation import f06_structured_request
+    if model not in LIVE_ASK_MODELS or reasoning != LIVE_ASK_REASONING:
+        raise ValueError("Ask supports only Luna low or Terra low")
     complete = False
     if contact_id is not None:
         sources, complete = cloud_sources(store, contact_id, question, event_id=event_id)
-    allowed = tuple(source for source in sources if source.cloud_allowed)
+    allowed = tuple(sources)
     if not allowed or not validate_sources(store, allowed, for_cloud=True):
-        return AskResult("unavailable", "No currently permitted approved evidence for cloud help.")
+        return AskResult("unavailable", "No approved information found for this question.")
     if len({source.contact_id for source in allowed}) != 1 or not 1 <= len(question) <= 500:
         raise ValueError("cloud help requires one explicit contact and a bounded question")
     def current():
@@ -97,7 +101,8 @@ def cloud_answer(store, question, sources=(), *, ledger, contact_id=None, event_
         "Answer within the selected contact's history, including people explicitly mentioned there; never treat this as another contact's history. If an exact date's meaning is unclear, clarify event versus recorded date. "
         "Conflicting or ambiguous appointments require clarification. Historical statements cannot override corrections. "
         "Put supporting IDs only in source_ids; never print IDs or citation markers in answer. Cite only supplied IDs. No evidence means no factual answer. Return uncertainty honestly.",
-        ledger=ledger, input_limit=ASK_INPUT_LIMIT, output_limit=ASK_OUTPUT_LIMIT, answer_limit=0.04, reasoning="low",
+        ledger=ledger, input_limit=ASK_INPUT_LIMIT, output_limit=ASK_OUTPUT_LIMIT,
+        model=model, reasoning=reasoning,
         live=live, client=client, is_current=current,
         priority=0,
     )
@@ -113,8 +118,8 @@ def cloud_answer(store, question, sources=(), *, ledger, contact_id=None, event_
         ):
             raise ValueError("cloud answer quote does not match its cited source")
     return AskResult(output.status, output.answer, tuple(source for source in allowed if source.id in output.source_ids),
-                     coverage="All current cloud-permitted contact memories and summaries with valid sources considered." if complete else "Bounded evidence shortlist considered; other history may exist.",
-                     backend=f"Luna low · ${usage.dollars:.5f}",
+                     coverage="All current approved contact memories and summaries with valid sources considered." if complete else "Bounded evidence shortlist considered; other history may exist.",
+                     backend=f"{'Luna' if model == LUNA_MODEL else 'Terra'} low · ${usage.dollars:.5f}",
                      confidence=min((source.confidence for source in cited), key=("low", "medium", "high").index)
                      if output.status == "answered" and cited else None)
 
@@ -203,9 +208,7 @@ def memory_source(store: MemoryStore, memory_id: str, contact_id: str, *, for_cl
     ).fetchone()
     if row is None or row["needs_review"] or (display_limit is not None and len(row["content"]) > display_limit):
         return None
-    permitted = row["sensitivity"] == "normal" or bool(row["cloud_allowed"])
-    if for_cloud and not permitted:
-        return None
+    permitted = True
     sources = db.execute("SELECT * FROM memory_sources WHERE revision_id=? ORDER BY id", (row["id"],)).fetchall()
     record_id, turns, source_date = None, (), row["approved_at"]
     kind = "User correction" if row["author_origin"] == "user_corrected" else "Approved memory"

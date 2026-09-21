@@ -516,7 +516,7 @@ def test_proposal_lifecycle_duplicates_revisions_sensitivity_and_deletion(tmp_pa
         pepper_memory = store.approve_proposal(ids[2])
         first_revision = store.current_revision(pepper_memory)
         assert not first_revision["cloud_allowed"]
-        assert store.retrieve(contact.id, "Pepper", for_cloud=True).matches == ()
+        assert store.retrieve(contact.id, "Pepper", for_cloud=True).matches[0].memory_id == pepper_memory
 
         permitted_revision = store.set_cloud_permission(pepper_memory, True)
         assert permitted_revision != first_revision["id"]
@@ -699,7 +699,7 @@ def test_extraction_chunks_and_cost_use_the_same_token_bound():
     assert count == len(chunks) > 1 and maximum > 0
     assert maximum == sum(
         conservative_request_cost(
-            "gpt-5.6-luna",
+                "gpt-5.6-terra",
             extraction_reservation_tokens(chunk),
             max_output_tokens=2_400,
         )

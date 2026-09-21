@@ -2,6 +2,10 @@
 
 The earlier text application proved conversation analysis and memory, but text alone is not the final-project differentiator. The final product is therefore a Windows-first assistant for one-to-one WhatsApp and Zoom video calls, with selected-window capture and multimodal guidance as required capabilities; text import remains supporting infrastructure and group calls, native platform integrations, and macOS packaging are deferred to protect the October 1 deadline.
 
+## Follow-up — 2026-09-21 (current priority)
+
+The user prioritizes a cohesive UI before easy installation and Mac support. Keep identifiers stable: F10 UI/UX and accessibility is next, followed by F08 installation/review and F09 macOS. October 1 remains the Windows MVP target with usable UI and documented source setup; dedicated packaging and Mac dates are deferred. F10 covers existing call, contact, history, review, memory, Ask, settings and recovery surfaces without reopening F07 tuning or changing backend/privacy contracts. Its feature plan will decide whether the existing Tkinter shell is sufficient; no toolkit migration is selected by this roadmap update. Claude review remains required in F10, not postponed to F08. See PLAN.md for the full UI coverage inventory. Earlier follow-ups below retain their historical scope.
+
 ## Follow-up — 2026-09-05
 
 The user approved **F09 — macOS support** after F08 and will run that feature on a

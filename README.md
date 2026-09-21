@@ -2,8 +2,7 @@
 
 For model evaluation choices, historical tests and reusable logs, read [project instructions](AGENTS.md) and the [testing index](docs/TESTING.md).
 
-The current application targets Windows. **F09 — macOS support** is scheduled
-immediately after F08's easy Windows installation and Claude review, with no committed Mac completion date. Final demo preparation is deferred and does not block F09; there is no requirement to wait until October 1.
+The current application targets Windows. The September 21 priority is **F10 — UI/UX and accessibility**, then **F08 — easy Windows installation and Claude review**, then **F09 — macOS support**. Feature IDs remain stable despite the new execution order. Use the documented source setup below in the meantime; GitHub does not bundle the runtime or model dependencies. October 1 remains the usable Windows MVP target; dedicated-installation and Mac completion dates are deferred. Final demo preparation does not block these features.
 The user will run F09 on a Mac for implementation and real-device validation;
 Mac installation and operation are not supported yet. See the [master plan](PLAN.md#f09--macos-support-planned-not-started).
 

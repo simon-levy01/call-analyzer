@@ -199,7 +199,7 @@ def test_bucket_alignment_and_prior_spend(tmp_path):
         contact_id='fixture',retrieved_memories=memories)
     prepared=prepare_interpretation_request(bounded)
     bounded_payload=json.loads(prepared.input_text)
-    assert prepared.estimated_input_tokens <= 2200
+    assert prepared.estimated_input_tokens <= 2400
     assert bounded_payload['t'] == payload['t']
     assert prepared.memory_count == len(bounded_payload.get('m',[]))
     for name, prior, committed in [('api-a',0,.01),('api-b',.01,.025)]:

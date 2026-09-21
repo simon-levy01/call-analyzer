@@ -462,7 +462,8 @@ def test_memory_aware_path_reaches_model_and_cannot_create_unsupported_high_conf
             SocialCue(
                 kind="uncertainty", confidence="high",
                 hypothesis="The remote participant may be uncertain",
-                evidence=Evidence(explanation="The indirect words fit approved context", modalities=[EvidenceModality.MEMORY], turn_ids=[2]),
+                evidence=Evidence(explanation="The indirect words fit approved context", modalities=[EvidenceModality.MEMORY],
+                                  turn_ids=[2], memory_ids=[memory().revision_id]),
             )
         ],
     )

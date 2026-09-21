@@ -17,7 +17,7 @@ from conversation_copilot.video import (
 )
 
 
-def test_tracker_largest_switch_follow_and_six_second_loss():
+def test_tracker_largest_switch_follow_and_eighteen_second_loss():
     tracker = RemoteFaceTracker()
     large = FaceBox(0.05, 0.1, 0.4, 0.5)
     moved = FaceBox(0.12, 0.1, 0.4, 0.5)
@@ -28,13 +28,13 @@ def test_tracker_largest_switch_follow_and_six_second_loss():
     tracker.request_switch()
     assert tracker.update([moved, other], 600) == other
     assert tracker.update([moved], 1_000) is None
-    assert tracker.update([moved], 6_999) is None
+    assert tracker.update([moved], 18_999) is None
     assert not tracker.is_lost
-    assert tracker.update([moved], 7_000) is None
+    assert tracker.update([moved], 19_000) is None
     assert tracker.is_lost
-    assert tracker.update([moved, other], 7_100) is None
+    assert tracker.update([moved, other], 19_100) is None
     tracker.request_continue()
-    assert tracker.update([moved, other], 7_200) == other
+    assert tracker.update([moved, other], 19_200) == other
     assert not tracker.is_lost
 
 

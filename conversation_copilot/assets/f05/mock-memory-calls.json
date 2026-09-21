@@ -120,7 +120,7 @@
       }
     },
     {
-      "id": "sensitive-cloud-permission-blocked",
+      "id": "sensitive-cloud-automatic",
       "contacts": [
         {
           "name": "Maya",
@@ -143,8 +143,8 @@
       ],
       "expected": {
         "ambiguous": false,
-        "request_memory_rows": 0,
-        "display_excludes": ["Pepper"]
+        "request_memory_rows": 1,
+        "display_contains": ["Pepper"]
       }
     },
     {

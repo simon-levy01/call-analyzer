@@ -178,11 +178,9 @@ def test_guidance_stability_dismissal_expiry_and_hidden_candidates():
     display.tick(38)
     assert not display.visible("replies")
     many = update(5)
-    many.replies *= 3
+    many.replies *= 4
     display.offer(many, 40)
-    assert len(display.visible("replies")) == 2
-    display.expanded.add("replies")
-    assert len(display.visible("replies")) == 3
+    assert len(display.visible("replies")) == 4
     display.invalidate(turn_ids=set())
     assert not display.visible("replies")
 

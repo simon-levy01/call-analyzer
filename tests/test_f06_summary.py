@@ -56,7 +56,7 @@ def test_review_accepts_six_discussed_statements_without_retry(tmp_path):
             store.create_summary_draft(record, oversized, expected_generation=1)
 
 
-def test_sensitive_generated_topic_survives_consolidation_without_granting_cloud_permission(tmp_path, monkeypatch):
+def test_sensitive_generated_topic_survives_consolidation_with_automatic_cloud_eligibility(tmp_path, monkeypatch):
     monkeypatch.setattr("conversation_copilot.post_call._whole_summary_fits", lambda turns: False)
     with MemoryStore(tmp_path / "memory.sqlite3") as store:
         _, record = setup_record(store)
@@ -82,13 +82,13 @@ def test_sensitive_generated_topic_survives_consolidation_without_granting_cloud
         sensitive = next(item for item in statements if item['sensitivity']=='sensitive')
         assert not sensitive['cloud_allowed']
         token = store._connection.execute('SELECT created_at FROM review_jobs WHERE record_id=?', (record,)).fetchone()[0]
-        assert not store._summary_eligible(sensitive['id'], for_cloud=True, require_approved=False, review_token=token)
+        assert store._summary_eligible(sensitive['id'], for_cloud=True, require_approved=False, review_token=token)
         with store.transaction() as db:
             db.execute("UPDATE review_jobs SET state='running' WHERE record_id=?", (record,))
         assert store._summary_eligible(sensitive['id'], for_cloud=True, require_approved=False, review_token=token)
-        assert not store._summary_eligible(sensitive['id'], for_cloud=True, require_approved=False, review_token='wrong-job')
+        assert store._summary_eligible(sensitive['id'], for_cloud=True, require_approved=False, review_token='wrong-job')
         store.set_summary_cloud_permission(sensitive['id'], False)
-        assert not store._summary_eligible(sensitive['id'], for_cloud=True, require_approved=False, review_token=token)
+        assert store._summary_eligible(sensitive['id'], for_cloud=True, require_approved=False, review_token=token)
 
 
 def test_general_summary_preserves_specific_transcript_memory(tmp_path):
@@ -242,7 +242,7 @@ def test_proposal_approval_reindexes_relinked_approved_summary(tmp_path):
         store.approve_proposal(proposal)
         assert store._connection.execute("SELECT count(*) FROM summary_search WHERE statement_id=?", (statement,)).fetchone()[0] == 1
         source = summary_source(store, statement, contact)
-        assert source and not source.cloud_allowed
+        assert source and source.cloud_allowed
         result = AskSession(contact).answer(store, "Cedar Clinic", semantic=False)
         assert any(item.id == statement for item in result.sources)
 
@@ -286,13 +286,13 @@ def test_unchanged_keep_remove_permissions_and_source_cascade(tmp_path):
         store.approve_summary(summary)
         store.correct_memory(memory, "Dentist at 3 PM", summary_choices={statement: "keep"})
         assert store.summary_statements(summary)[0]["kind"] == "fact"
-        assert not store.summary_turns(record, for_cloud=True)
+        assert store.summary_turns(record, for_cloud=True)
         store.set_summary_cloud_permission(statement, True)
-        assert not store._summary_eligible(statement, for_cloud=True)
+        assert store._summary_eligible(statement, for_cloud=True)
         store.set_cloud_permission(memory, True)
         assert store._summary_eligible(statement, for_cloud=True)
         store.set_cloud_permission(memory, False)
-        assert not store._summary_eligible(statement, for_cloud=True)
+        assert store._summary_eligible(statement, for_cloud=True)
         store.correct_memory(memory, "Dentist at 4 PM", summary_choices={statement: "remove"})
         assert not store._summary_eligible(statement)
         store.delete_source(record, keep_memory_ids=[memory])

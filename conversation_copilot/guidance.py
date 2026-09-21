@@ -16,15 +16,17 @@ from .interpretation import (
     _calibrate_high_confidence, _restrict_evidence_to_present_modalities,
     f06_structured_request, prepare_interpretation_request,
     estimate_english_tokens, REQUEST_PROTOCOL_OVERHEAD_TOKENS, EvidenceModality,
-    _cautious_policy, _ground_interpretation, LUNA_MODEL, visual_row_has_evidence,
+    _cautious_policy, _ground_interpretation, LUNA_MODEL, LIVE_ASK_MODELS,
+    LIVE_ASK_REASONING, LIVE_CATEGORY_LIMIT, visual_row_has_evidence,
 )
 
 CATEGORIES = ("replies", "remember", "follow_up")
-GUIDANCE_INPUT_LIMIT = 4_700  # Explicit roles and source citations; user-authorized +200 input tokens.
+LIVE_CATEGORIES = ("tones", "social_cues", *CATEGORIES)
+GUIDANCE_INPUT_LIMIT = 5_000  # Four-category-item schema plus explicit roles and source citations.
 
 GUIDANCE_INSTRUCTIONS = """
 Return optional replies, remember and follow_up candidates; empty lists are valid. Replies are alternatives for the USER, never automatic messages.
-Never invent user feelings, reactions, knowledge, agreement or commitments. No placeholders or unprovided facts.
+Never invent user feelings, reactions, knowledge, agreement or commitments. No placeholders, unprovided facts or filler. Return at most four useful items in each category.
 Corrections are not acceptance: 'Got it—four PM', not 'Four PM works for me'. Use the user's voice, not assistant jargon.
 Never answer the user's question as the contact; avoid questions already asked and statements already made.
 Never infer call duration from this rolling context window. Replies are optional user speech, not answers addressed to the user. First-person factual claims need explicit user evidence; offering to show or clarify something now is an optional action, not a claim about feelings or availability.
@@ -114,15 +116,15 @@ class GuidanceCandidate(BaseModel):
 class GuidanceOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     interpretation: _InterpretationWireUpdate
-    replies: list[GuidanceCandidate] = Field(default_factory=list, max_length=3)
-    remember: list[GuidanceCandidate] = Field(default_factory=list, max_length=3)
-    follow_up: list[GuidanceCandidate] = Field(default_factory=list, max_length=3)
+    replies: list[GuidanceCandidate] = Field(default_factory=list, max_length=LIVE_CATEGORY_LIMIT)
+    remember: list[GuidanceCandidate] = Field(default_factory=list, max_length=LIVE_CATEGORY_LIMIT)
+    follow_up: list[GuidanceCandidate] = Field(default_factory=list, max_length=LIVE_CATEGORY_LIMIT)
 
 
 class GuidedInterpretation(InterpretationUpdate):
-    replies: list[GuidanceCandidate] = Field(default_factory=list, max_length=3)
-    remember: list[GuidanceCandidate] = Field(default_factory=list, max_length=3)
-    follow_up: list[GuidanceCandidate] = Field(default_factory=list, max_length=3)
+    replies: list[GuidanceCandidate] = Field(default_factory=list, max_length=LIVE_CATEGORY_LIMIT)
+    remember: list[GuidanceCandidate] = Field(default_factory=list, max_length=LIVE_CATEGORY_LIMIT)
+    follow_up: list[GuidanceCandidate] = Field(default_factory=list, max_length=LIVE_CATEGORY_LIMIT)
     snapshot_id: int
     generation: int
     manual: bool = False
@@ -130,7 +132,9 @@ class GuidedInterpretation(InterpretationUpdate):
     context_at: datetime | None = None
 
 
-def interpret_guidance(snapshot, *, ledger, client=None, model=LUNA_MODEL, reasoning="none", is_current=lambda _item: True, live=True):
+def interpret_guidance(snapshot, *, ledger, client=None, model=LUNA_MODEL, reasoning=LIVE_ASK_REASONING, is_current=lambda _item: True, live=True):
+    if model not in LIVE_ASK_MODELS or reasoning != LIVE_ASK_REASONING:
+        raise ValueError("Live guidance supports only Luna low or Terra low")
     policy = _cautious_policy(snapshot)
     test_log.emit("guidance_input", snapshot=snapshot, local_policy=policy)
     if not any(turn.speaker_role.value == "selected_contact" for turn in snapshot.turns):
@@ -160,7 +164,7 @@ def interpret_guidance(snapshot, *, ledger, client=None, model=LUNA_MODEL, reaso
             raise ValueError("bounded guidance speech exceeds its input ceiling")
     test_log.emit("guidance_supplied_evidence", generation=snapshot.generation, snapshot_id=snapshot.snapshot_id, payload=payload)
     parsed, _usage = f06_structured_request(GuidanceOutput, payload, instructions, ledger=ledger,
-        input_limit=GUIDANCE_INPUT_LIMIT, output_limit=1200, live=live, client=client, model=model, reasoning=reasoning,
+        input_limit=GUIDANCE_INPUT_LIMIT, output_limit=1800, live=live, client=client, model=model, reasoning=reasoning,
         priority=0 if snapshot.manual else 2, is_current=lambda: is_current(snapshot))
     turns = set(payload["turn_ids"])
     memories = {row[0] for row in payload.get("m", [])}
@@ -233,7 +237,7 @@ def interpret_guidance(snapshot, *, ledger, client=None, model=LUNA_MODEL, reaso
         # not hide a second supported model hypothesis.
         additional = _calibrate_high_confidence(_restrict_evidence_to_present_modalities(
             _ground_interpretation(_canonical_interpretation(parsed.interpretation), snapshot, payload["turn_ids"]), modalities), snapshot)
-        room = min(1, 3 - len(policy.tones) - len(policy.social_cues))
+        room = LIVE_CATEGORY_LIMIT - len(policy.tones)
         extra = [tone for tone in additional.tones if tone.kind not in {t.kind for t in policy.tones}][:room]
         if extra:
             interpretation = policy.model_copy(update={"tones": [*policy.tones, *extra]})
@@ -248,6 +252,37 @@ class DisplayedGuidance:
     shown_at: float
     supported_at: float
     snapshot_id: int
+
+
+@dataclass(frozen=True)
+class LiveSuggestionSnapshot:
+    """A fixed live suggestion copy; UI lifetime is independent of live refresh."""
+    contact_id: str
+    category: str
+    content: str
+    confidence: str
+    captured_at: datetime
+    turn_ids: tuple[int, ...]
+    memory_ids: tuple[str, ...]
+
+    def sources_are_current(self, *, contact_id: str, turn_ids=(), memory_ids=()) -> bool:
+        return (self.contact_id == contact_id
+                and set(self.turn_ids) <= set(turn_ids)
+                and set(self.memory_ids) <= set(memory_ids))
+
+
+def capture_live_suggestion(update: GuidedInterpretation, category: str, index: int,
+                            *, contact_id: str, captured_at: datetime | None = None) -> LiveSuggestionSnapshot:
+    if category not in LIVE_CATEGORIES:
+        raise ValueError("unknown live category")
+    item = getattr(update, category)[index]
+    evidence = item.evidence if category in {"tones", "social_cues"} else item
+    return LiveSuggestionSnapshot(
+        contact_id, category, item.hypothesis if hasattr(item, "hypothesis") else item.text,
+        item.confidence.value if hasattr(item.confidence, "value") else item.confidence,
+        captured_at or datetime.now(timezone.utc), tuple(evidence.turn_ids),
+        tuple(evidence.memory_ids),
+    )
 
 
 class GuidanceDisplay:
@@ -269,12 +304,21 @@ class GuidanceDisplay:
     def fingerprint(category, item):
         # ponytail: lexical meaning normalization; a local semantic matcher is only
         # warranted if measured paraphrases evade this bounded, non-cloud check.
-        words = re.findall(r"\w+", item.text.casefold())
+        text = item.hypothesis if hasattr(item, "hypothesis") else item.text
+        evidence = item.evidence if hasattr(item, "evidence") else item
+        words = re.findall(r"\w+", text.casefold())
         meaning = tuple("clarify" if word in {"explain", "clarify", "elaborate"} else word
                         for word in words if word not in {"could", "would", "can", "you", "please", "that"})
-        return category, tuple(sorted(item.memory_ids)), meaning
+        return category, tuple(sorted(evidence.memory_ids)), meaning
 
-    def dismiss(self, category, index):
+    def dismiss(self, category, index, *, update=None):
+        if category in {"tones", "social_cues"}:
+            if update is None:
+                raise ValueError("tone and cue dismissal needs the current update")
+            item = getattr(update, category)[index]
+            if len(self.dismissed) < 256:
+                self.dismissed.add(self.fingerprint(category, item))
+            return
         item = self.all_items(category)[index]
         if item in self.local_remember:
             self.local_remember.remove(item)
@@ -283,15 +327,23 @@ class GuidanceDisplay:
         if len(self.dismissed) < 256:
             self.dismissed.add(self.fingerprint(category, item.candidate))
 
+    def filter_update(self, update):
+        """Apply live dismissals without altering the accepted model result."""
+        return update.model_copy(update={category: [
+            item for item in getattr(update, category)
+            if self.fingerprint(category, item) not in self.dismissed
+        ] for category in LIVE_CATEGORIES})
+
     def visible(self, category):
-        return self.all_items(category)[:3 if category in self.expanded else 2]
+        return self.all_items(category)[:LIVE_CATEGORY_LIMIT]
 
     def all_items(self, category):
-        return (self.local_remember + self.items[category])[:3] if category == "remember" else self.items[category]
+        return ((self.local_remember + self.items[category])[:LIVE_CATEGORY_LIMIT]
+                if category == "remember" else self.items[category])
 
     def offer_local_remember(self, memories, snapshot_id, now):
         renewed = []
-        for memory in memories[:3]:
+        for memory in memories[:LIVE_CATEGORY_LIMIT]:
             candidate = GuidanceCandidate(text=memory.excerpt, confidence=memory.confidence.value, memory_ids=[memory.revision_id])
             if self.fingerprint("remember", candidate) in self.dismissed:
                 continue
@@ -300,7 +352,7 @@ class GuidanceDisplay:
                 old.supported_at, old.snapshot_id = now, snapshot_id
             renewed.append(old or DisplayedGuidance(candidate, now, now, snapshot_id))
         retained = [item for item in self.local_remember if now - item.supported_at < 24 and item not in renewed]
-        self.local_remember = (renewed + retained)[:3]
+        self.local_remember = (renewed + retained)[:LIVE_CATEGORY_LIMIT]
 
     def offer(self, update, now, *, manual=False, source_age=0):
         manual = manual or getattr(update, "manual", False)

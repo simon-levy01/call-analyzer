@@ -578,9 +578,9 @@ def test_progressive_grief_phrases_retrieve_tragedy_memory_cautiously(
             sensitivity="sensitive",
         )
         store.backfill_semantic_embeddings()
-        denied = retrieve(store, private.id, implicit)
+        automatic = retrieve(store, private.id, implicit)
         local = retrieve(store, private.id, implicit, for_cloud=False)
-        assert not denied.matches
+        assert [item.memory_id for item in automatic.matches] == [private_loss]
         assert [item.memory_id for item in local.matches] == [private_loss]
 
         dated = store.create_contact("Dated Maya")
@@ -751,6 +751,7 @@ def _authored_update(*, tone=None, cue=None, memory_used=False):
     evidence = Evidence(
         explanation="Independent authored replay response",
         modalities=["language", "memory"] if memory_used else ["language"],
+        memory_ids=["authored-revision"] if memory_used else [],
     )
     return InterpretationUpdate(
         status="updated",
@@ -829,6 +830,7 @@ def test_fictional_mock_calls_cover_retrieval_request_and_visible_context(tmp_pa
                         evidence=Evidence(
                             explanation="Current wording is subdued, and approved context may identify the indirect event",
                             modalities=["language", "memory"],
+                            memory_ids=[cloud_context[0].revision_id],
                         ),
                     )
                 ],
@@ -1281,7 +1283,8 @@ def test_longitudinal_contact_history_covers_review_correction_future_calls_and_
             store,
             first_record,
             FakeMemoryExtractor([ExtractionOutput(proposals=proposals)]),
-            model="fake",
+            model="gpt-5.6-terra",
+            reasoning="low",
         )
         pending = {
             row["content"]: row["id"]

@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 
-def test_cloud_history_has_dated_sources_and_enforces_permissions_and_freshness(tmp_path, monkeypatch):
+def test_cloud_history_has_dated_sources_and_automatic_sensitive_eligibility_and_freshness(tmp_path, monkeypatch):
     from conversation_copilot.ask_memory import cloud_sources, cloud_answer, CloudAskOutput
     from conversation_copilot.f06_evaluation import seed_history
     from conversation_copilot import interpretation
@@ -15,22 +15,24 @@ def test_cloud_history_has_dated_sources_and_enforces_permissions_and_freshness(
         other = store.create_contact("Wrong person")
         wrong = store.create_memory(other.id, "Other person's bereavement")
         sources, complete = cloud_sources(store, contact, "Who did he lose most recently?")
-        assert complete and len(sources) == 18
+        assert complete and len(sources) == 19
         assert {ids["old_loss"], ids["new_loss"]} <= {s.id for s in sources}
-        assert not {secret, wrong}.intersection(s.id for s in sources)
+        assert secret in {s.id for s in sources}
+        assert wrong not in {s.id for s in sources}
         seen = {}
         def request(schema, payload, instructions, **kwargs):
             seen.update(payload)
-            assert kwargs["reasoning"] == "low" and kwargs["is_current"]()
+            assert kwargs["model"] == "gpt-5.6-luna" and kwargs["reasoning"] == "low" and kwargs["is_current"]()
             return CloudAskOutput(status="answered", answer="His friend Maya died on September 5, 2026.",
                                   source_ids=[ids["new_loss"]]), SimpleNamespace(dollars=.001)
         monkeypatch.setattr(interpretation, "f06_structured_request", request)
         result = cloud_answer(store, "Who did he lose most recently?", contact_id=contact, ledger=None)
         assert [s.id for s in result.sources] == [ids["new_loss"]]
-        assert seen["complete_eligible_history"] and len(seen["evidence"]) == 18
+        assert seen["complete_eligible_history"] and len(seen["evidence"]) == 19
         assert next(s for s in sources if s.id == ids["new_loss"]).kind == "Approved memory"
         store.set_cloud_permission(ids["new_loss"], False)
         assert not validate_sources(store, result.sources, for_cloud=True)
+        assert ids["new_loss"] in {source.id for source in cloud_sources(store, contact, "loss")[0]}
 
 
 def test_cloud_long_memories_and_output_guards(tmp_path, monkeypatch):
@@ -107,7 +109,7 @@ def test_ask_approved_only_sensitive_deleted_and_ambiguous(tmp_path):
         first = store.create_memory(contact.id, "Dentist appointment Tuesday at 3 PM", memory_type="event_date", sensitivity="sensitive")
         session = AskSession(contact.id)
         assert session.answer(store, "dentist appointment", semantic=False).status == "answered"
-        assert memory_source(store, first, contact.id, for_cloud=True) is None
+        assert memory_source(store, first, contact.id, for_cloud=True) is not None
         store.create_memory(contact.id, "Dentist appointment Friday at 10 AM", memory_type="event_date")
         assert session.answer(store, "dentist appointment", semantic=False).status == "possibilities"
         store.delete_memory(first)
