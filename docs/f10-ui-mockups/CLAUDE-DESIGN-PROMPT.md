@@ -18,7 +18,7 @@ Use only the latest five references:
 2. `02-live-call-compact-v3.png`
 3. `03-summary-and-memories.png`
 4. `04-settings.png`
-5. `05-manage-memories.png`
+5. `05-memories.png`
 
 Ignore `02-live-call.png` and `02-live-call-compact-v2.png`; they are superseded.
 
@@ -27,12 +27,12 @@ Ignore `02-live-call.png` and `02-live-call-compact-v2.png`; they are superseded
 - Match the mockups as a coherent product: warm-white background, white cards, deep navy text, accessible bright-blue primary actions, green success, restrained red destructive actions, thin cool-gray borders, rounded cards, simple line icons, strong spacing and hierarchy.
 - Do not leave any screen looking like default Tk widgets arranged in label frames. Create a deliberate theme and reusable styling only where it reduces duplication.
 - Support keyboard navigation, visible focus, large click targets, readable wrapping, Default/Large/Extra large text, standard/high contrast, and reduced motion.
-- The normal screen must fit without horizontal scrolling. Primary Home, Live, Review, Settings, and Manage Memories content should fit at their intended window sizes; resize/reflow instead of hiding essential controls.
+- The normal screen must fit without horizontal scrolling. Primary Home, Live, Review, Settings, and Memories content should fit at their intended window sizes; resize/reflow instead of hiding essential controls.
 - Remove `Unassigned` from the primary Home UI. The underlying retained-record workflow may remain reachable through secondary data/history actions if needed.
 
 ## Home
 
-Follow `01-home.png`: contact selection and Create/Edit/Manage memories/Ask Memory/History/Import at the top; audio/call setup on the left; small selected-face preview before starting on the right; Luna low/Terra low segmented selector; readiness notice; Settings and Start call. Keep every existing operation wired.
+Follow `01-home.png`: contact selection and Create/Edit/Memories/History/Import at the top; audio/call setup on the left; small selected-face preview before starting on the right; Luna low/Terra low segmented selector; readiness notice; Settings and Start call. The single Memories button replaces the separate Manage memories and Ask Memory buttons. Keep every existing operation wired through the combined destination.
 
 ## Compact Live companion
 
@@ -40,7 +40,7 @@ Follow only the narrow right-hand Conversation Copilot panel in `02-live-call-co
 
 - The companion must be narrow enough to sit beside the call.
 - Do not show the tracked face image after the call starts. Show only a tiny Face status and Switch/Continue action.
-- Show Audio, Face, Cloud, contact, duration, selected model, cumulative call spend, End, Refresh all, Transcript, and Ask Memory.
+- Show Audio, Face, Cloud, contact, duration, selected model, cumulative call spend, End, Refresh all, Transcript, and Memories. Memories opens the same combined contact-scoped surface without interrupting capture.
 - Show all five groups together: Possible tone, Social cue, Replies, Related memory, Follow-up.
 - Do not show percentages or numeric confidence.
 - Do not show raw evidence or an Evidence button on primary cards.
@@ -66,9 +66,9 @@ Follow `03-summary-and-memories.png`. Use the same screen for the just-ended cal
 
 Follow `04-settings.png`. Never display the actual API key; only show masked/configured state and accept an explicit replacement. Include persisted text size, contrast, reduced motion, privacy/cloud explanation, selected-contact aliases, merge/export/delete actions, help, Cancel, Save settings, and Back to Home.
 
-## Manage Memories
+## Memories
 
-Follow `05-manage-memories.png`. Replace the current oversized utility dialog with a simple list of saved memories. Show when each memory was saved and provide only Edit and Delete actions for each memory, plus Back to Home and Done. Do not show search, sorting, filters, pending proposals, rejected items, sources, source names, add/connect actions, contact management, aliases, merge, export, or any cloud-permission control. Delete keeps its existing confirmation and exact scope.
+Follow `05-memories.png`. Replace the separate Ask Memory and Manage Memories dialogs with one contact-scoped screen. It contains a natural-language question field and Ask action, a natural-language answer, the saved memories associated with that answer, and the other saved memories. Show when each memory was saved and provide Edit and Delete on every memory, plus Back to Home and Done. Do not show raw sources, evidence, scores, search filters, pending proposals, rejected items, add/connect actions, contact management, aliases, merge, export, or any cloud-permission control. Delete keeps its existing confirmation and exact scope. Reuse the existing Ask retrieval/answer path and memory edit/delete operations; do not duplicate them.
 
 ## Implementation boundaries
 
@@ -80,6 +80,6 @@ Follow `05-manage-memories.png`. Replace the current oversized utility dialog wi
 
 ## Verification
 
-Run the full offline suite and add/update focused Tk UI tests that invoke every non-destructive visible button and validate destructive button wiring against a disposable store. Test Home, compact Live, Review, Settings, and Manage Memories at default, Large, Extra large, and high-contrast settings. Verify keyboard-only navigation and resizing. Do not claim native computer-use verification unless the environment actually exposes the Tk window to the computer-use tool.
+Run the full offline suite and add/update focused Tk UI tests that invoke every non-destructive visible button and validate destructive button wiring against a disposable store. Test Home, compact Live, Review, Settings, and the combined Memories screen at default, Large, Extra large, and high-contrast settings. Verify that Home and Live open the same Memories workflow, answers show their associated memories, Edit/Delete target the correct record, keyboard-only navigation works, and resizing remains usable. Do not claim native computer-use verification unless the environment actually exposes the Tk window to the computer-use tool.
 
 Return a concise list of files changed, the exact offline test result, screenshots of the rendered five screens, and any visual mismatch that remains.

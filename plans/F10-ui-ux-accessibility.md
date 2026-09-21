@@ -11,7 +11,7 @@ Replace the testing-oriented interface with three main screens: **Home → Live 
 
 The latest user decisions supersede conflicting older F10 inventory entries:
 
-- Home combines contact selection/creation, memory management/search/history, text import and call setup.
+- Home combines contact selection/creation, one Memories search/management entry point, history, text import and call setup.
 - Live/Ask model selector: **Luna low** (default) or **Terra low** only. Sol is not selectable; reasoning has no separate control.
 - Terra's standard token rates are 10× Luna's; do not claim every call costs exactly 10×.
 - Memory creation uses fixed **Terra low**. Planning interpretation: the whole post-call generation pipeline, including summary generation/consolidation, and imported-text memory extraction use Terra low; the Live/Ask selector does not affect them.
@@ -23,7 +23,7 @@ The latest user decisions supersede conflicting older F10 inventory entries:
 - Up to **four useful items in each category**, all reachable without the old two-plus-More restriction; no filler. Stable category positions, individual **Pop out/Freeze**, **Dismiss** and compact source access.
 - Freeze is only a temporary copy in a popup, independent of live refresh. It is not memory creation, approval or a pause of the pipeline.
 - Face-loss tolerance increases from six to **18 seconds**.
-- Ask Memory is a question/search bar followed by a model-based answer and the exact cited memories/sources. No local-versus-cloud choice in the normal flow.
+- Memories combines natural-language questions and management in one contact-scoped screen: show the answer, the saved memories associated with it, and the remaining saved memories. Each memory shows its saved date and only Edit/Delete actions. Do not show raw sources, evidence, confidence or pending/rejected proposals there. No local-versus-cloud choice in the normal flow.
 - Review supports individual approve/reject, checkbox multi-selection with approve/reject selected, approve all memories, reject all pending memories, and approve all memories plus summary.
 - API key resides in Settings; reuse the current system key by default and display stars. Never expose or copy the key into documentation, logs, screenshots or Trello.
 - Keep useful contact/data operations close in secondary menus; remove normal-screen diagnostic metrics and test controls.
@@ -32,23 +32,23 @@ The latest user decisions supersede conflicting older F10 inventory entries:
 
 ```text
 Home
- ├─ Selected contact → Manage memories / Ask Memory / History / Text import
+ ├─ Selected contact → Memories / History / Text import
  │                                      └─ select record → Summary and memories
  ├─ Settings → masked API key, readability, selected-contact data actions, help
  └─ Start call → Live call
                  ├─ Refresh all / Dismiss / Pop out item
-                 ├─ Show transcript / Ask Memory
+                 ├─ Show transcript / Memories
                  └─ End call → Summary and memories → Back to Home
 ```
 
-These wireframes describe hierarchy, not final pixel placement. Use an in-window transition for the three main screens; keep capture ownership independent of view construction/destruction. Floating item/transcript/Ask windows must not block the call.
+These wireframes describe hierarchy, not final pixel placement. Use an in-window transition for the three main screens; keep capture ownership independent of view construction/destruction. Floating item/transcript windows and the Memories surface must not block the call.
 
 ## Screen 1 — Home
 
 ```text
 Conversation Copilot                                      [Settings]
 Contact [Search/select........................] [Create] [Edit]
-[Manage memories] [Ask Memory] [History] [Import text]
+[Memories] [History] [Import text]
 
 Call window [.................................] [Refresh]
 Microphone  [.................................]  [level]
@@ -65,7 +65,7 @@ Readiness / concise endpoint-wide audio notice
 - Start requires a confirmed contact, eligible call window, selected input/output devices and working local runtime. Surface missing key/readiness before a paid workflow; no paid key validation merely from opening Home or Settings.
 - Preserve current eligible WhatsApp/Zoom/dedicated Chrome Meet rules, source priority and explicit device selection. Microphone sensitivity controls the existing speech threshold, not playback volume. Show levels without adding unsupported speaker sensitivity controls.
 - No prior device index is restored across app restart. Preserve current clean-stop convenience only while its enumeration remains valid.
-- Manage memories opens a contact-scoped list/editor: current approved memories, add/correct/delete, type/date, sources, revision/connection details and needs-review status. Pending/rejected proposals remain reachable. Manual saved facts do not require a second approval.
+- Memories opens one contact-scoped surface with a natural-language question field, answer, associated saved memories and other saved memories. Show saved dates and Edit/Delete per memory. Do not show sources, evidence, pending/rejected proposals, add/connect actions or contact administration on this screen.
 - History is a contact-scoped panel with date, source, duration where available and review status. Select a call or import to open the shared editor. Pending-review indicator on Home/history; unassigned legacy records can be assigned here. Calls without a selected contact are no longer the normal Start path.
 - Import text opens a file/optional paste preview, participant mapping, chronological text and date/time-zone assumptions. Confirming import saves normalized text and automatically starts Terra memory generation; show processing and cost. Media placeholders/unsupported formats get clear messages. Reuse parser rules, do not invent duplicate-import detection.
 
@@ -84,7 +84,7 @@ Replies                        Related memories
 
 Follow-up questions — up to four items
 
-[Show transcript] [Ask Memory] [Face preview / Switch / Continue]
+[Show transcript] [Memories] [Face preview / Switch / Continue]
 ```
 
 - Show every available item up to four/category; wrap/scroll within a usable layout, with End call and status always reachable. Empty categories may show one concise availability message, never fabricated cards or advice to wait.
@@ -93,7 +93,7 @@ Follow-up questions — up to four items
 - Pop out copies the clicked item to a small movable, resizable, always-on-top window. Show its contact, category and captured time, plus Close. Its wording stays fixed as live updates continue; multiple popups may coexist. No special pin management, persistent collection or new saved-memory workflow.
 - A popup is visibly a captured suggestion, not current advice. It survives normal source-age expiry and End call until the user closes it or exits the app. If an underlying source/contact is deleted or corrected, invalidate its sensitive content and explain that the source changed; do not leave stale deleted data on screen.
 - Transcript popup updates without stealing focus or forcing the reader to the bottom after scrolling up. Use speaker labels, timestamps, selectable text and Return to latest; closing it leaves transcription running.
-- Ask popup uses the call's contact and the current Live/Ask model. Its submitted question/answer runs independently of capture. No contact-switch dropdown or separate cloud button in the primary Ask surface.
+- Memories opened from Live uses the call's contact and current Live/Ask model. Its submitted question/answer runs independently of capture and shows the associated editable/deletable memories. No contact switch, source display or separate cloud button appears on this surface.
 - Face controls stay compact. During loss, audio/transcription continue. Before 18 seconds, reacquire only the selected track; after that require Continue tracking. Never silently switch to another participant.
 - End call stops capture safely, retains finalized turns and transitions to Review. Flush completed audio results before generation; prevent duplicate end-call jobs.
 
@@ -127,8 +127,7 @@ Secondary: regenerate/continue, versions, transcript, source/data actions
 
 | Surface | Scope and controls |
 |---|---|
-| Ask Memory | Contact label, search/question field and Submit/Enter; model-based answer; individually cited memories and approved summary statements, exact source/date on demand; loading, no evidence, ambiguity and provider error. Clarification/event choices appear only when needed. Short follow-ups supported; New question clears temporary context, not cost. Home and Live share this component and selector. |
-| Memory detail | Existing create/correct/delete, dates/types, sources, revisions, linked memories, confirm-reviewed and rejected-item actions. No cloud-permission switches. |
+| Memories | Contact label, natural-language question field and Ask/Enter; model-based natural-language answer; associated saved memories followed by other saved memories; saved date and Edit/Delete on every memory. Cover loading, no match, ambiguity and provider error without showing raw sources, evidence, scores, pending/rejected proposals or contact-management controls. Home and Live open the same component and selector. |
 | Settings | Masked existing API key, replace/save override, readability/text size, contrast, workflow help and English-only/local/cloud explanation. Selected-contact section contains aliases, merge, export and delete. Disable contact actions when none is selected. |
 | History actions | Reassign record with derived-memory effects, delete source with keep/delete-memory preview, legacy unassigned assignment, transcript/source access and supported exports. |
 | Evidence | Reuse exact source viewer across cards, popups, memories, Ask and summary statements. Label current versus corrected/historical sources and unavailable/deleted evidence. Only claim sources actually cited by the answer. |
@@ -136,7 +135,7 @@ Secondary: regenerate/continue, versions, transcript, source/data actions
 
 API key implementation: resolve the existing environment/.env mechanism without exposing the value. Show a fixed masked indicator for an existing key rather than writing stars back as a credential. Untouched masked input means reuse existing key; typing a replacement is an explicit update. Keep any persisted override in the existing appropriate private local configuration or an OS-supported secure store, outside version control. No new account system, reveal toggle or automatic paid test.
 
-All-contact discovery remains reachable as an advanced action from Home memory management, not a scope switch in the simple call Ask bar. Browsing another contact never changes call ownership. Retain existing date clarification and source-exclusion review only when relevant.
+All-contact discovery remains a secondary data action, not a scope switch in the combined Memories screen. Browsing another contact never changes call ownership. Retain existing date clarification and source-exclusion review only when relevant.
 
 ## System work and operation coverage
 
@@ -146,8 +145,8 @@ All-contact discovery remains reachable as an advanced action from Home memory m
 | S2 — Live behavior | Increase only user-facing tone/cue/reply/remember/follow-up list limits from three to four through schema, instructions, parsing, display and local remembered-item blending. One Refresh all; Dismiss and temporary item snapshots for all five categories. Increase face loss to 18 seconds. | `interpretation.py` tone/cue schemas; `guidance.py` schemas, instructions and GuidanceDisplay; `video.py` loss threshold; `__main__.py` rendering/coordinator. Do not globally replace every three-item bound: citation/modality limits and unrelated collections are separate. |
 | S3 — Review and Ask operations | Record-level approve/reject selected/all with source-safe atomicity; reuse historical editor; automatic post-stop pipeline without product spending cap; one model-based Ask action returning cited sources. | `memory.py`: review_proposals, approve_summary, correction/reassignment/deletion/export; `post_call.py`: process_review; `ask_memory.py`: retrieval, cloud_answer and validate_sources; `__main__.py`: finish_memory_record, open_review, open_ask. |
 | U1 — Shell, Home and Settings | Three-screen navigation, contact/setup Home, masked key, compact readiness and selected-contact management. | Existing Tk widgets, contact search/create/select, audio catalog/threshold, window selection and contact/data operations. |
-| U2 — Live and floating windows | Five categories, four-item layout, Refresh all, Dismiss, Pop out, transcript and simple Ask; persistent End call and cost. | Existing timers, source viewer, renderers, safe window lifecycle and transcript flow. |
-| U3 — History, import, memory and review UI | Contact history and pending review entry points; one Review editor; checkbox review; text import preview; close/edit handling. | Existing record choosers, import parser/store, manage_memory, review dialog and bulk operations. |
+| U2 — Live and floating windows | Five categories, four-item layout, Refresh all, Dismiss, Pop out, transcript and access to the combined Memories surface; persistent End call and cost. | Existing timers, source viewer, renderers, safe window lifecycle and transcript flow. |
+| U3 — History, import, memory and review UI | Combined Memories question/list/editor, contact history and pending review entry points; one Review editor; checkbox review; text import preview; close/edit handling. | Existing Ask retrieval, record choosers, import parser/store, manage_memory, review dialog and bulk operations. |
 | U4 — Accessibility and integration | Keyboard/scaling/focus, recovery states, remove diagnostic controls, source setup docs and full saved-output walkthrough. | Existing UI/regression tests and disposal-safe stores. |
 
 System slices establish operations first with fake/saved outputs; UI slices consume them. Implement sequentially as one F10 feature. Reuse SQLite and existing capture/retrieval/review operations; avoid a new service framework. Keep the current Tkinter approach unless a bounded accessibility/resize feasibility check demonstrates a concrete failure. Any toolkit replacement requires an explicit feasibility decision before implementation.
@@ -170,7 +169,7 @@ No monetary cap does not mean unlimited context/output, concurrent requests or b
 | No supported guidance / no memory match | “Not enough recent evidence” / “No approved information found for this question.” No filler or fabricated answer. |
 | Source changed / store busy / generation failed | Invalidate affected content, preserve unsaved edits and completed work, offer reopen/retry when applicable. |
 
-- Keyboard: every control reachable with Tab/Shift+Tab, visible focus, Enter submits Ask, Space toggles checkboxes, Escape closes secondary popups without ending the call. Closing the live/main window must make stopping/saving explicit.
+- Keyboard: every control reachable with Tab/Shift+Tab, visible focus, Enter submits a Memories question, Space toggles checkboxes, Escape closes secondary popups without ending the call. Closing the live/main window must make stopping/saving explicit.
 - Use text labels, not color-only states; target at least 4.5:1 normal-text contrast and 3:1 large text/non-text controls. Check actual toolkit screen-reader names/roles on Windows; report unsupported behavior honestly.
 - Check main screens at 1024×768 and 1280×720, and Windows 100%, 150% and 200% scaling on a suitable display. Provide scroll/reflow at constrained logical sizes; End call and status remain reachable. Text sizing 100%, 125%, 150%; small beside-call layout must keep all categories reachable.
 - No live-update focus stealing, flashing, forced transcript scrolling or automatic popup opening. Freeze and transcript popups open only from user actions. Stable category order and reduced-motion default.
@@ -180,7 +179,7 @@ No monetary cap does not mean unlimited context/output, concurrent requests or b
 
 1. Use fictional contacts and disposable databases with saved/fake model outputs first. Never launch against private call logs just to demonstrate UI.
 2. Offline checks: model/low-reasoning propagation across all entry points; no Sol selection; product uncapped accounting versus preserved capped evaluation; all-content cloud eligibility without bypassing contact/approval/deletion rules; four-item boundary/no filler; coalesced refresh; 18-second loss threshold and continued audio; snapshot lifecycle; source invalidation; checkbox atomic approve/reject; no inference on history open; key masking/no credential logging.
-3. End-to-end saved-output walkthrough: create/select contact → import/manage memory → setup devices/window → start → five live categories → refresh/dismiss/pop out → read transcript → Ask with cited sources → end → generate Terra review → edit and approve/reject individual/selected/all → reopen history in same editor → Ask approved results. Repeat empty/failure, model switch, close/reopen, scaling and keyboard cases.
+3. End-to-end saved-output walkthrough: create/select contact → open Memories → ask a natural-language question → see the answer and associated memories → edit/delete against a disposable store → import memory → setup devices/window → start → five live categories → refresh/dismiss/pop out → read transcript → open Memories from Live → end → generate Terra review → edit and approve/reject individual/selected/all → reopen history in same editor. Repeat empty/failure, model switch, close/reopen, scaling and keyboard cases.
 4. Fresh model-dependent testing still requires API/agent/local method selection and its applicable evaluation budget. Existing F07 evidence/budgets remain intact. No fresh inference or quality claim is authorized by creating this plan.
 5. Complete affected automated checks and preliminary verified tool-disabled Claude Opus 5 review of plan/diff/evidence; correct findings before user testing. User walkthrough and corrections, then fresh final Claude review/corrections. No review pass is claimed here.
 6. Update documented Windows source setup, publish only reviewed changes when implementing the agreed workflow, and verify local/origin/GitHub pointers. No commit/push is performed by this planning session.
