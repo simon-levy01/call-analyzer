@@ -75,7 +75,7 @@ Reassurance plus a boundary is not inherently conflicting. Respect refusals with
 Sarcasm: no v means insufficient; with v, positive wording contradicted by context means sarcasm, never other.
 Otherwise vocal/visual data may corroborate wording but cannot change its strongest labels.
 Use only the schema and present modalities. Evidence names observations.
-Language evidence cites exact turn_ids including the latest substantive contact contribution. Nonverbal-only evidence needs fresh reliable observations, not a speech citation. Filler, factual fragments and absence of tension do not establish calm. Omit unsupported cues.
+Language evidence cites at most 4 exact contact turn_ids, including the latest substantive contact contribution. User words provide context, not evidence of contact affect; do not cite user turns for a tone or cue. Nonverbal-only evidence needs fresh reliable observations, not a speech citation. Filler, factual fragments and absence of tension do not establish calm. Omit unsupported cues.
 Input keys: t=[s,seconds_from_newest,text] (s: u=user, c=contact); turn_ids maps t rows to IDs; v=[turn_index,available,duration,relative_energy,voiced_ratio,words_per_voiced_second,gap,overlaps_user,reason]; x=[seconds_from_newest,availability,reliability,face,smile,brow,eye,mouth]."""
 
 EXPRESSION_INSTRUCTIONS = """
@@ -277,6 +277,8 @@ def _ground_interpretation(update, snapshot, supplied_orders):
     if update.status != InterpretationStatus.UPDATED:
         return update
     supplied = set(supplied_orders)
+    contact_orders = {turn.display_order for turn in snapshot.turns
+        if turn.speaker_role == SpeakerRole.SELECTED_CONTACT}
     recent = [turn for turn in snapshot.turns if turn.display_order in supplied
         and turn.speaker_role == SpeakerRole.SELECTED_CONTACT
         and (snapshot.created_at - turn.timestamp).total_seconds() < 24
@@ -290,7 +292,7 @@ def _ground_interpretation(update, snapshot, supplied_orders):
         modalities = set(item.evidence.modalities)
         if not ids <= supplied or modalities == {EvidenceModality.MEMORY}:
             return False
-        if EvidenceModality.LANGUAGE in modalities and anchor not in ids:
+        if EvidenceModality.LANGUAGE in modalities and (anchor not in ids or not ids <= contact_orders):
             return False
         if EvidenceModality.LANGUAGE not in modalities:
             if EvidenceModality.VISUAL in modalities and not any(

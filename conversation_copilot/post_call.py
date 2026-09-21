@@ -34,7 +34,7 @@ Use names when pronouns or gender are not established. Distinguish actual life e
 discussing an app's suggested text, a test, a quotation or an example; do not present those as real events.
 Finding or displaying stored information is not a newly achieved real-world outcome. Keep that distinction through consolidation.
 Each statement cites exact supplied turn IDs. Every fact or commitment must be explicitly supported; no invented agreements,
-feelings, diagnoses or intentions. Separate factual agreed actions from suggested advice. Omit empty sections and small talk.
+feelings, diagnoses or intentions. Separate factual agreed actions from suggested advice. Put completed/resolved events in discussed, future agreed actions in plans/follow_ups, and only still-unanswered substantive issues in questions. Preserve a correction's meaningful limitation or exception, not just that a correction happened. Omit empty sections and small talk.
 Do not turn banter into a literal activity or habit. For unclear 'stop this' or similar references, omit the detail rather than invent what stopped. Report speaker claims as claims, not independently verified outcomes.
 Preserve exact original dates, times and venues; never infer AM/PM, zone or omitted years. Mark partial if important coverage is omitted.
 speaker_names identifies roles; recording_dates gives full offset-bearing recording timestamps at date-run boundaries, not event dates. Preserve relative date wording; never invent the speaker's local calendar date or replace relative wording with an inferred absolute date.

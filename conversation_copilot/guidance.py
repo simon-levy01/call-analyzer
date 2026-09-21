@@ -23,14 +23,13 @@ CATEGORIES = ("replies", "remember", "follow_up")
 GUIDANCE_INPUT_LIMIT = 4_700  # Explicit roles and source citations; user-authorized +200 input tokens.
 
 GUIDANCE_INSTRUCTIONS = """
-Return optional replies, remember and follow_up candidates; empty lists are valid. Replies are alternatives for the USER, never automatic messages.
-Never invent user feelings, reactions, knowledge, agreement or commitments. No placeholders or unprovided facts.
-Corrections are not acceptance: 'Got it—four PM', not 'Four PM works for me'. Use the user's voice, not assistant jargon.
-Never answer the user's question as the contact; avoid questions already asked and statements already made.
-Never infer call duration from this rolling context window. Replies are optional user speech, not answers addressed to the user. First-person factual claims need explicit user evidence; offering to show or clarify something now is an optional action, not a claim about feelings or availability.
-reply_to_turn_id is the latest contact turn. Replies/follow_up must cite latest_turn_id and account for the user's words.
-user_spoke_last is NOT a rule to wait; acknowledgments don't close a topic. Prefer concrete optional words for the next pause: clarification, support or a next step.
-Wait only for the CONTACT to finish or answer an existing question. No duplicate waiting advice. If the USER is mid-sentence, don't tell the contact to finish it or invent its continuation.
+Return optional replies, remember and follow_up candidates; empty lists are valid. Replies are optional words the USER could say to the CONTACT, never automatic messages.
+First identify who spoke last, who asked each question, and whose experience is described. Read adjacent clarifications/corrections before responding.
+Respond to contact disclosures; never retell them as the user's experience. First-person facts, feelings, knowledge, agreement or commitments require explicit USER evidence. Offering to listen/show/clarify now is an optional action, not a personal-state claim.
+Never answer for the contact or respond to the user's own words; avoid questions already asked/answered. Corrections are not acceptance: 'Got it—four PM', not 'Four PM works for me'. No invented facts/placeholders. Never infer call duration from this rolling context window.
+reply_to_turn_id is the latest contact turn. Replies/follow_up cite latest_turn_id and account for the user's words.
+user_spoke_last does not require waiting. Wait only for unfinished CONTACT speech or an outstanding answer; never invent either speaker's continuation. Otherwise offer relevant clarification, support or a next step.
+Each candidate must add something useful beyond BOTH speakers' recent words: omit repeated advice/dependencies and paraphrases of the user's last statement. Prefer silence to filler.
 Default to observed user phrasing. Approved communication_style/relationship_preference may refine style; cite preference_ids. Relationship labels imply no style; clarify conflicting preferences.
 Cite up to 3 supplied turn_ids plus up to 3 memory revision IDs per candidate; use only relevant sources, with at least one citation overall. Remember requires relevant approved memory_ids. Ask rather than assume uncertain plans.
 possible-loss-reference is unconfirmed. Offer 'Possibly related:' plus the memory's exact factual meaning. Keep uncertainty in the reminder, not an identity-check question.
@@ -43,7 +42,7 @@ Refusing to speak to a THIRD party is not withdrawal from THIS conversation.
 When discriminating factual clues support a useful connection across the ongoing topic, return a Remember candidate; do not silently omit it. Copy its supplied ID exactly. Generic stress, sadness, relief or excitement alone cannot select an event; retrieval alone is not relevance. Match meanings without requiring names or shared keywords: a selected short and screening may connect to a film award. Prefer event clues over recency; use dates to distinguish plausible events. Begin 'Possibly related:' unless identity is established. Never recreate transcript facts as memories without supplied memory IDs.
 An explicit refusal to discuss an event overrides relevance: omit its reminders/questions until the contact reopens it. After a topic switch, drop old-topic reminders and emotions.
 Check each supplied memory against the current factual clues independently. If two facts are both relevant, retain both; if they are competing referents, present low-confidence alternatives or clarify. Do not silently choose, and do not add an irrelevant alternative.
-Avoid repeating questions, answers or stated dependencies in meaning. An unfinished contact phrase calls for listening. Apparent greetings, names or other garbled fragments inconsistent with the surrounding topic are uncertain transcription, not a reason to reset the conversation. Never assume 'you must be thrilled'. Prefer one or two concise reply alternatives and at most one distinct follow_up; omit duplicate or unhelpful questions.
+Garbled fragments inconsistent with the topic are uncertain transcription, not a greeting/topic reset. Prefer one or two concise reply alternatives and at most one distinct follow_up.
 """
 
 

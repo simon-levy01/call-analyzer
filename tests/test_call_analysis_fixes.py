@@ -114,6 +114,7 @@ def test_supportive_replies_are_not_filtered_as_personal_states(monkeypatch):
 @pytest.mark.parametrize('ids,age,kind,text,accepted', [
     ([2],0,'positive_warm','Thank you for helping.',True),
     ([1],0,'positive_warm','Thank you for helping.',False),
+    ([1,2],0,'positive_warm','Thank you for helping.',False),
     ([99],0,'positive_warm','Thank you for helping.',False),
     ([],0,'positive_warm','Thank you for helping.',False),
     ([2],25,'positive_warm','Thank you for helping.',False),
