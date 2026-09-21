@@ -206,7 +206,7 @@ def show_window(summary: str) -> None:
     contact_create_button.grid(row=1, column=0, padx=3, pady=4, sticky="ew")
     contact_clear_button = tk.Button(contact_frame, text="Clear")
     contact_clear_button.grid(row=1, column=1, padx=3, pady=4, sticky="ew")
-    memory_manage_button = tk.Button(contact_frame, text="Manage memory")
+    memory_manage_button = tk.Button(contact_frame, text="Memories")
     memory_manage_button.grid(row=1, column=2, padx=3, pady=4, sticky="ew")
     import_button = tk.Button(contact_frame, text="Import chat")
     import_button.grid(row=1, column=3, padx=3, pady=4, sticky="ew")
@@ -272,8 +272,6 @@ def show_window(summary: str) -> None:
 
     home_actions = tk.LabelFrame(home_right, text="Prepare", font=("Segoe UI", 10, "bold"), bg="#ffffff", padx=8, pady=8)
     home_actions.pack(fill="x", pady=(0, 10))
-    ask_button = tk.Button(home_actions, text="Ask Memory")
-    ask_button.pack(fill="x", pady=2)
     review_button = tk.Button(home_actions, text="Conversation history")
     review_button.pack(fill="x", pady=2)
     start_button = ttk.Button(home_right, text="Start call", style="Primary.TButton")
@@ -351,7 +349,7 @@ def show_window(summary: str) -> None:
     live_footer.pack(fill="x", padx=12, pady=(0, 10))
     transcript_button = tk.Button(live_footer, text="Transcript")
     transcript_button.pack(side="left")
-    live_ask_button = tk.Button(live_footer, text="Ask Memory")
+    live_ask_button = tk.Button(live_footer, text="Memories")
     live_ask_button.pack(side="left", padx=5)
     thumbnail_label = tk.Label(hidden_state, text="No selected face")
     transcript_title = tk.Label(hidden_state, text="Finalized attributed text")
@@ -572,147 +570,222 @@ def show_window(summary: str) -> None:
                 tk.Button(row, text="Dismiss", command=dismiss).pack(side="right", padx=(3, 0))
                 tk.Button(row, text="Pop out", command=lambda c=category, x=candidate, t=content, w=why: pop_out(c, x, t, w)).pack(side="right")
 
-    def open_ask():
+    def open_ask(contact_id=None):
         nonlocal ask_dialog
-        if memory_store is None:
+        memory_contact_id = contact_id or selected_contact_id
+        if memory_store is None or memory_contact_id is None:
+            messagebox.showinfo("Memories", "Confirm one contact first.", parent=root)
             return
         if ask_dialog is not None and ask_dialog.winfo_exists():
             ask_dialog.lift()
             return
         try:
-            contacts = memory_store.list_contacts(limit=10000)
+            contact = memory_store.get_contact(memory_contact_id)
         except (ValueError, KeyError, sqlite3.Error) as exc:
-            memory_status_label.configure(text=f"Ask unavailable or memory store busy: {exc}")
+            memory_status_label.configure(text=f"Memories unavailable or memory store busy: {exc}")
             return
+
         dialog = ask_dialog = tk.Toplevel(root)
-        dialog.title("Ask Memory")
-        dialog.geometry("720x560")
-        state = AskSession(selected_contact_id)
+        dialog.title("Memories")
+        dialog.geometry("900x720")
+        state = AskSession(memory_contact_id)
         results = queue.SimpleQueue()
         shown = [None]
+        related_ids: set[str] = set()
         last_source_check = [0.0]
         running = [False]
-        page = [0]
-        scope = ttk.Combobox(dialog, state="readonly", values=["Choose contact", *[c.label for c in contacts]])
-        scope.pack(fill="x", padx=8, pady=8)
-        scope.current(next((i + 1 for i, c in enumerate(contacts) if c.id == selected_contact_id), 0))
-        question = tk.Entry(dialog)
-        question.pack(fill="x", padx=8)
-        reference = tk.Label(dialog, text=f"Query reference: {datetime.now().astimezone().isoformat()} · date queries: DD/MM/YYYY or ISO")
-        reference.pack(anchor="w", padx=8)
-        date_filter = ttk.Combobox(dialog, state="readonly", values=("Clarify date meaning", "Event date", "Recorded date"))
-        date_filter.current(0)
-        date_filter.pack(anchor="w", padx=8)
-        controls = tk.Frame(dialog)
-        controls.pack(fill="x", padx=8, pady=6)
-        status = tk.Label(dialog, text="Search approved memories and manually approved summaries.", anchor="w", wraplength=720, justify="left")
-        status.pack(fill="x", padx=8)
-        answer = tk.Text(dialog, height=10, wrap="word", state="disabled")
-        answer.pack(fill="both", expand=True, padx=8, pady=6)
-        source_list = tk.Listbox(dialog, height=6, exportselection=False)
-        source_list.pack(fill="x", padx=8)
-        source_actions = tk.Frame(dialog)
-        source_actions.pack(fill="x", padx=8, pady=8)
 
-        def clear():
-            state.new_question()
-            page[0] = 0
+        header = tk.Frame(dialog)
+        header.pack(fill="x", padx=12, pady=(10, 4))
+        tk.Label(header, text="Memories", font=("Segoe UI", 18, "bold")).pack(side="left")
+        tk.Label(header, text=contact.label, font=("Segoe UI", 11, "bold")).pack(side="left", padx=10)
+        back_button = tk.Button(header, text="Back to Home", command=dialog.destroy)
+        back_button.pack(side="right")
+        tk.Label(dialog, text=f"Ask about {contact.label} or manage saved memories.", anchor="w").pack(
+            fill="x", padx=12, pady=(0, 8)
+        )
+
+        question_row = tk.Frame(dialog)
+        question_row.pack(fill="x", padx=12)
+        question = tk.Entry(question_row)
+        question.pack(side="left", fill="x", expand=True)
+        ask_action = tk.Button(question_row, text="Ask")
+        ask_action.pack(side="left", padx=(6, 0))
+        new_question = tk.Button(question_row, text="New question")
+        new_question.pack(side="left", padx=(6, 0))
+        status = tk.Label(dialog, text="Ask a natural-language question, or edit and delete saved memories below.", anchor="w")
+        status.pack(fill="x", padx=12, pady=(6, 2))
+        answer_frame = tk.LabelFrame(dialog, text="Answer", padx=8, pady=6)
+        answer_frame.pack(fill="x", padx=12, pady=(0, 6))
+        answer = tk.Text(answer_frame, height=4, wrap="word", state="disabled")
+        answer.pack(fill="x")
+
+        canvas = tk.Canvas(dialog, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y", padx=(0, 12), pady=(0, 8))
+        canvas.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=(0, 8))
+        memory_body = tk.Frame(canvas)
+        body_window = canvas.create_window((0, 0), window=memory_body, anchor="nw")
+        memory_body.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(body_window, width=event.width))
+        related_frame = tk.LabelFrame(memory_body, text="Related memories", padx=6, pady=4)
+        related_frame.pack(fill="x", pady=(0, 6))
+        other_frame = tk.LabelFrame(memory_body, text="Other saved memories", padx=6, pady=4)
+        other_frame.pack(fill="x")
+
+        def clear_answer(*, clear_question=True):
             shown[0] = None
-            source_list.delete(0, tk.END)
+            related_ids.clear()
             answer.configure(state="normal")
             answer.delete("1.0", tk.END)
             answer.configure(state="disabled")
-            question.delete(0, tk.END)
+            if clear_question:
+                question.delete(0, tk.END)
 
-        def change_scope(_event=None):
-            index = scope.current()
-            clear()
-            state.set_scope(contacts[index - 1].id if index >= 1 else None)
+        def edit_memory(row):
+            content = simpledialog.askstring(
+                "Edit memory", "Memory text:", initialvalue=row["content"], parent=dialog
+            )
+            if content is None:
+                return
+            content = content.strip()
+            if not content:
+                messagebox.showinfo("Edit memory", "Memory text is required.", parent=dialog)
+                return
+            choices = {}
+            for statement in memory_store.memory_summary_preview(row["memory_id"]):
+                choice = messagebox.askyesnocancel(
+                    "Update linked summary sentence",
+                    f"Replace this summary sentence with the corrected memory?\n\n{statement['content']}",
+                    parent=dialog,
+                )
+                if choice is None:
+                    return
+                choices[statement["id"]] = "update" if choice else "keep"
+            try:
+                memory_store.correct_memory(
+                    row["memory_id"], content,
+                    expected_revision_id=row["revision_id"], summary_choices=choices,
+                )
+            except (ValueError, KeyError, sqlite3.Error) as exc:
+                messagebox.showerror("Edit memory", str(exc), parent=dialog)
+                return
+            invalidate_memory_context()
+            schedule_semantic_backfill()
+            state.new_question()
+            clear_answer(clear_question=False)
+            reload_memories()
+            status.configure(text="Memory updated. Ask again to refresh the answer.")
 
-        scope.bind("<<ComboboxSelected>>", change_scope)
+        def delete_memory(row):
+            if not messagebox.askyesno(
+                "Delete memory",
+                f"Permanently delete this memory and every revision?\n\n{row['content']}",
+                parent=dialog,
+            ):
+                return
+            try:
+                memory_store.delete_memory(row["memory_id"])
+            except (ValueError, KeyError, sqlite3.Error) as exc:
+                messagebox.showerror("Delete memory", str(exc), parent=dialog)
+                return
+            invalidate_memory_context()
+            state.new_question()
+            clear_answer(clear_question=False)
+            reload_memories()
+            status.configure(text="Memory deleted. Ask again to refresh the answer.")
 
-        def ask(use_cloud=True, *, page_forward=False):
+        def render_rows(parent, rows, empty_text):
+            for child in parent.winfo_children():
+                child.destroy()
+            if not rows:
+                tk.Label(parent, text=empty_text, anchor="w", fg="#666666").pack(fill="x", padx=4, pady=4)
+                return
+            for row in rows:
+                item = tk.Frame(parent, bd=1, relief="solid")
+                item.pack(fill="x", padx=2, pady=2)
+                saved = (row["approved_at"] or "")[:10] or "date unavailable"
+                tk.Label(item, text=f"{row['content']}\nSaved {saved}", justify="left", anchor="w", wraplength=590).pack(
+                    side="left", fill="x", expand=True, padx=8, pady=6
+                )
+                tk.Button(item, text="Delete", command=lambda current=row: delete_memory(current)).pack(
+                    side="right", padx=(3, 6), pady=5
+                )
+                tk.Button(item, text="Edit", command=lambda current=row: edit_memory(current)).pack(
+                    side="right", pady=5
+                )
+
+        def reload_memories():
+            try:
+                rows = list(memory_store.list_current_memories(memory_contact_id))
+            except (ValueError, KeyError, sqlite3.Error) as exc:
+                status.configure(text=f"Memories unavailable or store busy: {exc}")
+                return
+            related = [row for row in rows if row["memory_id"] in related_ids]
+            other = [row for row in rows if row["memory_id"] not in related_ids]
+            render_rows(related_frame, related, "Ask a question to see the associated saved memories.")
+            render_rows(other_frame, other, "No other saved memories.")
+
+        def associated_memory_ids(sources):
+            identifiers = {source.id for source in sources if source.revision_id}
+            for source in sources:
+                if source.revision_id is None:
+                    identifiers.update(
+                        row[0] for row in memory_store._connection.execute(
+                            "SELECT memory_id FROM summary_dependencies WHERE statement_id=? AND memory_id IS NOT NULL",
+                            (source.id,),
+                        )
+                    )
+            return identifiers
+
+        def clear():
+            state.new_question()
+            clear_answer()
+            reload_memories()
+            status.configure(text="Ask a natural-language question, or edit and delete saved memories below.")
+
+        def ask():
             if running[0]:
                 return
             text = question.get().strip()
             if not 1 <= len(text) <= 500:
                 status.configure(text="Enter a question of 1–500 characters.")
                 return
-            if not page_forward:
-                page[0] = 0
             generation = state.generation
             from copy import deepcopy
             worker_state = deepcopy(state)
-            query_offset = page[0]
             query_reference = datetime.now().astimezone()
-            date_mode = (None, "event", "recorded")[date_filter.current()]
-            reference.configure(text=f"Query reference: {query_reference.isoformat()} · date queries: DD/MM/YYYY or ISO")
             selected_sources = shown[0].sources if shown[0] else ()
             live = audio_session is not None and not stopping
             ledger = usage_ledger if live else outside_ask_ledger
-            if use_cloud:
-                if not state.contact_id:
-                    status.configure(text="Choose one contact to search.")
-                    return
             running[0] = True
-            status.configure(text="Pending — capture and transcription continue.")
+            status.configure(text="Finding an answer — capture and transcription continue.")
             worker_path = memory_store.path
+
             def work():
                 try:
                     with MemoryStore(worker_path, verify=False) as worker_store:
                         if generation != state.generation:
                             return
-                        result = cloud_answer(worker_store, text, selected_sources, ledger=ledger, live=live,
+                        result = cloud_answer(
+                            worker_store, text, selected_sources, ledger=ledger, live=live,
                             contact_id=worker_state.contact_id, event_id=worker_state.event_id,
-                            reference=query_reference, date_mode=date_mode,
-                            is_current=lambda: generation == state.generation, model=selected_live_model(), reasoning="low") if use_cloud else worker_state.answer(worker_store, text, offset=query_offset, reference=query_reference, date_mode=date_mode)
+                            reference=query_reference, date_mode=None,
+                            is_current=lambda: generation == state.generation,
+                            model=selected_live_model(), reasoning="low",
+                        )
                     results.put((generation, result, None, worker_state))
                 except Exception as exc:
                     results.put((generation, None, type(exc).__name__, None))
                 finally:
                     results.put((generation, None, "finished", None))
-            if use_cloud:
-                threading.Thread(target=work, name="explicit-cloud-ask", daemon=True).start()
-            else:
-                submit_local("ask", work)
 
-        tk.Button(controls, text="Submit", command=ask).pack(side="left")
-        tk.Button(controls, text="New question", command=clear).pack(side="left")
+            threading.Thread(target=work, name="explicit-cloud-ask", daemon=True).start()
+
+        ask_action.configure(command=ask)
+        new_question.configure(command=clear)
         question.bind("<Return>", lambda _event: ask())
-
-        def chosen_source():
-            selected = source_list.curselection()
-            return shown[0].sources[selected[0]] if selected and shown[0] else None
-
-        def choose_event():
-            source = chosen_source()
-            if source is None:
-                return
-            state.choose_event(source.id)
-            status.configure(text="Event selected. Ask a short follow-up; evidence will be checked again.")
-
-        def preview_source():
-            source = chosen_source()
-            if source is None:
-                return
-            current = source_current((source,))
-            if current is not True:
-                status.configure(text="Memory store busy; retry opening the source." if current is None else "Source changed or was deleted. Ask again.")
-                return
-            lines = [f"{source.kind} · {source.contact_label}\nSource date: {source.source_date}\n"
-                     f"Event date: {source.event_date or 'see original wording; unresolved if absent'}\n"
-                     f"Confidence: {source.confidence}\n\n{source.content}"]
-            if source.record_id:
-                try:
-                    lines += [f"Turn {turn.display_order} · {turn.timestamp} · {turn.speaker_name}: {turn.content}"
-                              for turn in memory_store.record_turns(source.record_id) if turn.display_order in source.turns]
-                except sqlite3.Error:
-                    status.configure(text="Memory store busy; retry opening the source.")
-                    return
-            show_evidence(dialog, "\n\n".join(lines), lambda: validate_sources(memory_store, (source,)))
-
-        tk.Button(source_actions, text="Choose this event", command=choose_event).pack(side="left")
-        tk.Button(source_actions, text="Open exact source", command=preview_source).pack(side="left", padx=6)
 
         def poll_ask():
             if not dialog.winfo_exists():
@@ -728,39 +801,39 @@ def show_window(summary: str) -> None:
                 if generation != state.generation:
                     continue
                 if error:
-                    status.configure(text=f"Unavailable ({error}); valid local results remain available.")
-                else:
-                    current = source_current(result.sources)
-                    if current is None:
-                        running[0] = True
-                        results.put((generation, result, error, completed_state))
-                        status.configure(text="Memory store busy — retrying result validation.")
-                        break
-                    running[0] = False
-                    if not current:
-                        status.configure(text="Evidence changed; ask again using current approved sources.")
-                        continue
-                    state.questions, state.exchanges = completed_state.questions, completed_state.exchanges
-                    state.event_id = completed_state.event_id
-                    shown[0] = result
-                    status.configure(text=f"{result.status}{' · ' + result.confidence + ' confidence' if result.confidence else ''} · {result.coverage} · {result.backend}")
-                    answer.configure(state="normal")
-                    answer.delete("1.0", tk.END)
-                    answer.insert("1.0", result.answer)
-                    answer.configure(state="disabled")
-                    source_list.delete(0, tk.END)
-                    for source in result.sources:
-                        source_list.insert(tk.END, f"{source.contact_label} · {source.kind} · {source.source_date[:10]} · {source.content}")
+                    status.configure(text=f"Answer unavailable ({error}); saved memories remain available.")
+                    continue
+                current = source_current(result.sources)
+                if current is None:
+                    running[0] = True
+                    results.put((generation, result, error, completed_state))
+                    status.configure(text="Memory store busy — retrying result validation.")
+                    break
+                running[0] = False
+                if not current:
+                    status.configure(text="A memory changed; ask again for a current answer.")
+                    continue
+                state.questions, state.exchanges = completed_state.questions, completed_state.exchanges
+                state.event_id = completed_state.event_id
+                shown[0] = result
+                related_ids.clear()
+                related_ids.update(associated_memory_ids(result.sources))
+                answer.configure(state="normal")
+                answer.delete("1.0", tk.END)
+                answer.insert("1.0", result.answer)
+                answer.configure(state="disabled")
+                reload_memories()
+                status.configure(text=f"Answer ready · {len(related_ids)} associated saved memor{'y' if len(related_ids) == 1 else 'ies'}.")
             if shown[0] and time.perf_counter() - last_source_check[0] >= 1:
                 last_source_check[0] = time.perf_counter()
                 current = source_current(shown[0].sources)
                 if current is None:
-                    status.configure(text="Memory store busy — retrying source validation.")
+                    status.configure(text="Memory store busy — retrying answer validation.")
                 elif current is False:
-                    clear()
-                    status.configure(text="Evidence changed; ask again using current approved sources.")
-                elif str(status.cget("text")).startswith("Memory store busy"):
-                    status.configure(text=f"{shown[0].status} · {shown[0].coverage} · {shown[0].backend}")
+                    state.new_question()
+                    clear_answer(clear_question=False)
+                    reload_memories()
+                    status.configure(text="A memory changed; ask again for a current answer.")
             dialog.after(150, poll_ask)
 
         def close_ask():
@@ -771,11 +844,12 @@ def show_window(summary: str) -> None:
             dialog.destroy()
             schedule_semantic_backfill()
 
+        back_button.configure(command=close_ask)
         dialog.protocol("WM_DELETE_WINDOW", close_ask)
+        reload_memories()
         dialog.after(150, poll_ask)
         question.focus_set()
 
-    ask_button.configure(command=open_ask)
     live_ask_button.configure(command=open_ask)
 
     def open_transcript() -> None:
@@ -1140,7 +1214,7 @@ def show_window(summary: str) -> None:
             try:
                 row = memory_store._connection.execute("SELECT contact_id FROM conversation_records WHERE id=?", (record_id,)).fetchone()
                 if row and row[0]:
-                    manage_memory(row[0])
+                    open_contact_data(row[0])
                 else:
                     label.configure(text="Conversation or assigned contact is unavailable.")
             except (ValueError, KeyError, sqlite3.Error) as exc:
@@ -1367,7 +1441,7 @@ def show_window(summary: str) -> None:
         refresh_contact_choices()
         set_selected_contact(contact.id)
 
-    def manage_memory(contact_id=None) -> None:
+    def open_contact_data(contact_id=None) -> None:
         contact_id = contact_id or selected_contact_id
         if memory_store is None or contact_id is None:
             messagebox.showinfo("Contact memory", "Confirm one contact first.")
@@ -2177,7 +2251,7 @@ def show_window(summary: str) -> None:
         contact_actions = tk.Frame(contact)
         contact_actions.pack(fill="x", pady=(6, 0))
         for text in ("Edit aliases", "Merge", "Export", "Delete"):
-            tk.Button(contact_actions, text=text, command=manage_memory).pack(side="left", padx=(0, 5))
+            tk.Button(contact_actions, text=text, command=open_contact_data).pack(side="left", padx=(0, 5))
 
         help_box = tk.LabelFrame(body, text="Help", padx=10, pady=8)
         help_box.grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
@@ -2205,7 +2279,7 @@ def show_window(summary: str) -> None:
     contact_select_button.configure(command=select_contact)
     contact_create_button.configure(command=create_contact)
     contact_clear_button.configure(command=lambda: set_selected_contact(None))
-    memory_manage_button.configure(command=manage_memory)
+    memory_manage_button.configure(command=open_ask)
     import_button.configure(command=import_chat)
     unassigned_button.configure(command=show_unassigned)
     settings_button.configure(command=open_settings)
@@ -2500,7 +2574,7 @@ def show_window(summary: str) -> None:
             if error_type:
                 memory_status_label.configure(text=f"Conversation saved; memory analysis can be retried ({error_type})")
             else:
-                memory_status_label.configure(text="Memory proposals are ready for review in Manage memory")
+                memory_status_label.configure(text="Memory proposals are ready in Summary and memories review")
 
     def interpretation_error_message(error_type: str | None) -> str:
         if error_type == InterpretationBudgetExceeded.__name__:

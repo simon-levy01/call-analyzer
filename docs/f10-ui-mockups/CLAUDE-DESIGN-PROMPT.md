@@ -1,6 +1,6 @@
 # F10 UI implementation prompt for Claude Design
 
-Implement the F10 Conversation Copilot desktop UI from the supplied reference images and the current GitHub repository. The current branch is a functional checkpoint: its Tk UI is wired to the existing operations, but its visual implementation is not accepted and does not match the mockups. Replace the presentation layer so the rendered product closely matches the images, while preserving the working system behavior and privacy/data boundaries.
+Implement the F10 Conversation Copilot desktop UI from the supplied reference images and the current GitHub repository. The current branch is a functional checkpoint: its Tk UI is wired to the existing operations, including one combined Memories workflow for natural-language questions plus memory editing/deletion, but its visual implementation is not accepted and does not match the mockups. Replace the presentation layer so the rendered product closely matches the images, while preserving the working system behavior and privacy/data boundaries.
 
 Repository: https://github.com/simon-levy01/conversation-assistant — use the latest `main` branch.
 
@@ -70,7 +70,7 @@ Follow `04-settings.png`. Never display the actual API key; only show masked/con
 
 ## Memories
 
-Follow `05-memories.png`. Replace the separate Ask Memory and Manage Memories dialogs with one contact-scoped screen. It contains a natural-language question field and Ask action, a natural-language answer, the saved memories associated with that answer, and the other saved memories. Show when each memory was saved and provide Edit and Delete on every memory, plus Back to Home and Done. Do not show raw sources, evidence, scores, search filters, pending proposals, rejected items, add/connect actions, contact management, aliases, merge, export, or any cloud-permission control. Delete keeps its existing confirmation and exact scope. Reuse the existing Ask retrieval/answer path and memory edit/delete operations; do not duplicate them.
+Follow `05-memories.png`. The checkpoint already routes Home and Live to one contact-scoped Memories screen; retain that single workflow while replacing its provisional Tk layout. It contains a natural-language question field and Ask action, a natural-language answer, the saved memories associated with that answer, and the other saved memories. Show when each memory was saved and provide Edit and Delete on every memory, plus Back to Home and Done. Do not show raw sources, evidence, scores, search filters, pending proposals, rejected items, add/connect actions, contact management, aliases, merge, export, or any cloud-permission control. Delete keeps its existing confirmation and exact scope. Reuse the existing Ask retrieval/answer path and memory edit/delete operations; do not duplicate them or reintroduce separate dialogs.
 
 ## Implementation boundaries
 
