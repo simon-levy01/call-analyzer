@@ -122,6 +122,8 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
             unthemed.destroy()
             widgets = descendants(root)
             assert not any(isinstance(widget, tk.Canvas) for widget in widgets)
+            assert all(str(widget.cget("background")).casefold() not in {"white", "#ffffff"}
+                       for widget in widgets if isinstance(widget, (tk.Listbox, tk.Text)))
             assert button(root, "Start call")
             assert button(root, "Settings")
             assert not any(widget.cget("text") in {"Select", "Clear"}

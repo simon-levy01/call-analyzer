@@ -229,13 +229,21 @@ def apply_theme(widget, colors: dict[str, str], *, font_size: int = 10) -> None:
                     highlightthickness=2, highlightbackground=colors["outline"],
                     highlightcolor=colors["accent"],
                 )
-        elif isinstance(widget, (tk.Entry, tk.Text, tk.Listbox)):
+        elif isinstance(widget, (tk.Entry, tk.Text)):
             widget.configure(
                 background=colors["muted"], foreground=colors["ink"],
                 insertbackground=colors["ink"], selectbackground=colors["accent"],
                 selectforeground=colors["on_accent"], relief="flat", bd=0,
                 highlightthickness=2, highlightbackground=colors["line"],
                 highlightcolor=colors["accent"], font=(BODY_FONT, font_size),
+            )
+        elif isinstance(widget, tk.Listbox):
+            widget.configure(
+                background=colors["muted"], foreground=colors["ink"],
+                selectbackground=colors["accent"], selectforeground=colors["on_accent"],
+                relief="flat", bd=0, highlightthickness=2,
+                highlightbackground=colors["line"], highlightcolor=colors["accent"],
+                font=(BODY_FONT, font_size),
             )
         elif isinstance(widget, tk.Scale):
             widget.configure(

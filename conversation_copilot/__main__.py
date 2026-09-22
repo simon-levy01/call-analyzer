@@ -248,7 +248,13 @@ def show_window(summary: str) -> None:
     tk.Label(audio_controls, text="Call audio").grid(row=1, column=0, sticky="w", padx=6, pady=4)
     playback_box = ttk.Combobox(audio_controls, state="readonly", width=54)
     playback_box.grid(row=1, column=1, sticky="ew", padx=6, pady=4)
-    audio_capture_notice = role(tk.Label(audio_controls, text="Captures every sound on this device — close unrelated audio apps.", anchor="w"), "warning")
+    audio_capture_notice = role(tk.Label(
+        audio_controls,
+        text="Captures every sound on this device — close unrelated audio apps.",
+        anchor="w",
+        justify="left",
+        wraplength=260,
+    ), "warning")
     audio_capture_notice.grid(row=2, column=1, sticky="w", padx=6, pady=(0, 4))
     tk.Label(audio_controls, text="Mic threshold (lower = more sensitive)").grid(row=3, column=0, sticky="w", padx=6, pady=4)
     sensitivity = tk.Scale(audio_controls, from_=50, to=2_000, resolution=50, orient="horizontal")
