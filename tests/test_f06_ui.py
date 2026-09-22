@@ -6,6 +6,7 @@ from conversation_copilot import ask_memory, audio, memory, windows
 from conversation_copilot.__main__ import show_window
 from conversation_copilot.f06_evaluation import seed_case
 from conversation_copilot.models import ConversationTurn, SpeakerRole
+from conversation_copilot.ui_theme import RoundedButton
 from conversation_copilot.windows import CallWindow
 
 
@@ -115,14 +116,21 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
                     root.destroy()
 
         def start():
+            unthemed = tk.Toplevel(root)
+            RoundedButton(unthemed, text="Unthemed popup button").pack()
+            unthemed.update_idletasks()
+            unthemed.destroy()
             widgets = descendants(root)
             assert not any(isinstance(widget, tk.Canvas) for widget in widgets)
             assert button(root, "Start call")
             assert button(root, "Settings")
-            assert button(root, "Clear")
+            assert not any(widget.cget("text") in {"Select", "Clear"}
+                           for widget in widgets if isinstance(widget, (tk.Button, ttk.Button)))
+            assert not any(widget.cget("text") == "Language"
+                           for widget in widgets if isinstance(widget, tk.Label))
             assert any("storage disabled" in str(widget.cget("text"))
                        for widget in widgets if isinstance(widget, tk.Label))
-            theme_toggle = next(widget for widget in widgets if isinstance(widget, ttk.Button)
+            theme_toggle = next(widget for widget in widgets if isinstance(widget, (tk.Button, ttk.Button))
                                 and widget.cget("text") in {"Dark theme", "Light theme"})
             original_page = root.cget("background")
             theme_toggle.invoke()
@@ -132,7 +140,7 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
                                and any(str(value).startswith("Yaheli") for value in widget.cget("values")))
             contact_box.current(next(i for i, value in enumerate(contact_box.cget("values"))
                                      if str(value).startswith("Yaheli")))
-            button(root, "Select").invoke()
+            contact_box.event_generate("<<ComboboxSelected>>")
 
             assert len([widget for widget in widgets if isinstance(widget, (tk.Button, ttk.Button))
                         and widget.cget("text") == "Memories"]) >= 2
@@ -155,6 +163,8 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
             assert {"✦  Answer", "Memories behind this answer", "Other saved memories"} <= frames
             assert button(ask, "Edit")
             assert button(ask, "Delete")
+            for text in ("Edit aliases", "Merge contact", "Export data", "Delete contact"):
+                assert button(ask, text)
             assert not any(isinstance(widget, tk.Button) and widget.cget("text") in {"Open exact source", "Choose this event"}
                            for widget in descendants(ask))
             button(ask, "Edit").invoke()
@@ -167,10 +177,16 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
             button(root, "Settings").invoke()
             settings = next(widget for widget in root.winfo_children()
                             if isinstance(widget, real_top) and widget.title() == "Settings")
-            assert button(settings, "Save settings")
-            assert button(settings, "Edit aliases")
-            button(settings, "Save settings").invoke()
-            assert not settings.winfo_exists()
+            assert button(settings, "Save override")
+            key_entries = [widget for widget in descendants(settings) if isinstance(widget, tk.Entry)]
+            assert key_entries and all(widget.cget("show") == "•" for widget in key_entries)
+            assert not any(isinstance(widget, (tk.Checkbutton, tk.Radiobutton))
+                           for widget in descendants(settings))
+            settings_text = " ".join(str(widget.cget("text")) for widget in descendants(settings)
+                                     if isinstance(widget, (tk.Label, tk.LabelFrame, tk.Button)))
+            assert "Text size" not in settings_text
+            assert "Edit aliases" not in settings_text
+            button(settings, "← Back to Home").invoke()
             button(root, "◷  History").invoke()
             chooser = next(widget for widget in root.winfo_children()
                            if isinstance(widget, real_top) and widget.title() == "Review one conversation")
@@ -184,6 +200,12 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
             assert button(review, "Reject all")
             assert button(review, "Approve all memories + summary")
             assert button(review, "Summary versions")
+            checkboxes = [widget for widget in descendants(review) if isinstance(widget, tk.Checkbutton)]
+            assert checkboxes
+            button(review, "Select all").invoke()
+            assert all(bool(review.getvar(widget.cget("variable"))) for widget in checkboxes)
+            button(review, "Clear").invoke()
+            assert not any(bool(review.getvar(widget.cget("variable"))) for widget in checkboxes)
             assert not any(isinstance(widget, tk.Button) and "cloud" in str(widget.cget("text")).casefold()
                            for widget in descendants(review))
             assert "They discussed the book" in next(widget for widget in descendants(review)
@@ -195,10 +217,10 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
             button(root, "Start call").invoke()
             root.update_idletasks()
             live = next(widget for widget in root.winfo_children()[0].winfo_children()
-                        if any(isinstance(child, (tk.Button, ttk.Button)) and child.cget("text") == "End call"
+                        if any(isinstance(child, (tk.Button, ttk.Button)) and child.cget("text") == "■  END CALL"
                                for child in descendants(widget)))
             assert live.winfo_manager() == "pack"
-            for text in ("End call", "Refresh all", "Transcript", "Memories", "Face ok · Switch"):
+            for text in ("■  END CALL", "Refresh all", "Transcript", "Memories", "Face ok · Switch"):
                 assert button(root, text)
             group_titles = {widget.cget("text") for widget in descendants(root) if isinstance(widget, tk.LabelFrame)}
             assert {"Possible tone", "Social cue", "Potential responses", "Related memory", "Follow-up"} <= group_titles
@@ -211,13 +233,13 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
             assert "No finalized transcript" in next(widget for widget in descendants(transcript)
                                                       if isinstance(widget, tk.Text)).get("1.0", tk.END)
             transcript.destroy()
-            button(root, "End call").invoke()
+            button(root, "■  END CALL").invoke()
             root.after(450, lambda: check(finished))
 
         def finished():
             assert button(root, "Start call")
             live = next(widget for widget in root.winfo_children()[0].winfo_children()
-                        if any(isinstance(child, (tk.Button, ttk.Button)) and child.cget("text") == "End call"
+                        if any(isinstance(child, (tk.Button, ttk.Button)) and child.cget("text") == "■  END CALL"
                                for child in descendants(widget)))
             assert not live.winfo_manager()
             completed.append(True)

@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 import sys
+import tkinter as tk
+import tkinter.font as tkfont
+
+from PIL import Image, ImageDraw, ImageTk
 
 
 THEMES = {
@@ -33,6 +37,94 @@ THEMES = {
 
 DISPLAY_FONT = "Trebuchet MS"
 BODY_FONT = "Segoe UI Semibold"
+
+
+class RoundedButton(tk.Button):
+    """Accessible Tk button with a theme-colored rounded background."""
+
+    def __init__(self, master=None, **kwargs):
+        kwargs.setdefault("compound", "center")
+        kwargs.setdefault("relief", "flat")
+        kwargs.setdefault("borderwidth", 0)
+        kwargs.setdefault("highlightthickness", 0)
+        kwargs.setdefault("padx", 10)
+        kwargs.setdefault("pady", 6)
+        super().__init__(master, **kwargs)
+        self._cc_fill = self.cget("background")
+        self._cc_outline = self._cc_fill
+        self._cc_parent_bg = self._cc_fill
+        self._cc_disabled_fill = self._cc_fill
+        self._cc_focus_outline = self._cc_outline
+        self._cc_image = None
+        self._cc_image_key = None
+        self._cc_palette_ready = False
+        self._cc_focused = False
+        self.bind("<Configure>", self._redraw, add="+")
+        self.bind("<FocusIn>", self._set_focus, add="+")
+        self.bind("<FocusOut>", self._set_focus, add="+")
+
+    def configure(self, cnf=None, **kwargs):
+        result = tk.Button.configure(self, cnf, **kwargs)
+        if getattr(self, "_cc_palette_ready", False) and ({"text", "font", "state"} & set(kwargs)):
+            self._cc_image_key = None
+            self.after_idle(self._redraw)
+        return result
+
+    config = configure
+
+    def set_palette(
+        self, fill: str, foreground: str, outline: str, parent_bg: str,
+        *, disabled_fill: str, focus_outline: str,
+    ) -> None:
+        self._cc_fill = fill
+        self._cc_outline = outline
+        self._cc_parent_bg = parent_bg
+        self._cc_disabled_fill = disabled_fill
+        self._cc_focus_outline = focus_outline
+        self._cc_palette_ready = True
+        self._cc_image_key = None
+        tk.Button.configure(
+            self,
+            background=parent_bg,
+            foreground=foreground,
+            activebackground=parent_bg,
+            activeforeground=foreground,
+            disabledforeground=outline,
+        )
+        self.after_idle(self._redraw)
+
+    def _set_focus(self, event) -> None:
+        self._cc_focused = event.type == tk.EventType.FocusIn
+        self._cc_image_key = None
+        self._redraw()
+
+    def _redraw(self, _event=None) -> None:
+        try:
+            if not self._cc_palette_ready or not self.winfo_exists():
+                return
+            width, height = self.winfo_width(), self.winfo_height()
+            font = tkfont.Font(font=self.cget("font"))
+            width = max(width, font.measure(self.cget("text")) + 24)
+            height = max(height, font.metrics("linespace") + 14)
+            disabled = self.cget("state") == "disabled"
+        except tk.TclError:
+            return
+        fill = self._cc_disabled_fill if disabled else self._cc_fill
+        outline = self._cc_focus_outline if self._cc_focused else self._cc_outline
+        key = (width, height, fill, outline, self._cc_parent_bg, self._cc_focused, disabled)
+        if width < 4 or height < 4 or key == self._cc_image_key:
+            return
+        image = Image.new("RGB", (width, height), self._cc_parent_bg)
+        ImageDraw.Draw(image).rounded_rectangle(
+            (1, 1, width - 2, height - 2),
+            radius=min(12, height // 2),
+            fill=fill,
+            outline=outline,
+            width=3 if self._cc_focused else 2,
+        )
+        self._cc_image = ImageTk.PhotoImage(image, master=self)
+        self._cc_image_key = key
+        tk.Button.configure(self, image=self._cc_image, compound="center", padx=0, pady=0)
 
 
 def system_theme() -> str:
@@ -99,8 +191,11 @@ def apply_theme(widget, colors: dict[str, str], *, font_size: int = 10) -> None:
                 highlightthickness=0,
             )
         elif isinstance(widget, (tk.Frame, tk.Canvas)):
-            surface = colors["surface"] if getattr(widget, "_cc_surface", False) else parent_bg
-            widget.configure(background=surface, highlightbackground=colors["line"])
+            if role in {"tone", "social", "replies", "memory", "follow_up"}:
+                background = colors[role]
+            else:
+                background = colors["surface"] if getattr(widget, "_cc_surface", False) else parent_bg
+            widget.configure(background=background, highlightbackground=colors["line"])
         elif isinstance(widget, tk.Label):
             background = parent_bg
             foreground = colors["ink"]
@@ -115,16 +210,25 @@ def apply_theme(widget, colors: dict[str, str], *, font_size: int = 10) -> None:
             elif role == "success":
                 background, foreground = colors["success"], "#FFFFFF"
             elif role == "danger":
-                background, foreground = colors["danger_soft"], colors["danger_ink"]
+                background, foreground = colors["danger"], "#FFFFFF"
             elif role == "warning":
                 background, foreground = colors["warning_soft"], colors["ink"]
-            widget.configure(
-                background=background, foreground=foreground, activebackground=background,
-                activeforeground=foreground, font=(BODY_FONT, font_size, "bold"),
-                relief="flat", bd=0, padx=10, pady=6, cursor="hand2",
-                highlightthickness=2, highlightbackground=colors["outline"],
-                highlightcolor=colors["accent"],
-            )
+            elif role in {"tone", "social", "replies", "memory", "follow_up"}:
+                background = colors[role]
+            if isinstance(widget, RoundedButton):
+                widget.configure(font=(BODY_FONT, font_size, "bold"), cursor="hand2")
+                widget.set_palette(
+                    background, foreground, colors["outline"], parent_bg,
+                    disabled_fill=colors["muted"], focus_outline=colors["accent"],
+                )
+            else:
+                widget.configure(
+                    background=background, foreground=foreground, activebackground=background,
+                    activeforeground=foreground, font=(BODY_FONT, font_size, "bold"),
+                    relief="flat", bd=0, padx=10, pady=6, cursor="hand2",
+                    highlightthickness=2, highlightbackground=colors["outline"],
+                    highlightcolor=colors["accent"],
+                )
         elif isinstance(widget, (tk.Entry, tk.Text, tk.Listbox)):
             widget.configure(
                 background=colors["muted"], foreground=colors["ink"],

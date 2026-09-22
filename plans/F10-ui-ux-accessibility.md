@@ -1,6 +1,6 @@
 # F10 — UI/UX and accessibility
 
-**Status:** S1–S3 system work implemented locally with offline coverage on September 21, 2026. U1–U4 UI/accessibility work, Claude review and user acceptance remain pending; no review or acceptance pass is claimed.
+**Status:** S1–S3 system work and the current U1–U3 interface pass are implemented with offline coverage. A tool-disabled Claude review was completed and its concrete button-state, focus, popup-safety and Review-selection findings were corrected on September 22, 2026. Native computer-use access was unavailable; user visual acceptance and final review remain pending.
 **Priority:** F10, then F08 Windows installation/review, then F09 macOS. October 1 remains the usable Windows MVP target with documented source setup.
 
 **Trello:** Permanent `F10 — UI/UX and accessibility` column created on the project board. [Planning card](https://trello.com/c/w7tndIg7), [roadmap card](https://trello.com/c/nXjwv5A1). Cards F10.01–F10.11 cover planning/feasibility, S1–S3 system work, U1–U3 UI work, accessibility/integration, preliminary review/corrections, user walkthrough/corrections and final review/publication. Trello status has not been updated by this local implementation; review work remains pending and the plan is not yet published to GitHub.
@@ -23,10 +23,9 @@ The latest user decisions supersede conflicting older F10 inventory entries:
 - Up to **four useful items in each category**, all reachable without the old two-plus-More restriction; no filler. Stable category positions, individual **Pop out/Freeze**, **Dismiss** and compact source access.
 - Freeze is only a temporary copy in a popup, independent of live refresh. It is not memory creation, approval or a pause of the pipeline.
 - Face-loss tolerance increases from six to **18 seconds**.
-- Memories combines natural-language questions and management in one contact-scoped screen: show the answer, the saved memories associated with it, and the remaining saved memories. Each memory shows its saved date and only Edit/Delete actions. Do not show raw sources, evidence, confidence or pending/rejected proposals there. No local-versus-cloud choice in the normal flow.
+- Memories combines natural-language questions and management in one contact-scoped screen: show the answer, the saved memories associated with it, and the remaining saved memories. Each memory shows its saved date and only Edit/Delete actions. Do not show raw sources, evidence, confidence or pending/rejected proposals there. The only contact controls on this screen are Edit aliases, Merge contact, Export data and Delete contact. No local-versus-cloud choice in the normal flow.
 - Review supports individual approve/reject, checkbox multi-selection with approve/reject selected, approve all memories, reject all pending memories, and approve all memories plus summary.
-- API key resides in Settings; reuse the current system key by default and display stars. Never expose or copy the key into documentation, logs, screenshots or Trello.
-- Keep useful contact/data operations close in secondary menus; remove normal-screen diagnostic metrics and test controls.
+- Settings contains only the API key: reuse the current system key by default and display stars. Never expose or copy the key into documentation, logs, screenshots or Trello. Text size, contrast, motion, language, help and contact-management settings are intentionally omitted.
 
 ## Screen map
 
@@ -34,7 +33,7 @@ The latest user decisions supersede conflicting older F10 inventory entries:
 Home
  ├─ Selected contact → Memories / History / Text import
  │                                      └─ select record → Summary and memories
- ├─ Settings → masked API key, readability, selected-contact data actions, help
+ ├─ Settings → masked API key and replacement override only
  └─ Start call → Live call
                  ├─ Refresh all / Dismiss / Pop out item
                  ├─ Show transcript / Memories
@@ -61,11 +60,11 @@ Readiness / concise endpoint-wide audio notice
                                                     [Start call]
 ```
 
-- Contact selection is explicit; search matches/aliases are suggestions until selected. Create/edit uses name, distinguishing context and optional time zone. Changing the browsing contact outside a call does not silently reassign a running call.
+- Choosing a contact from the selector confirms it immediately. Create adds a contact; Edit opens the combined Memories/contact-management screen. Changing the browsing contact outside a call does not silently reassign a running call.
 - Start requires a confirmed contact, eligible call window, selected input/output devices and working local runtime. Surface missing key/readiness before a paid workflow; no paid key validation merely from opening Home or Settings.
 - Preserve current eligible WhatsApp/Zoom/dedicated Chrome Meet rules, source priority and explicit device selection. Microphone sensitivity controls the existing speech threshold, not playback volume. Show levels without adding unsupported speaker sensitivity controls.
 - No prior device index is restored across app restart. Preserve current clean-stop convenience only while its enumeration remains valid.
-- Memories opens one contact-scoped surface with a natural-language question field, answer, associated saved memories and other saved memories. Show saved dates and Edit/Delete per memory. Do not show sources, evidence, pending/rejected proposals, add/connect actions or contact administration on this screen.
+- Memories opens one contact-scoped surface with a natural-language question field, answer, associated saved memories and other saved memories. Show saved dates and Edit/Delete per memory. Do not show sources, evidence, pending/rejected proposals or add/connect actions. A compact contact strip contains only Edit aliases, Merge contact, Export data and Delete contact.
 - History is a contact-scoped panel with date, source, duration where available and review status. Select a call or import to open the shared editor. Pending-review indicator on Home/history; unassigned legacy records can be assigned here. Calls without a selected contact are no longer the normal Start path.
 - Import text opens a file/optional paste preview, participant mapping, chronological text and date/time-zone assumptions. Confirming import saves normalized text and automatically starts Terra memory generation; show processing and cost. Media placeholders/unsupported formats get clear messages. Reuse parser rules, do not invent duplicate-import detection.
 
@@ -127,8 +126,8 @@ Secondary: regenerate/continue, versions, transcript, source/data actions
 
 | Surface | Scope and controls |
 |---|---|
-| Memories | Contact label, natural-language question field and Ask/Enter; model-based natural-language answer; associated saved memories followed by other saved memories; saved date and Edit/Delete on every memory. Cover loading, no match, ambiguity and provider error without showing raw sources, evidence, scores, pending/rejected proposals or contact-management controls. Home and Live open the same component and selector. |
-| Settings | Masked existing API key, replace/save override, readability/text size, contrast, workflow help and English-only/local/cloud explanation. Selected-contact section contains aliases, merge, export and delete. Disable contact actions when none is selected. |
+| Memories | Contact label, natural-language question field and Ask/Enter; model-based natural-language answer; associated saved memories followed by other saved memories; saved date and Edit/Delete on every memory. Cover loading, no match, ambiguity and provider error without showing raw sources, evidence, scores or pending/rejected proposals. Only Edit aliases, Merge contact, Export data and Delete contact appear as contact actions. Home and Live open the same component and selector. |
+| Settings | Masked existing API key and replace/save override only. No text-size, contrast, motion, language, privacy/help or contact-management sections. |
 | History actions | Reassign record with derived-memory effects, delete source with keep/delete-memory preview, legacy unassigned assignment, transcript/source access and supported exports. |
 | Evidence | Reuse exact source viewer across cards, popups, memories, Ask and summary statements. Label current versus corrected/historical sources and unavailable/deleted evidence. Only claim sources actually cited by the answer. |
 | Setup/recovery | Missing key/model/dependency instructions, device refresh/reselection and provider errors. No normal-screen diagnostic wall. Advanced opt-in private logging/troubleshooting remains secondary. |
@@ -171,7 +170,7 @@ No monetary cap does not mean unlimited context/output, concurrent requests or b
 
 - Keyboard: every control reachable with Tab/Shift+Tab, visible focus, Enter submits a Memories question, Space toggles checkboxes, Escape closes secondary popups without ending the call. Closing the live/main window must make stopping/saving explicit.
 - Use text labels, not color-only states; target at least 4.5:1 normal-text contrast and 3:1 large text/non-text controls. Check actual toolkit screen-reader names/roles on Windows; report unsupported behavior honestly.
-- Check main screens at 1024×768 and 1280×720, and Windows 100%, 150% and 200% scaling on a suitable display. Provide scroll/reflow at constrained logical sizes; End call and status remain reachable. Text sizing 100%, 125%, 150%; small beside-call layout must keep all categories reachable.
+- Check main screens at 1024×768 and 1280×720, and Windows 100%, 150% and 200% display scaling on a suitable display. Provide scroll/reflow at constrained logical sizes; End call and status remain reachable. Small beside-call layout must keep all categories reachable.
 - No live-update focus stealing, flashing, forced transcript scrolling or automatic popup opening. Freeze and transcript popups open only from user actions. Stable category order and reduced-motion default.
 - Destructive contact/source/memory actions retain consequence previews and safe Cancel focus. No invented Undo for irreversible deletion.
 
@@ -189,5 +188,7 @@ No monetary cap does not mean unlimited context/output, concurrent requests or b
 The main risks are four-item density on a small screen, source-safe bulk actions/popups, Tk accessibility, increased cost without app dollar caps, and model changes affecting latency/output quality. Visible cost is an estimate, not a live provider balance; unknown usage is not zero cost. Do not attempt balance polling with unsupported APIs.
 
 No new intent classifier, Sol selector, auto-sent replies, persistent frozen collection, full backup/restore, cloud account system, raw audio/video upload, biometric identity, new language, dedicated installer, Mac implementation or presentation work. Raw sensor metrics, separate manual test-model buttons, debug reasoning controls and local/cloud choice buttons leave the normal UI; useful diagnostics remain secondary.
+
+Deferred system follow-up: stored rows already have audit timestamps, but memories and summary statements do not automatically derive semantic event date/time metadata from their own content. Add that later with source provenance, time-zone handling and the existing approval/correction/deletion boundaries; it is not part of this UI-only pass.
 
 Next: review these screen wireframes with the user, then choose concrete spacing/density and run the bounded Tk layout/accessibility feasibility check. This plan records behavior and implementation scope; polished visual mockups and implementation/review remain outstanding.

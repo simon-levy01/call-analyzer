@@ -105,7 +105,6 @@ def show_window(summary: str) -> None:
         local_model_available,
         prepare_transcription_runtime,
         production_transcription_language,
-        transcription_language_labels,
     )
     from .interpretation import (
         CoordinatorEventKind,
@@ -131,7 +130,7 @@ def show_window(summary: str) -> None:
     from .guidance import CATEGORIES, GuidanceDisplay, interpret_guidance
     from .ask_memory import AskSession, memory_source, validate_sources, cloud_answer, ASK_INPUT_LIMIT, ASK_OUTPUT_LIMIT
     from .post_call import process_review, review_estimate
-    from .ui_theme import DISPLAY_FONT, THEMES, apply_theme, configure_ttk, role, surface, system_theme
+    from .ui_theme import DISPLAY_FONT, THEMES, RoundedButton, apply_theme, configure_ttk, role, surface, system_theme
     from .memory import (
         AmbiguousContact,
         MEMORY_TYPES,
@@ -183,9 +182,9 @@ def show_window(summary: str) -> None:
     home_title.pack(anchor="w")
     home_subtitle = tk.Label(title_stack, text="Say hi, and I'll listen along", anchor="w")
     home_subtitle.pack(anchor="w")
-    settings_button = ttk.Button(home_header, text="Settings", style="Quiet.TButton")
+    settings_button = RoundedButton(home_header, text="Settings")
     settings_button.pack(side="right")
-    theme_button = ttk.Button(home_header, text="Dark theme" if theme_name == "light" else "Light theme", style="Quiet.TButton")
+    theme_button = RoundedButton(home_header, text="Dark theme" if theme_name == "light" else "Light theme")
     theme_button.pack(side="right", padx=(0, 6))
 
     home_body = tk.Frame(home_screen, bg=colors["page"])
@@ -204,37 +203,33 @@ def show_window(summary: str) -> None:
     contact_query = tk.StringVar()
     contact_box = ttk.Combobox(contact_frame, state="readonly", width=35)
     contact_box.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=4)
-    contact_select_button = tk.Button(contact_frame, text="Select")
-    contact_select_button.grid(row=0, column=1, padx=3, pady=4)
-    contact_create_button = role(tk.Button(contact_frame, text="Create"), "primary")
-    contact_create_button.grid(row=0, column=2, padx=3, pady=4)
-    contact_edit_button = tk.Button(contact_frame, text="Edit")
-    contact_edit_button.grid(row=0, column=3, padx=3, pady=4)
-    contact_clear_button = tk.Button(contact_frame, text="Clear")
-    contact_clear_button.grid(row=0, column=4, padx=3, pady=4)
+    contact_create_button = role(RoundedButton(contact_frame, text="Create"), "primary")
+    contact_create_button.grid(row=0, column=1, padx=3, pady=4)
+    contact_edit_button = role(RoundedButton(contact_frame, text="Edit"), "warning")
+    contact_edit_button.grid(row=0, column=2, padx=3, pady=4)
     quick_actions = tk.Frame(contact_frame)
-    quick_actions.grid(row=0, column=5, rowspan=2, sticky="nsew", padx=(16, 0))
-    memory_manage_button = role(tk.Button(quick_actions, text="Memories"), "warning")
+    quick_actions.grid(row=0, column=3, rowspan=2, sticky="nsew", padx=(16, 0))
+    memory_manage_button = role(RoundedButton(quick_actions, text="Memories"), "warning")
     memory_manage_button.pack(side="left", fill="x", expand=True, padx=(0, 6))
-    review_button = tk.Button(quick_actions, text="◷  History")
+    review_button = role(RoundedButton(quick_actions, text="◷  History"), "replies")
     review_button.pack(side="left", fill="x", expand=True, padx=(0, 6))
-    import_button = role(tk.Button(quick_actions, text="⇧  Import text"), "success")
+    import_button = role(RoundedButton(quick_actions, text="⇧  Import text"), "success")
     import_button.pack(side="left", fill="x", expand=True)
-    unassigned_button = tk.Button(contact_frame, text="Unassigned")
+    unassigned_button = RoundedButton(contact_frame, text="Unassigned")
     confirmed_contact_label = role(tk.Label(contact_frame, text="Choose or create a contact to get ready", anchor="w", padx=8, pady=3), "success")
-    confirmed_contact_label.grid(row=1, column=0, columnspan=5, sticky="w", pady=(3, 0))
+    confirmed_contact_label.grid(row=1, column=0, columnspan=3, sticky="w", pady=(3, 0))
     memory_status_label = tk.Label(
         contact_frame,
         text=(memory_startup_error or "No contact confirmed — retrieval and extraction are off"),
         anchor="w",
     )
-    memory_status_label.grid(row=2, column=0, columnspan=6, sticky="ew", padx=6, pady=(4, 0))
+    memory_status_label.grid(row=2, column=0, columnspan=4, sticky="ew", padx=6, pady=(4, 0))
     privacy_notice = role(tk.Label(
         contact_frame,
         text="Assigned calls retain attributed text locally. After Stop, bounded eligible text may be sent to OpenAI with storage disabled.",
         anchor="w", justify="left", wraplength=1030, padx=6, pady=3,
     ), "warning")
-    privacy_notice.grid(row=3, column=0, columnspan=6, sticky="ew", pady=(3, 0))
+    privacy_notice.grid(row=3, column=0, columnspan=4, sticky="ew", pady=(3, 0))
 
     cards = tk.Frame(home_body)
     cards.pack(fill="both", expand=True)
@@ -255,26 +250,17 @@ def show_window(summary: str) -> None:
     playback_box.grid(row=1, column=1, sticky="ew", padx=6, pady=4)
     audio_capture_notice = role(tk.Label(audio_controls, text="Captures every sound on this device — close unrelated audio apps.", anchor="w"), "warning")
     audio_capture_notice.grid(row=2, column=1, sticky="w", padx=6, pady=(0, 4))
-    tk.Label(audio_controls, text="Language").grid(row=3, column=0, sticky="w", padx=6, pady=4)
-    language_box = ttk.Combobox(
-        audio_controls,
-        state="readonly",
-        values=transcription_language_labels(),
-        width=16,
-    )
-    language_box.current(0)
-    language_box.grid(row=3, column=1, sticky="w", padx=6, pady=4)
-    tk.Label(audio_controls, text="Mic threshold (lower = more sensitive)").grid(row=4, column=0, sticky="w", padx=6, pady=4)
+    tk.Label(audio_controls, text="Mic threshold (lower = more sensitive)").grid(row=3, column=0, sticky="w", padx=6, pady=4)
     sensitivity = tk.Scale(audio_controls, from_=50, to=2_000, resolution=50, orient="horizontal")
     sensitivity.set(DEFAULT_MICROPHONE_THRESHOLD)
-    sensitivity.grid(row=4, column=1, sticky="ew", padx=6, pady=4)
+    sensitivity.grid(row=3, column=1, sticky="ew", padx=6, pady=4)
     audio_controls.columnconfigure(1, weight=1)
     controls = tk.Frame(sound_card)
     controls.pack(fill="both", expand=True, pady=(8, 0))
     tk.Label(controls, text="Call window", anchor="w").pack(fill="x")
     window_list = tk.Listbox(controls, height=3, exportselection=False)
     window_list.pack(fill="both", expand=True, pady=(3, 6))
-    refresh_button = tk.Button(controls, text="Refresh")
+    refresh_button = role(RoundedButton(controls, text="Refresh"), "replies")
     refresh_button.pack(side="left")
     selected_label = tk.Label(controls, text="Selected: none", anchor="w")
     selected_label.pack(side="left", fill="x", expand=True, padx=8)
@@ -285,7 +271,7 @@ def show_window(summary: str) -> None:
     home_face_preview.pack(side="left", padx=(0, 8))
     face_actions = tk.Frame(face_row)
     face_actions.pack(side="left", fill="both", expand=True)
-    home_switch_button = tk.Button(face_actions, text="Switch face")
+    home_switch_button = role(RoundedButton(face_actions, text="Switch face"), "social")
     home_switch_button.pack(fill="x")
     face_hold_note = role(tk.Label(face_actions, text="Face lock holds for 18 seconds if the selected face steps away.", wraplength=330, justify="left", padx=7, pady=5), "success")
     face_hold_note.pack(fill="x", pady=(6, 0))
@@ -302,7 +288,7 @@ def show_window(summary: str) -> None:
     ready_icon.pack(side="left")
     ready_text = tk.Label(ready_bar, text="Ready — confirm everyone has heard the notice before capture starts.", anchor="w")
     ready_text.pack(side="left", fill="x", expand=True, padx=8)
-    start_button = ttk.Button(ready_bar, text="Start call", style="Primary.TButton")
+    start_button = role(RoundedButton(ready_bar, text="Start call"), "primary")
     start_button.pack(side="right")
     status_label = tk.Label(ready_bar, text="Select a call window", anchor="e", justify="right", wraplength=260)
     status_label.pack(side="right", padx=8)
@@ -317,7 +303,7 @@ def show_window(summary: str) -> None:
     live_header.pack(fill="x", padx=8, pady=(8, 3))
     live_contact_label = tk.Label(live_header, text="Live call", font=(DISPLAY_FONT, 17, "bold"))
     live_contact_label.pack(side="left")
-    stop_button = role(tk.Button(live_header, text="End call", state="disabled"), "danger")
+    stop_button = role(RoundedButton(live_header, text="■  END CALL", state="disabled"), "danger")
     stop_button.pack(side="right")
     live_meta_label = tk.Label(live_header, text="Luna low · $0.0000", anchor="w")
     live_meta_label.pack(side="left", padx=8)
@@ -329,7 +315,7 @@ def show_window(summary: str) -> None:
     live_face_label.pack(side="left", padx=4)
     live_cloud_label = role(tk.Label(live_status, text="● Cloud", anchor="w", padx=7, pady=2), "success")
     live_cloud_label.pack(side="left", padx=4)
-    suggest_button = role(tk.Button(live_panel, text="Refresh all", state="disabled"), "primary")
+    suggest_button = role(RoundedButton(live_panel, text="Refresh all", state="disabled"), "primary")
     suggest_button.pack(fill="x", padx=8, pady=(3, 6))
 
     hidden_state = tk.Frame(live_panel)
@@ -363,7 +349,7 @@ def show_window(summary: str) -> None:
     )
     terra_reasoning.current(0)
     terra_reasoning.pack(side="left", padx=6)
-    terra_button = tk.Button(
+    terra_button = RoundedButton(
         terra_controls, text="Check now", state="disabled"
     )
     terra_button.pack(side="left")
@@ -380,11 +366,11 @@ def show_window(summary: str) -> None:
         guidance_rows[category] = group
     live_footer = tk.Frame(live_panel)
     live_footer.pack(fill="x", padx=8, pady=(0, 8))
-    transcript_button = tk.Button(live_footer, text="Transcript")
+    transcript_button = RoundedButton(live_footer, text="Transcript")
     transcript_button.pack(side="left", fill="x", expand=True)
-    live_ask_button = role(tk.Button(live_footer, text="Memories"), "warning")
+    live_ask_button = role(RoundedButton(live_footer, text="Memories"), "warning")
     live_ask_button.pack(side="left", fill="x", expand=True, padx=5)
-    switch_button = role(tk.Button(live_footer, text="Face ok · Switch", state="disabled"), "success")
+    switch_button = role(RoundedButton(live_footer, text="Face ok · Switch", state="disabled"), "success")
     switch_button.pack(side="left", fill="x", expand=True)
     thumbnail_label = tk.Label(hidden_state, text="No selected face")
     transcript_title = tk.Label(hidden_state, text="Finalized attributed text")
@@ -430,24 +416,12 @@ def show_window(summary: str) -> None:
     review_results = queue.SimpleQueue()
 
     def current_font_size() -> int:
-        return {"Default": 9, "Large": 10, "Extra large": 12}.get(ui_settings.get("text_size"), 10)
+        return 10
 
     def apply_readability() -> None:
         nonlocal colors
         size = current_font_size()
         colors = dict(THEMES[ui_settings.get("theme", theme_name)])
-        if ui_settings.get("high_contrast"):
-            dark = ui_settings.get("theme") == "dark"
-            colors.update({
-                "page": "#000000" if dark else "#FFFFFF",
-                "surface": "#000000" if dark else "#FFFFFF",
-                "sunken": "#000000" if dark else "#FFFFFF",
-                "muted": "#000000" if dark else "#FFFFFF",
-                "ink": "#FFFFFF" if dark else "#000000",
-                "ink_muted": "#FFFFFF" if dark else "#000000",
-                "line": "#FFFFFF" if dark else "#000000",
-                "outline": "#FFFFFF" if dark else "#000000",
-            })
         for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont"):
             root.tk.call("font", "configure", name, "-family", "Segoe UI Semibold", "-size", size)
         configure_ttk(style, colors, font_size=size)
@@ -580,8 +554,8 @@ def show_window(summary: str) -> None:
                     show_evidence(popup, text, valid)
                 except (sqlite3.Error, ValueError, KeyError):
                     messagebox.showinfo("Sources", "Exact source is unavailable; reopen the current suggestion.", parent=popup)
-            tk.Button(actions, text="Sources", command=open_sources).pack(side="left")
-            tk.Button(actions, text="Close", command=popup.destroy).pack(side="right")
+            RoundedButton(actions, text="Sources", command=open_sources).pack(side="left")
+            RoundedButton(actions, text="Close", command=popup.destroy).pack(side="right")
             apply_theme(popup, colors, font_size=current_font_size())
 
         for category, group in guidance_rows.items():
@@ -609,8 +583,8 @@ def show_window(summary: str) -> None:
                 def dismiss(category=category, index=index):
                     guidance_display.dismiss(category, index, update=update)
                     render_guidance()
-                role(tk.Button(row, text="Dismiss", command=dismiss), "danger").pack(side="right", padx=(3, 0))
-                tk.Button(row, text="Pop out", command=lambda c=category, x=candidate, t=content, w=why: pop_out(c, x, t, w)).pack(side="right")
+                RoundedButton(row, text="Dismiss", command=dismiss).pack(side="right", padx=(3, 0))
+                RoundedButton(row, text="Pop out", command=lambda c=category, x=candidate, t=content, w=why: pop_out(c, x, t, w)).pack(side="right")
             apply_theme(group, colors, font_size=current_font_size())
 
     def open_ask(contact_id=None):
@@ -643,17 +617,155 @@ def show_window(summary: str) -> None:
         tk.Label(header, text="Memories", font=(DISPLAY_FONT, 22, "bold")).pack(side="left")
         contact_chip = role(tk.Label(header, text=contact.label, padx=7, pady=3), "warning")
         contact_chip.pack(side="left", padx=10)
-        back_button = tk.Button(header, text="← Back to Home", command=dialog.destroy)
+        back_button = RoundedButton(header, text="← Back to Home", command=dialog.destroy)
         back_button.pack(side="right")
         tk.Label(dialog, text=f"Ask me anything about {contact.display_name}, or tidy up what I've saved.", anchor="w").pack(
             fill="x", padx=12, pady=(0, 8)
         )
 
+        contact_actions = tk.Frame(dialog)
+        contact_actions.pack(fill="x", padx=12, pady=(0, 8))
+
+        def edit_aliases() -> None:
+            alias_dialog = tk.Toplevel(dialog)
+            alias_dialog.title("Edit aliases")
+            alias_dialog.geometry("480x330")
+            alias_list = tk.Listbox(alias_dialog)
+            alias_list.pack(fill="both", expand=True, padx=10, pady=10)
+            alias_rows = []
+
+            def reload_aliases() -> None:
+                nonlocal alias_rows
+                alias_rows = memory_store.list_aliases(memory_contact_id)
+                alias_list.delete(0, tk.END)
+                for alias in alias_rows:
+                    alias_list.insert(tk.END, alias["spelling"])
+
+            def add_alias() -> None:
+                spelling = simpledialog.askstring("Add alias", "Alias or nickname:", parent=alias_dialog)
+                if not spelling:
+                    return
+                try:
+                    memory_store.add_alias(memory_contact_id, spelling)
+                except (KeyError, ValueError, sqlite3.OperationalError) as exc:
+                    messagebox.showerror("Add alias", str(exc), parent=alias_dialog)
+                    return
+                refresh_contact_choices()
+                reload_aliases()
+
+            def remove_alias() -> None:
+                selection = alias_list.curselection()
+                if not selection:
+                    return
+                try:
+                    memory_store.remove_alias(alias_rows[selection[0]]["id"])
+                except (ValueError, sqlite3.OperationalError) as exc:
+                    messagebox.showerror("Remove alias", str(exc), parent=alias_dialog)
+                    return
+                refresh_contact_choices()
+                reload_aliases()
+
+            buttons = tk.Frame(alias_dialog)
+            buttons.pack(fill="x", padx=10, pady=(0, 10))
+            RoundedButton(buttons, text="Add", command=add_alias).pack(side="left")
+            role(RoundedButton(buttons, text="Remove", command=remove_alias), "danger").pack(side="left", padx=6)
+            RoundedButton(buttons, text="Done", command=alias_dialog.destroy).pack(side="right")
+            reload_aliases()
+            apply_theme(alias_dialog, colors, font_size=current_font_size())
+
+        def merge_contact() -> None:
+            query = simpledialog.askstring(
+                "Merge contact", "Contact to merge into this contact:", parent=dialog
+            )
+            if not query:
+                return
+            candidates = [item for item in memory_store.list_contacts(query) if item.id != memory_contact_id]
+            if len(candidates) != 1:
+                messagebox.showinfo("Merge contact", "Enter enough of the name to identify one other contact.", parent=dialog)
+                return
+            merged = candidates[0]
+            try:
+                preview = memory_store.merge_preview(memory_contact_id, merged.id)
+            except (KeyError, ValueError, sqlite3.OperationalError) as exc:
+                messagebox.showerror("Merge contact", str(exc), parent=dialog)
+                return
+            details = "\n".join(f"{name.replace('_', ' ')}: {count}" for name, count in preview.items())
+            if not messagebox.askyesno(
+                "Merge contact", f"Merge {merged.label} into {contact.label}?\n\n{details}",
+                parent=dialog, default=messagebox.NO,
+            ):
+                return
+            try:
+                memory_store.merge_contacts(memory_contact_id, merged.id)
+            except (KeyError, ValueError, sqlite3.OperationalError) as exc:
+                messagebox.showerror("Merge contact", str(exc), parent=dialog)
+                return
+            refresh_contact_choices()
+            invalidate_memory_context()
+            reload_memories()
+
+        def export_contact() -> None:
+            if not messagebox.askyesno(
+                "Export data",
+                "The exported file will remain outside the app and will not be removed by later in-app deletion. Continue?",
+                parent=dialog,
+                default=messagebox.NO,
+            ):
+                return
+            target = filedialog.asksaveasfilename(
+                parent=dialog, defaultextension=".json", filetypes=[("JSON", "*.json")]
+            )
+            if not target:
+                return
+            try:
+                payload = memory_store.export_json(contact_id=memory_contact_id, all_data=False)
+                memory_store.validate_export(payload)
+                Path(target).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            except (KeyError, ValueError, OSError, sqlite3.OperationalError) as exc:
+                messagebox.showerror("Export failed", str(exc), parent=dialog)
+                return
+            messagebox.showwarning("Export complete", "The exported file is outside later app deletion control.", parent=dialog)
+
+        def delete_contact() -> None:
+            try:
+                preview = memory_store.contact_deletion_preview(memory_contact_id)
+            except (KeyError, ValueError, sqlite3.OperationalError) as exc:
+                messagebox.showerror("Delete contact", str(exc), parent=dialog)
+                return
+            details = "\n".join(f"{name.replace('_', ' ')}: {count}" for name, count in preview.items())
+            if not messagebox.askyesno(
+                "Delete contact", f"Permanently delete {contact.label} and all local content?\n\n{details}",
+                parent=dialog, default=messagebox.NO,
+            ):
+                return
+            try:
+                memory_store.delete_contact(memory_contact_id)
+            except (KeyError, ValueError, sqlite3.OperationalError) as exc:
+                messagebox.showerror("Delete contact", str(exc), parent=dialog)
+                return
+            if selected_contact_id == memory_contact_id:
+                set_selected_contact(None)
+            refresh_contact_choices()
+            close_ask()
+
+        for text, command, button_role in (
+            ("Edit aliases", edit_aliases, "warning"),
+            ("Merge contact", merge_contact, "social"),
+            ("Export data", export_contact, "replies"),
+            ("Delete contact", delete_contact, "danger"),
+        ):
+            button = role(RoundedButton(contact_actions, text=text, command=command), button_role)
+            if audio_session is not None and text in {"Merge contact", "Delete contact"}:
+                button.configure(state="disabled")
+            button.pack(
+                side="left", fill="x", expand=True, padx=(0, 6)
+            )
+
         question_row = tk.Frame(dialog)
         question_row.pack(fill="x", padx=12)
         question = tk.Entry(question_row)
         question.pack(side="left", fill="x", expand=True)
-        ask_action = role(tk.Button(question_row, text="Ask"), "primary")
+        ask_action = role(RoundedButton(question_row, text="Ask"), "primary")
         ask_action.pack(side="left", padx=(6, 0))
         status = tk.Label(dialog, text="Ask a natural-language question, or edit and delete saved memories below.", anchor="w")
         status.pack(fill="x", padx=12, pady=(6, 2))
@@ -666,7 +778,7 @@ def show_window(summary: str) -> None:
 
         done_bar = tk.Frame(dialog)
         done_bar.pack(side="bottom", fill="x", padx=12, pady=(0, 10))
-        done_button = role(tk.Button(done_bar, text="✓  Done", command=dialog.destroy), "success")
+        done_button = role(RoundedButton(done_bar, text="✓  Done", command=dialog.destroy), "success")
         done_button.pack(side="right")
 
         canvas = tk.Canvas(dialog, highlightthickness=0)
@@ -746,7 +858,7 @@ def show_window(summary: str) -> None:
             reload_memories()
             status.configure(text="Memory deleted. Ask again to refresh the answer.")
 
-        def render_rows(parent, rows, empty_text):
+        def render_rows(parent, rows, empty_text, row_role):
             for child in parent.winfo_children():
                 child.destroy()
             if not rows:
@@ -754,16 +866,16 @@ def show_window(summary: str) -> None:
                 apply_theme(parent, colors)
                 return
             for row in rows:
-                item = surface(tk.Frame(parent, bd=1, relief="solid"))
+                item = role(tk.Frame(parent, bd=1, relief="solid"), row_role)
                 item.pack(fill="x", padx=2, pady=2)
                 saved = (row["approved_at"] or "")[:10] or "date unavailable"
                 tk.Label(item, text=f"{row['content']}\nSaved {saved}", justify="left", anchor="w", wraplength=590).pack(
                     side="left", fill="x", expand=True, padx=10, pady=6
                 )
-                role(tk.Button(item, text="Delete", command=lambda current=row: delete_memory(current)), "danger").pack(
+                role(RoundedButton(item, text="Delete", command=lambda current=row: delete_memory(current)), "danger").pack(
                     side="right", padx=(3, 6), pady=5
                 )
-                tk.Button(item, text="Edit", command=lambda current=row: edit_memory(current)).pack(
+                RoundedButton(item, text="Edit", command=lambda current=row: edit_memory(current)).pack(
                     side="right", pady=5
                 )
             apply_theme(parent, colors)
@@ -776,8 +888,8 @@ def show_window(summary: str) -> None:
                 return
             related = [row for row in rows if row["memory_id"] in related_ids]
             other = [row for row in rows if row["memory_id"] not in related_ids]
-            render_rows(related_frame, related, "Ask a question to see the associated saved memories.")
-            render_rows(other_frame, other, "No other saved memories.")
+            render_rows(related_frame, related, "Ask a question to see the associated saved memories.", "replies")
+            render_rows(other_frame, other, "No other saved memories.", "social")
 
         def associated_memory_ids(sources):
             identifiers = {source.id for source in sources if source.revision_id}
@@ -909,7 +1021,7 @@ def show_window(summary: str) -> None:
         box.insert("1.0", "".join(f"{turn.speaker_name}: {turn.content}\n" for turn in turns)
                    or "No finalized transcript text yet.")
         box.configure(state="disabled")
-        tk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=(0, 10))
+        RoundedButton(dialog, text="Close", command=dialog.destroy).pack(pady=(0, 10))
         apply_theme(dialog, colors, font_size=current_font_size())
 
     transcript_button.configure(command=open_transcript)
@@ -937,7 +1049,7 @@ def show_window(summary: str) -> None:
                     chosen = records[choices.curselection()[0]]["id"]
                     chooser.destroy()
                     open_review(chosen)
-            tk.Button(chooser, text="Review selected record", command=choose).pack()
+            RoundedButton(chooser, text="Review selected record", command=choose).pack()
             apply_theme(chooser, colors, font_size=current_font_size())
             return
         existing = review_dialogs.get(record_id)
@@ -956,7 +1068,7 @@ def show_window(summary: str) -> None:
         title_stack.pack(side="left", fill="x", expand=True)
         tk.Label(title_stack, text="Review conversation", font=(DISPLAY_FONT, 24, "bold"), anchor="w").pack(fill="x")
         tk.Label(title_stack, text="Shape the summary and choose which memories to keep.", anchor="w").pack(fill="x")
-        tk.Button(review_header, text="Back to Home", command=dialog.destroy).pack(side="right", padx=(12, 0))
+        RoundedButton(review_header, text="Back to Home", command=dialog.destroy).pack(side="right", padx=(12, 0))
         label = tk.Label(dialog, text="Draft · not searchable until approved", anchor="w")
         role(label, "warning")
         label.pack(fill="x", padx=18, pady=(8, 10))
@@ -971,18 +1083,31 @@ def show_window(summary: str) -> None:
         tk.Label(summary_panel, text="Click a sentence to select it for editing or source review.").pack(anchor="w", padx=8)
         listing = tk.Listbox(summary_panel, width=65, height=3, exportselection=False)
         listing.pack(fill="both", expand=True, padx=8)
-        memories = tk.Listbox(memory_panel, exportselection=False, selectmode="extended", width=50)
-        memories.pack(fill="both", expand=True, padx=8, pady=8)
-        memory_scroll = ttk.Scrollbar(memory_panel, orient="horizontal", command=memories.xview)
-        memory_scroll.pack(fill="x", padx=8)
-        memories.configure(xscrollcommand=memory_scroll.set)
+        memory_canvas = role(tk.Canvas(memory_panel, highlightthickness=0), "replies")
+        memory_scroll = ttk.Scrollbar(memory_panel, orient="vertical", command=memory_canvas.yview)
+        memory_canvas.configure(yscrollcommand=memory_scroll.set)
+        memory_scroll.pack(side="right", fill="y", padx=(0, 8), pady=8)
+        memory_canvas.pack(fill="both", expand=True, padx=(8, 0), pady=8)
+        memory_choices = role(tk.Frame(memory_canvas), "replies")
+        memory_window = memory_canvas.create_window((0, 0), window=memory_choices, anchor="nw")
+        memory_choices.bind("<Configure>", lambda _event: memory_canvas.configure(scrollregion=memory_canvas.bbox("all")))
+        def resize_memory_choices(event):
+            memory_canvas.itemconfigure(memory_window, width=event.width)
+            for child in memory_choices.winfo_children():
+                child.configure(wraplength=max(220, event.width - 36))
+        memory_canvas.bind("<Configure>", resize_memory_choices)
+        memory_canvas.bind("<MouseWheel>", lambda event: memory_canvas.yview_scroll(-event.delta // 120, "units"))
         memory_rows = []
+        memory_vars = []
         rows = []
         version_id = [None]
+        def selected_memory_indexes():
+            return [index for index, variable in enumerate(memory_vars) if variable.get()]
         def edit_review_memory():
-            if not memories.curselection():
+            selected = selected_memory_indexes()
+            if not selected:
                 return
-            item = memory_rows[memories.curselection()[0]]
+            item = memory_rows[selected[0]]
             if item["state"] not in {"approved", "pending"}:
                 return
             content = simpledialog.askstring("Edit linked memory", "Corrected fact (up to 280 characters):", initialvalue=item["content"], parent=dialog)
@@ -1005,7 +1130,7 @@ def show_window(summary: str) -> None:
             except (ValueError, KeyError, sqlite3.Error) as exc:
                 label.configure(text=f"Edit unavailable: {exc}")
         def approve_review_memories(approve=True):
-            chosen = [memory_rows[i] for i in memories.curselection() if memory_rows[i]["state"] == "pending"]
+            chosen = [memory_rows[i] for i in selected_memory_indexes() if memory_rows[i]["state"] == "pending"]
             if not chosen or not messagebox.askyesno("Review selected memories", f"{'Approve' if approve else 'Reject'} these memories?\n\n" + "\n".join(item["content"] for item in chosen), parent=dialog):
                 return
             try:
@@ -1033,15 +1158,15 @@ def show_window(summary: str) -> None:
         memory_actions = tk.Frame(memory_panel)
         memory_actions.pack(fill="x")
         for text, command in (
-            ("Select all", lambda: memories.selection_set(0, tk.END)),
-            ("Clear", lambda: memories.selection_clear(0, tk.END)),
+            ("Select all", lambda: [variable.set(True) for variable in memory_vars]),
+            ("Clear", lambda: [variable.set(False) for variable in memory_vars]),
             ("Edit", edit_review_memory),
             ("Approve selected", approve_review_memories),
             ("Reject selected", lambda: approve_review_memories(False)),
             ("Approve all", review_all_memories),
             ("Reject all", lambda: review_all_memories(False)),
         ):
-            button = tk.Button(memory_actions, text=text, command=command)
+            button = RoundedButton(memory_actions, text=text, command=command)
             if text.startswith("Approve"):
                 role(button, "success")
             elif text.startswith("Reject"):
@@ -1087,20 +1212,38 @@ def show_window(summary: str) -> None:
                 narrative.configure(state="disabled")
                 narrative.yview_moveto(narrative_position)
                 owner = memory_store._connection.execute("SELECT contact_id FROM conversation_records WHERE id=?", (record_id,)).fetchone()
-                selected_memories = {memory_rows[i]["id"] for i in memories.curselection() if i < len(memory_rows)}
-                memory_rows.clear()
-                memories.delete(0, tk.END)
+                selected_memories = {
+                    memory_rows[i]["id"] for i in selected_memory_indexes() if i < len(memory_rows)
+                }
+                new_memory_rows = []
                 if owner and owner[0]:
                     for item in memory_store.list_current_memories(owner[0]):
                         if memory_store._connection.execute("SELECT 1 FROM memory_sources WHERE revision_id=? AND record_id=?", (item["revision_id"], record_id)).fetchone():
-                            memory_rows.append({"id": item["memory_id"], "revision": item["revision_id"], "content": item["content"], "state": "approved"})
+                            new_memory_rows.append({"id": item["memory_id"], "revision": item["revision_id"], "content": item["content"], "state": "approved"})
                     for item in memory_store.list_proposals(owner[0]):
                         if item["state"] != "approved" and memory_store._connection.execute("SELECT 1 FROM proposal_batches WHERE id=? AND record_id=?", (item["batch_id"], record_id)).fetchone():
-                            memory_rows.append({"id": item["id"], "content": item["content"], "state": item["state"]})
-                for index, item in enumerate(memory_rows):
-                    memories.insert(tk.END, f"{'☐ ' if item['state'] == 'pending' else ''}{item['state']} · {item['content']}")
-                    if item["id"] in selected_memories:
-                        memories.selection_set(index)
+                            new_memory_rows.append({"id": item["id"], "content": item["content"], "state": item["state"]})
+                if new_memory_rows != memory_rows:
+                    memory_rows[:] = new_memory_rows
+                    memory_vars.clear()
+                    for child in memory_choices.winfo_children():
+                        child.destroy()
+                    for item in memory_rows:
+                        selected = tk.BooleanVar(value=item["id"] in selected_memories)
+                        memory_vars.append(selected)
+                        choice = tk.Checkbutton(
+                            memory_choices,
+                            text=f"{item['state'].title()} · {item['content']}",
+                            variable=selected,
+                            anchor="w",
+                            justify="left",
+                            wraplength=max(220, memory_canvas.winfo_width() - 36),
+                        )
+                        choice.pack(fill="x", padx=4, pady=3)
+                        choice.bind("<FocusIn>", lambda event: memory_canvas.yview_moveto(
+                            max(0, event.widget.winfo_y() / max(1, memory_choices.winfo_height()))
+                        ))
+                    apply_theme(memory_choices, colors, font_size=current_font_size())
                 if not version:
                     label.configure(text="No summary yet. Generate one bounded review after seeing its estimate.")
                 job = memory_store._connection.execute("SELECT state FROM review_jobs WHERE record_id=?", (record_id,)).fetchone()
@@ -1266,18 +1409,9 @@ def show_window(summary: str) -> None:
                         return
                     review.destroy()
                     reload()
-                tk.Button(review, text="Allow only these reviewed turns", command=allow).pack(fill="x")
+                RoundedButton(review, text="Allow only these reviewed turns", command=allow).pack(fill="x")
             except (ValueError, sqlite3.Error) as exc:
                 label.configure(text=f"Source review unavailable: {exc}")
-        def proposals():
-            try:
-                row = memory_store._connection.execute("SELECT contact_id FROM conversation_records WHERE id=?", (record_id,)).fetchone()
-                if row and row[0]:
-                    open_contact_data(row[0])
-                else:
-                    label.configure(text="Conversation or assigned contact is unavailable.")
-            except (ValueError, KeyError, sqlite3.Error) as exc:
-                label.configure(text=f"Memory proposals unavailable or memory store busy: {exc}")
         def transcript_source():
             try:
                 record_turns = memory_store.record_turns(record_id)
@@ -1297,15 +1431,15 @@ def show_window(summary: str) -> None:
             listing_versions.pack(fill="both", expand=True, padx=10, pady=10)
             for version in versions:
                 listing_versions.insert(tk.END, f"{version['created_at']} · {version['state']} · {'partial' if version['partial'] else 'bounded'} · {version['id']}")
-            tk.Button(popup, text="Close", command=popup.destroy).pack(pady=(0, 10))
+            RoundedButton(popup, text="Close", command=popup.destroy).pack(pady=(0, 10))
         for text, command in (("Generate summary / process remaining", generate), ("Approve summary", approve),
                               ("Approve all memories + summary", approve_everything), ("Open exact source", evidence),
                               ("Edit / Save changes", edit), ("Remove statement", lambda: edit(remove=True)),
                               ("Restore excluded statement", lambda: edit(restore=True)), ("Delete summary", delete),
                               ("Review legacy source exclusions", review_legacy_sources),
                               ("Summary versions", summary_versions), ("Transcript and source", transcript_source),
-                              ("Contact and data", proposals), ("Review later", dialog.destroy)):
-            button = tk.Button(controls, text=text, command=command)
+                              ("Review later", dialog.destroy)):
+            button = RoundedButton(controls, text=text, command=command)
             if text.startswith("Approve"):
                 role(button, "success")
             elif text.startswith(("Delete", "Remove")):
@@ -1628,7 +1762,7 @@ def show_window(summary: str) -> None:
                 )
                 items.insert(tk.END, f"Match{contact_suffix} · {type_labels[row['memory_type']]} · {row['content']}")
 
-        tk.Button(search_controls, text="Search", command=search_items).pack(side="left")
+        RoundedButton(search_controls, text="Search", command=search_items).pack(side="left")
 
         def selected_row():
             selection = items.curselection()
@@ -1720,8 +1854,8 @@ def show_window(summary: str) -> None:
                 )
                 editor.destroy()
 
-            tk.Button(actions, text="Cancel", command=editor.destroy).pack(side="right")
-            tk.Button(actions, text="Save", command=save).pack(side="right", padx=(0, 6))
+            RoundedButton(actions, text="Cancel", command=editor.destroy).pack(side="right")
+            RoundedButton(actions, text="Save", command=save).pack(side="right", padx=(0, 6))
             content_box.focus_set()
             editor.wait_window()
             return result
@@ -1887,7 +2021,7 @@ def show_window(summary: str) -> None:
                     invalidate_memory_context()
                     reload_items()
                     review.destroy()
-                tk.Button(review, text="Confirm I reviewed these contacts, revisions and sources", command=confirm).pack(fill="x")
+                RoundedButton(review, text="Confirm I reviewed these contacts, revisions and sources", command=confirm).pack(fill="x")
 
             except (ValueError, KeyError, sqlite3.Error) as exc:
                 messagebox.showerror("Review memory", f"Source unavailable or memory store busy: {exc}", parent=dialog)
@@ -1983,8 +2117,8 @@ def show_window(summary: str) -> None:
                 refresh_contact_choices()
                 reload_aliases()
 
-            tk.Button(alias_dialog, text="Add", command=add_alias).pack(side="left", padx=8, pady=(0, 8))
-            tk.Button(alias_dialog, text="Remove", command=remove_alias).pack(side="left", pady=(0, 8))
+            RoundedButton(alias_dialog, text="Add", command=add_alias).pack(side="left", padx=8, pady=(0, 8))
+            RoundedButton(alias_dialog, text="Remove", command=remove_alias).pack(side="left", pady=(0, 8))
             reload_aliases()
 
         def merge_contact() -> None:
@@ -2156,9 +2290,9 @@ def show_window(summary: str) -> None:
                     reload_items()
 
                 label = "Delete source" if action == "delete" else f"Reassign to {target.label}"
-                tk.Button(review, text=label, command=apply_record_change).pack(pady=8)
+                RoundedButton(review, text=label, command=apply_record_change).pack(pady=8)
 
-            tk.Button(chooser, text="Continue", command=continue_action).pack(pady=(0, 8))
+            RoundedButton(chooser, text="Continue", command=continue_action).pack(pady=(0, 8))
 
         actions = (
             ("Add", add_memory), ("Correct", correct_selected), ("Delete selected", delete_selected),
@@ -2172,7 +2306,7 @@ def show_window(summary: str) -> None:
             ("Confirm reviewed memory", confirm_reviewed),
         )
         for index, (label, command) in enumerate(actions):
-            tk.Button(buttons, text=label, command=command).grid(
+            RoundedButton(buttons, text=label, command=command).grid(
                 row=index // 6, column=index % 6, sticky="ew", padx=(0, 5), pady=(0, 4)
             )
         for column in range(6):
@@ -2255,24 +2389,20 @@ def show_window(summary: str) -> None:
             dialog.destroy()
             memory_status_label.configure(text="Conversation assigned; use import/call analysis to create proposals")
 
-        tk.Button(dialog, text="Assign to confirmed contact", command=assign_selected).pack(pady=(0, 8))
+        RoundedButton(dialog, text="Assign to confirmed contact", command=assign_selected).pack(pady=(0, 8))
 
     def open_settings() -> None:
         dialog = tk.Toplevel(root)
         dialog.title("Settings")
-        dialog.geometry("920x660")
-        dialog.minsize(820, 620)
+        dialog.geometry("620x360")
+        dialog.minsize(540, 320)
         header = tk.Frame(dialog)
         header.pack(fill="x", padx=18, pady=(14, 8))
         tk.Label(header, text="Settings", font=(DISPLAY_FONT, 22, "bold")).pack(side="left")
-        tk.Button(header, text="← Back to Home", command=dialog.destroy).pack(side="right")
-        body = tk.Frame(dialog)
-        body.pack(fill="both", expand=True, padx=18, pady=(0, 14))
-        body.columnconfigure(0, weight=1)
-        body.columnconfigure(1, weight=1)
+        RoundedButton(header, text="← Back to Home", command=dialog.destroy).pack(side="right")
 
-        api = tk.LabelFrame(body, text="●  API key", padx=10, pady=8)
-        api.grid(row=0, column=0, sticky="nsew", padx=(0, 5), pady=5)
+        api = tk.LabelFrame(dialog, text="●  API key", padx=12, pady=10)
+        api.pack(fill="both", expand=True, padx=18, pady=(0, 18))
         configured = bool(local_openai_api_key())
         key_badge = role(tk.Label(api, text="✓  System key in use" if configured else "No API key configured", anchor="w", padx=6, pady=3), "success")
         key_badge.pack(anchor="w")
@@ -2297,83 +2427,13 @@ def show_window(summary: str) -> None:
             key_status.configure(text="Replacement saved privately.")
             key_status._cc_role = "success"
             apply_theme(key_status, colors)
-        role(tk.Button(key_row, text="Save override", command=save_key), "primary").pack(side="left", padx=(6, 0))
-
-        readability = tk.LabelFrame(body, text="●  Easy reading", padx=10, pady=8)
-        readability.grid(row=1, column=0, sticky="nsew", padx=(0, 5), pady=5)
-        text_size = tk.StringVar(value=ui_settings.get("text_size", "Large"))
-        tk.Label(readability, text="Text size", anchor="w").pack(fill="x")
-        size_row = tk.Frame(readability)
-        size_row.pack(fill="x", pady=(2, 7))
-        for name in ("Default", "Large", "Extra large"):
-            tk.Radiobutton(size_row, text=name, value=name, variable=text_size, indicatoron=False).pack(side="left", fill="x", expand=True)
-        high_contrast = tk.BooleanVar(value=bool(ui_settings.get("high_contrast")))
-        reduce_motion = tk.BooleanVar(value=bool(ui_settings.get("reduce_motion")))
-        selected_theme = tk.StringVar(value=ui_settings.get("theme", theme_name))
-        tk.Label(readability, text="Theme", anchor="w").pack(fill="x")
-        theme_row = tk.Frame(readability)
-        theme_row.pack(fill="x", pady=(2, 7))
-        for name in ("light", "dark"):
-            tk.Radiobutton(theme_row, text=name.title(), value=name, variable=selected_theme, indicatoron=False).pack(side="left", fill="x", expand=True)
-        tk.Checkbutton(readability, text="High contrast", variable=high_contrast).pack(anchor="w")
-        tk.Checkbutton(readability, text="Reduce motion", variable=reduce_motion).pack(anchor="w")
-        preview = role(tk.Label(readability, text="Preview: clear, calm guidance", padx=7, pady=5), "warning")
-        preview.pack(fill="x", pady=(8, 0))
-        def update_preview(*_args):
-            preview.configure(text=f"Preview: {text_size.get()} text, {'high' if high_contrast.get() else 'standard'} contrast — guidance stays clear and easy to scan.")
-        text_size.trace_add("write", update_preview)
-        high_contrast.trace_add("write", update_preview)
-        update_preview()
-
-        privacy = tk.LabelFrame(body, text="●  Privacy and cloud", padx=10, pady=8)
-        privacy.grid(row=0, column=1, sticky="nsew", padx=(5, 0), pady=5)
-        for statement in (
-            "● Calls, transcripts, memories, and settings are stored locally.",
-            "● Eligible text is sent to the selected model for assistance.",
-            "● English only.",
-        ):
-            tk.Label(privacy, text=statement, justify="left", wraplength=390, anchor="w").pack(fill="x", pady=2)
-        tk.Button(privacy, text="Learn how data is used", command=lambda: messagebox.showinfo("Privacy and cloud", "Raw media and contact records stay local. Only bounded eligible text is sent for requested assistance.", parent=dialog)).pack(anchor="w", pady=(6, 0))
-
-        contact = tk.LabelFrame(body, text="●  Selected contact", padx=10, pady=8)
-        contact.grid(row=1, column=1, sticky="nsew", padx=(5, 0), pady=5)
-        tk.Label(contact, text=selected_contact_label or "No contact selected", font=("Segoe UI Semibold", 11, "bold")).pack(anchor="w")
-        tk.Label(contact, text="Manage aliases, merge, export, or delete this contact.", anchor="w").pack(fill="x", pady=(4, 2))
-        contact_actions = tk.Frame(contact)
-        contact_actions.pack(fill="x", pady=(6, 0))
-        for text in ("Edit aliases", "Merge contact", "Export data"):
-            tk.Button(contact_actions, text=text, command=open_contact_data).pack(side="left", fill="x", expand=True, padx=(0, 5))
-        role(tk.Button(contact_actions, text="Delete contact", command=open_contact_data), "danger").pack(side="left", fill="x", expand=True)
-
-        help_box = tk.LabelFrame(body, text="●  Help", padx=10, pady=8)
-        help_box.grid(row=2, column=1, sticky="nsew", padx=(5, 0), pady=5)
-        for title, detail in (
-            ("How the workflow works", "Choose a contact, start a call, then review every proposed summary and memory."),
-            ("Privacy and cloud help", "Contact data and raw sources stay local; bounded eligible context is used only for requested cloud features."),
-            ("Troubleshooting", "Use device Refresh on Home, then reselect the call window and audio devices."),
-            ("About Conversation Copilot", "Conversation Copilot offers cautious possibilities, never facts about another person's emotions or intent."),
-        ):
-            tk.Button(help_box, text=f"●  {title}  ›", anchor="w", command=lambda t=title, d=detail: messagebox.showinfo(t, d, parent=dialog)).pack(fill="x", pady=2)
-
-        def save_settings():
-            ui_settings.update({"text_size": text_size.get(), "high_contrast": high_contrast.get(),
-                                "reduce_motion": reduce_motion.get(), "theme": selected_theme.get()})
-            apply_readability()
-            settings_path.parent.mkdir(parents=True, exist_ok=True)
-            settings_path.write_text(json.dumps(ui_settings, sort_keys=True), encoding="utf-8")
-            dialog.destroy()
-
-        actions = tk.Frame(body)
-        actions.grid(row=3, column=0, columnspan=2, sticky="e", pady=(8, 0))
-        tk.Button(actions, text="Cancel", command=dialog.destroy).pack(side="left", padx=(0, 6))
-        role(tk.Button(actions, text="Save settings", command=save_settings), "primary").pack(side="left")
+        role(RoundedButton(key_row, text="Save override", command=save_key), "primary").pack(side="left", padx=(6, 0))
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
         apply_theme(dialog, colors, font_size=current_font_size())
 
-    contact_select_button.configure(command=select_contact)
     contact_create_button.configure(command=create_contact)
-    contact_edit_button.configure(command=open_contact_data)
-    contact_clear_button.configure(command=lambda: set_selected_contact(None))
+    contact_edit_button.configure(command=open_ask)
+    contact_box.bind("<<ComboboxSelected>>", lambda _event: select_contact())
     memory_manage_button.configure(command=open_ask)
     import_button.configure(command=import_chat)
     unassigned_button.configure(command=show_unassigned)
@@ -2885,7 +2945,7 @@ def show_window(summary: str) -> None:
         start_button.configure(state="disabled" if running else "normal")
         stop_button.configure(state="normal" if running else "disabled")
         import_button.configure(state="disabled" if running else "normal")
-        for selector in (microphone_box, playback_box, language_box):
+        for selector in (microphone_box, playback_box):
             selector.configure(
                 state="disabled" if running or audio_runtime_error else "readonly"
             )
@@ -2943,7 +3003,7 @@ def show_window(summary: str) -> None:
     def refresh_audio(*, initial: bool) -> None:
         nonlocal audio_catalog
         if audio_runtime_error:
-            for selector in (microphone_box, playback_box, language_box):
+            for selector in (microphone_box, playback_box):
                 selector.configure(state="disabled")
             sensitivity.configure(state="disabled")
             audio_status_label.configure(text=audio_runtime_error)
@@ -3101,7 +3161,7 @@ def show_window(summary: str) -> None:
             )
             return
         window = windows[selection[0]]
-        test_log.emit("call_window_selected", display_name=window.display_name, microphone=microphone_box.get(), playback=playback_box.get(), language=language_box.get())
+        test_log.emit("call_window_selected", display_name=window.display_name, microphone=microphone_box.get(), playback=playback_box.get(), language="English")
         call_speaker_fallback = window.display_name
         turns.clear()
         vocal_observations.clear()
@@ -3146,7 +3206,7 @@ def show_window(summary: str) -> None:
         if audio_ready:
             try:
                 assert audio_catalog is not None
-                language = production_transcription_language(language_box.get())
+                language = production_transcription_language("English")
                 audio_session = AudioCallSession(
                     audio_catalog,
                     audio_catalog.microphones[microphone_box.current()],
