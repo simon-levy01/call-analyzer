@@ -1,5 +1,4 @@
 """Isolated Tk integration for the F10 shell; no device or real model work."""
-import gc
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
@@ -12,6 +11,7 @@ from conversation_copilot.windows import CallWindow
 
 def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
     path = tmp_path / "ui.sqlite3"
+    monkeypatch.setenv("APPDATA", str(tmp_path))
     original_store = memory.MemoryStore
     with original_store(path) as store:
         session, _memory_id = seed_case(store, "appointment")
@@ -36,10 +36,34 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
         def __init__(self, selected_path=None, **kwargs):
             super().__init__(selected_path or path, **kwargs)
 
+    class FakeVideo:
+        instances = []
+        def __init__(self, _window):
+            from types import SimpleNamespace
+            self.worker_alive = True
+            self.capture = SimpleNamespace(worker_alive=True)
+            self.switched = 0
+            FakeVideo.instances.append(self)
+        def start(self):
+            pass
+        def stop(self):
+            self.worker_alive = False
+            self.capture.worker_alive = False
+        def switch_face(self):
+            self.switched += 1
+        continue_tracking = switch_face
+        def snapshot(self):
+            from types import SimpleNamespace
+            return SimpleNamespace(status="Tracking", signal_rate=4.0, face_count=1,
+                                   landmark_count=478, blendshape_count=52,
+                                   thumbnail_rgb=None, current_signal=None)
+
     monkeypatch.setattr(memory, "MemoryStore", IsolatedStore)
     monkeypatch.setattr(IsolatedStore, "backfill_semantic_embeddings", lambda self, **kwargs: 0)
     monkeypatch.setattr(audio, "local_model_available", lambda: False)
-    monkeypatch.setattr(windows, "list_call_windows", lambda: [])
+    monkeypatch.setattr(windows, "list_call_windows", lambda: [CallWindow(1, "Fictional call", "fixture.exe", "Fixture")])
+    import conversation_copilot.video as video
+    monkeypatch.setattr(video, "LiveVideoSession", FakeVideo)
     monkeypatch.setattr(messagebox, "askyesno", lambda *a, **k: True)
     monkeypatch.setattr(messagebox, "askyesnocancel", lambda *a, **k: False)
     monkeypatch.setattr(messagebox, "showinfo", lambda *a, **k: None)
@@ -64,8 +88,11 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
         return result
 
     def button(widget, text):
-        return next(w for w in descendants(widget)
-                    if isinstance(w, (tk.Button, ttk.Button)) and w.cget("text") == text)
+        matches = [w for w in descendants(widget)
+                   if isinstance(w, (tk.Button, ttk.Button)) and w.cget("text") == text]
+        assert matches, (text, [w.cget("text") for w in descendants(widget)
+                                if isinstance(w, (tk.Button, ttk.Button))])
+        return matches[0]
 
     def top(*args, **kwargs):
         widget = real_top(*args, **kwargs)
@@ -92,6 +119,15 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
             assert not any(isinstance(widget, tk.Canvas) for widget in widgets)
             assert button(root, "Start call")
             assert button(root, "Settings")
+            assert button(root, "Clear")
+            assert any("storage disabled" in str(widget.cget("text"))
+                       for widget in widgets if isinstance(widget, tk.Label))
+            theme_toggle = next(widget for widget in widgets if isinstance(widget, ttk.Button)
+                                and widget.cget("text") in {"Dark theme", "Light theme"})
+            original_page = root.cget("background")
+            theme_toggle.invoke()
+            assert root.cget("background") != original_page
+            theme_toggle.invoke()
             contact_box = next(widget for widget in widgets if isinstance(widget, ttk.Combobox)
                                and any(str(value).startswith("Yaheli") for value in widget.cget("values")))
             contact_box.current(next(i for i, value in enumerate(contact_box.cget("values"))
@@ -116,7 +152,7 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
             assert "3 PM" in next(widget for widget in descendants(ask)
                                   if isinstance(widget, tk.Text)).get("1.0", "end")
             frames = {widget.cget("text") for widget in descendants(ask) if isinstance(widget, tk.LabelFrame)}
-            assert {"Answer", "Related memories", "Other saved memories"} <= frames
+            assert {"✦  Answer", "Memories behind this answer", "Other saved memories"} <= frames
             assert button(ask, "Edit")
             assert button(ask, "Delete")
             assert not any(isinstance(widget, tk.Button) and widget.cget("text") in {"Open exact source", "Choose this event"}
@@ -127,14 +163,15 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
             button(ask, "Delete").invoke()
             assert not any("Dentist appointment is at 3 PM." in str(widget.cget("text"))
                            for widget in descendants(ask) if isinstance(widget, tk.Label))
-            button(ask, "Back to Home").invoke()
+            button(ask, "← Back to Home").invoke()
             button(root, "Settings").invoke()
             settings = next(widget for widget in root.winfo_children()
                             if isinstance(widget, real_top) and widget.title() == "Settings")
             assert button(settings, "Save settings")
             assert button(settings, "Edit aliases")
-            settings.destroy()
-            button(root, "Conversation history").invoke()
+            button(settings, "Save settings").invoke()
+            assert not settings.winfo_exists()
+            button(root, "◷  History").invoke()
             chooser = next(widget for widget in root.winfo_children()
                            if isinstance(widget, real_top) and widget.title() == "Review one conversation")
             options = next(widget for widget in descendants(chooser) if isinstance(widget, tk.Listbox))
@@ -142,7 +179,7 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
                                        if "UI narrative fixture" in text))
             button(chooser, "Review selected record").invoke()
             review = next(widget for widget in root.winfo_children()
-                          if isinstance(widget, real_top) and widget.title() == "Summary and memories")
+                          if isinstance(widget, real_top) and widget.title() == "Review conversation")
             assert button(review, "Approve selected")
             assert button(review, "Reject all")
             assert button(review, "Approve all memories + summary")
@@ -151,6 +188,38 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
                            for widget in descendants(review))
             assert "They discussed the book" in next(widget for widget in descendants(review)
                                                       if isinstance(widget, tk.Text)).get("1.0", tk.END)
+            review.destroy()
+            window_list = next(widget for widget in descendants(root) if isinstance(widget, tk.Listbox)
+                               and "Fictional call" in str(widget.get(0, tk.END)))
+            window_list.selection_set(0)
+            button(root, "Start call").invoke()
+            root.update_idletasks()
+            live = next(widget for widget in root.winfo_children()[0].winfo_children()
+                        if any(isinstance(child, (tk.Button, ttk.Button)) and child.cget("text") == "End call"
+                               for child in descendants(widget)))
+            assert live.winfo_manager() == "pack"
+            for text in ("End call", "Refresh all", "Transcript", "Memories", "Face ok · Switch"):
+                assert button(root, text)
+            group_titles = {widget.cget("text") for widget in descendants(root) if isinstance(widget, tk.LabelFrame)}
+            assert {"Possible tone", "Social cue", "Potential responses", "Related memory", "Follow-up"} <= group_titles
+            assert not any(isinstance(widget, tk.Label) and widget.cget("image") for widget in descendants(root))
+            button(root, "Face ok · Switch").invoke()
+            assert FakeVideo.instances[-1].switched == 1
+            button(root, "Transcript").invoke()
+            transcript = next(widget for widget in root.winfo_children()
+                              if isinstance(widget, real_top) and widget.title() == "Live transcript")
+            assert "No finalized transcript" in next(widget for widget in descendants(transcript)
+                                                      if isinstance(widget, tk.Text)).get("1.0", tk.END)
+            transcript.destroy()
+            button(root, "End call").invoke()
+            root.after(450, lambda: check(finished))
+
+        def finished():
+            assert button(root, "Start call")
+            live = next(widget for widget in root.winfo_children()[0].winfo_children()
+                        if any(isinstance(child, (tk.Button, ttk.Button)) and child.cget("text") == "End call"
+                               for child in descendants(widget)))
+            assert not live.winfo_manager()
             completed.append(True)
             root.destroy()
 
@@ -159,123 +228,6 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
         return root
 
     monkeypatch.setattr(tk, "Tk", create_root)
-    try:
-        show_window("F10 isolated UI fixture")
-    finally:
-        gc.collect()
-    assert failures == []
-    assert completed == [True]
-
-
-def test_f10_live_is_compact_and_returns_home(tmp_path, monkeypatch):
-    path = tmp_path / "live.sqlite3"
-    original_store = memory.MemoryStore
-    class IsolatedStore(original_store):
-        def __init__(self, selected_path=None, **kwargs):
-            super().__init__(selected_path or path, **kwargs)
-
-    class FakeVideo:
-        instances = []
-        def __init__(self, _window):
-            from types import SimpleNamespace
-            self.worker_alive = True
-            self.capture = SimpleNamespace(worker_alive=True)
-            self.switched = 0
-            FakeVideo.instances.append(self)
-        def start(self):
-            pass
-        def stop(self):
-            self.worker_alive = False
-            self.capture.worker_alive = False
-        def switch_face(self):
-            self.switched += 1
-        def continue_tracking(self):
-            self.switched += 1
-        def snapshot(self):
-            from types import SimpleNamespace
-            return SimpleNamespace(
-                status="Tracking", signal_rate=4.0, face_count=1, landmark_count=478,
-                blendshape_count=52, thumbnail_rgb=None, current_signal=None,
-            )
-
-    monkeypatch.setattr(memory, "MemoryStore", IsolatedStore)
-    monkeypatch.setattr(IsolatedStore, "backfill_semantic_embeddings", lambda self, **kwargs: 0)
-    monkeypatch.setattr(audio, "local_model_available", lambda: False)
-    monkeypatch.setattr(windows, "list_call_windows", lambda: [CallWindow(1, "Fictional call", "fixture.exe", "Fixture")])
-    import conversation_copilot.video as video
-    monkeypatch.setattr(video, "LiveVideoSession", FakeVideo)
-    monkeypatch.setattr(messagebox, "askyesno", lambda *a, **k: False)
-    monkeypatch.setattr(messagebox, "showinfo", lambda *a, **k: None)
-
-    failures, completed = [], []
-    real_tk, real_top = tk.Tk, tk.Toplevel
-    def descendants(widget):
-        result = []
-        for child in widget.winfo_children():
-            result.append(child)
-            result.extend(descendants(child))
-        return result
-    def button(widget, text):
-        return next(w for w in descendants(widget)
-                    if isinstance(w, (tk.Button, ttk.Button)) and w.cget("text") == text)
-    def top(*args, **kwargs):
-        widget = real_top(*args, **kwargs)
-        widget.withdraw()
-        return widget
-    monkeypatch.setattr(tk, "Toplevel", top)
-
-    def create_root():
-        root = real_tk()
-        root.withdraw()
-        root.report_callback_exception = lambda *args: failures.append(args[1])
-        def check(callback):
-            try:
-                callback()
-            except Exception as exc:
-                failures.append(exc)
-                if root.winfo_exists():
-                    root.destroy()
-        def start():
-            window_list = next(w for w in descendants(root) if isinstance(w, tk.Listbox)
-                               and "Fictional call" in str(w.get(0, tk.END)))
-            window_list.selection_set(0)
-            button(root, "Start call").invoke()
-            root.update_idletasks()
-            live = next(w for w in root.winfo_children()[0].winfo_children()
-                        if any(isinstance(child, ttk.Button) and child.cget("text") == "End call"
-                               for child in descendants(w)))
-            assert live.winfo_manager() == "pack"
-            for text in ("End call", "Refresh all", "Transcript", "Memories", "Switch face"):
-                assert button(root, text)
-            group_titles = {w.cget("text") for w in descendants(root) if isinstance(w, tk.LabelFrame)}
-            assert {"Possible tone", "Social cue", "Potential responses", "Related memory", "Follow-up"} <= group_titles
-            assert not any(isinstance(w, tk.Label) and w.cget("image") for w in descendants(root))
-            button(root, "Switch face").invoke()
-            assert FakeVideo.instances[-1].switched == 1
-            button(root, "Transcript").invoke()
-            transcript = next(w for w in root.winfo_children()
-                              if isinstance(w, real_top) and w.title() == "Live transcript")
-            assert "No finalized transcript" in next(w for w in descendants(transcript)
-                                                      if isinstance(w, tk.Text)).get("1.0", tk.END)
-            transcript.destroy()
-            button(root, "End call").invoke()
-            root.after(450, lambda: check(finished))
-        def finished():
-            assert button(root, "Start call")
-            live = next(w for w in root.winfo_children()[0].winfo_children()
-                        if any(isinstance(child, ttk.Button) and child.cget("text") == "End call"
-                               for child in descendants(w)))
-            assert not live.winfo_manager()
-            completed.append(True)
-            root.destroy()
-        root.after(50, lambda: check(start))
-        root.after(4000, root.destroy)
-        return root
-
-    monkeypatch.setattr(tk, "Tk", create_root)
-    try:
-        show_window("F10 live UI fixture")
-    finally:
-        gc.collect()
+    show_window("F10 isolated UI fixture")
     assert failures == []
     assert completed == [True]

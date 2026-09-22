@@ -131,6 +131,7 @@ def show_window(summary: str) -> None:
     from .guidance import CATEGORIES, GuidanceDisplay, interpret_guidance
     from .ask_memory import AskSession, memory_source, validate_sources, cloud_answer, ASK_INPUT_LIMIT, ASK_OUTPUT_LIMIT
     from .post_call import process_review, review_estimate
+    from .ui_theme import DISPLAY_FONT, THEMES, apply_theme, configure_ttk, role, surface, system_theme
     from .memory import (
         AmbiguousContact,
         MEMORY_TYPES,
@@ -158,32 +159,37 @@ def show_window(summary: str) -> None:
         ui_settings = json.loads(settings_path.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
         ui_settings = {}
-    root.geometry("1120x730")
+    theme_name = ui_settings.get("theme") if ui_settings.get("theme") in THEMES else system_theme()
+    ui_settings["theme"] = theme_name
+    colors = THEMES[theme_name]
+    root.geometry("1150x730")
     root.minsize(900, 640)
-    root.configure(bg="#f4f1eb")
+    root.configure(bg=colors["page"])
     style = ttk.Style(root)
-    style.configure("Primary.TButton", font=("Segoe UI", 10, "bold"), padding=(12, 8))
-    style.configure("Quiet.TButton", padding=(9, 6))
-    screen_host = tk.Frame(root, bg="#f4f1eb")
+    configure_ttk(style, colors)
+    screen_host = tk.Frame(root, bg=colors["page"])
     screen_host.pack(fill="both", expand=True)
-    home_screen = tk.Frame(screen_host, bg="#f4f1eb")
-    live_screen = tk.Frame(screen_host, bg="#f4f1eb")
+    home_screen = tk.Frame(screen_host, bg=colors["page"])
+    live_screen = tk.Frame(screen_host, bg=colors["page"])
     home_screen.pack(fill="both", expand=True)
 
-    home_header = tk.Frame(home_screen, bg="#f4f1eb")
-    home_header.pack(fill="x", padx=22, pady=(18, 10))
-    tk.Label(home_header, text="Conversation Copilot", font=("Segoe UI", 22, "bold"), bg="#f4f1eb").pack(side="left")
+    home_header = tk.Frame(home_screen, bg=colors["page"])
+    home_header.pack(fill="x", padx=18, pady=(12, 8))
+    app_mark = role(tk.Label(home_header, text="◯", font=(DISPLAY_FONT, 22, "bold"), padx=9, pady=4), "accent")
+    app_mark.pack(side="left", padx=(0, 8))
+    title_stack = tk.Frame(home_header, bg=colors["page"])
+    title_stack.pack(side="left")
+    home_title = tk.Label(title_stack, text="Conversation Copilot", font=(DISPLAY_FONT, 20, "bold"), anchor="w")
+    home_title.pack(anchor="w")
+    home_subtitle = tk.Label(title_stack, text="Say hi, and I'll listen along", anchor="w")
+    home_subtitle.pack(anchor="w")
     settings_button = ttk.Button(home_header, text="Settings", style="Quiet.TButton")
     settings_button.pack(side="right")
-    home_body = tk.Frame(home_screen, bg="#f4f1eb")
-    home_body.pack(fill="both", expand=True, padx=18, pady=(0, 18))
-    home_body.columnconfigure(0, weight=3, uniform="home")
-    home_body.columnconfigure(1, weight=2, uniform="home")
-    home_body.rowconfigure(0, weight=1)
-    left_column = tk.Frame(home_body, bg="#f4f1eb")
-    left_column.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-    home_right = tk.Frame(home_body, bg="#f4f1eb")
-    home_right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+    theme_button = ttk.Button(home_header, text="Dark theme" if theme_name == "light" else "Light theme", style="Quiet.TButton")
+    theme_button.pack(side="right", padx=(0, 6))
+
+    home_body = tk.Frame(home_screen, bg=colors["page"])
+    home_body.pack(fill="both", expand=True, padx=14, pady=(0, 12))
     memory_store = None
     memory_startup_error = ""
     semantic_backfill_lock = threading.Lock()
@@ -192,54 +198,63 @@ def show_window(summary: str) -> None:
         memory_store = MemoryStore()
     except MemoryStoreUnavailable as exc:
         memory_startup_error = str(exc)
-    contact_frame = tk.LabelFrame(left_column, text="Contact", font=("Segoe UI", 10, "bold"), bg="#ffffff", padx=8, pady=6)
+    contact_frame = tk.LabelFrame(home_body, text="Who are you talking to?", padx=10, pady=8)
     contact_frame.pack(fill="x", pady=(0, 10))
-    contact_query = tk.Entry(contact_frame)
-    contact_query.grid(row=0, column=0, sticky="ew", padx=4, pady=4)
-    contact_box = ttk.Combobox(contact_frame, state="readonly", width=35)
-    contact_box.grid(row=0, column=1, columnspan=2, sticky="ew", padx=4, pady=4)
-    contact_search_button = tk.Button(contact_frame, text="Search")
-    contact_search_button.grid(row=0, column=3, padx=3)
-    contact_select_button = tk.Button(contact_frame, text="Select")
-    contact_select_button.grid(row=0, column=4, padx=3)
-    contact_create_button = tk.Button(contact_frame, text="Create Contact")
-    contact_create_button.grid(row=1, column=0, padx=3, pady=4, sticky="ew")
-    contact_clear_button = tk.Button(contact_frame, text="Clear")
-    contact_clear_button.grid(row=1, column=1, padx=3, pady=4, sticky="ew")
-    memory_manage_button = tk.Button(contact_frame, text="Memories")
-    memory_manage_button.grid(row=1, column=2, padx=3, pady=4, sticky="ew")
-    import_button = tk.Button(contact_frame, text="Import chat")
-    import_button.grid(row=1, column=3, padx=3, pady=4, sticky="ew")
-    unassigned_button = tk.Button(contact_frame, text="Unassigned")
     contact_frame.columnconfigure(0, weight=1)
-    contact_frame.columnconfigure(1, weight=1)
-    confirmed_contact_label = tk.Label(contact_frame, text="Confirmed contact: none", anchor="w")
-    confirmed_contact_label.grid(row=2, column=0, columnspan=5, sticky="ew", padx=6)
+    contact_query = tk.StringVar()
+    contact_box = ttk.Combobox(contact_frame, state="readonly", width=35)
+    contact_box.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=4)
+    contact_select_button = tk.Button(contact_frame, text="Select")
+    contact_select_button.grid(row=0, column=1, padx=3, pady=4)
+    contact_create_button = role(tk.Button(contact_frame, text="Create"), "primary")
+    contact_create_button.grid(row=0, column=2, padx=3, pady=4)
+    contact_edit_button = tk.Button(contact_frame, text="Edit")
+    contact_edit_button.grid(row=0, column=3, padx=3, pady=4)
+    contact_clear_button = tk.Button(contact_frame, text="Clear")
+    contact_clear_button.grid(row=0, column=4, padx=3, pady=4)
+    quick_actions = tk.Frame(contact_frame)
+    quick_actions.grid(row=0, column=5, rowspan=2, sticky="nsew", padx=(16, 0))
+    memory_manage_button = role(tk.Button(quick_actions, text="Memories"), "warning")
+    memory_manage_button.pack(side="left", fill="x", expand=True, padx=(0, 6))
+    review_button = tk.Button(quick_actions, text="◷  History")
+    review_button.pack(side="left", fill="x", expand=True, padx=(0, 6))
+    import_button = role(tk.Button(quick_actions, text="⇧  Import text"), "success")
+    import_button.pack(side="left", fill="x", expand=True)
+    unassigned_button = tk.Button(contact_frame, text="Unassigned")
+    confirmed_contact_label = role(tk.Label(contact_frame, text="Choose or create a contact to get ready", anchor="w", padx=8, pady=3), "success")
+    confirmed_contact_label.grid(row=1, column=0, columnspan=5, sticky="w", pady=(3, 0))
     memory_status_label = tk.Label(
         contact_frame,
         text=(memory_startup_error or "No contact confirmed — retrieval and extraction are off"),
         anchor="w",
     )
-    memory_status_label.grid(row=3, column=0, columnspan=5, sticky="ew", padx=6, pady=(0, 5))
-    tk.Label(
+    memory_status_label.grid(row=2, column=0, columnspan=6, sticky="ew", padx=6, pady=(4, 0))
+    privacy_notice = role(tk.Label(
         contact_frame,
-        text="Assigned calls retain attributed text locally; after Stop, bounded text may be sent to OpenAI for proposals (store=false).",
-        fg="#7a3f00",
-        anchor="w",
-    ).grid(row=4, column=0, columnspan=5, sticky="ew", padx=6, pady=(0, 5))
-    audio_controls = tk.LabelFrame(left_column, text="Audio", font=("Segoe UI", 10, "bold"), bg="#ffffff", padx=8, pady=6)
-    audio_controls.pack(fill="x", pady=(0, 10))
+        text="Assigned calls retain attributed text locally. After Stop, bounded eligible text may be sent to OpenAI with storage disabled.",
+        anchor="w", justify="left", wraplength=1030, padx=6, pady=3,
+    ), "warning")
+    privacy_notice.grid(row=3, column=0, columnspan=6, sticky="ew", pady=(3, 0))
+
+    cards = tk.Frame(home_body)
+    cards.pack(fill="both", expand=True)
+    cards.columnconfigure(0, weight=1, uniform="cards")
+    cards.columnconfigure(1, weight=1, uniform="cards")
+    cards.rowconfigure(0, weight=1)
+    sound_card = tk.LabelFrame(cards, text="●  Sound check", padx=10, pady=8)
+    sound_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+    watch_card = tk.LabelFrame(cards, text="●  Who I'm watching", padx=10, pady=8)
+    watch_card.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+    audio_controls = tk.Frame(sound_card)
+    audio_controls.pack(fill="x")
     tk.Label(audio_controls, text="Microphone").grid(row=0, column=0, sticky="w", padx=6, pady=4)
     microphone_box = ttk.Combobox(audio_controls, state="readonly", width=54)
     microphone_box.grid(row=0, column=1, sticky="ew", padx=6, pady=4)
     tk.Label(audio_controls, text="Call audio").grid(row=1, column=0, sticky="w", padx=6, pady=4)
     playback_box = ttk.Combobox(audio_controls, state="readonly", width=54)
     playback_box.grid(row=1, column=1, sticky="ew", padx=6, pady=4)
-    tk.Label(
-        audio_controls,
-        text="Captures every sound on this device — close Chrome and other audio apps",
-        fg="#9a4b00",
-    ).grid(row=2, column=1, sticky="w", padx=6, pady=(0, 4))
+    audio_capture_notice = role(tk.Label(audio_controls, text="Captures every sound on this device — close unrelated audio apps.", anchor="w"), "warning")
+    audio_capture_notice.grid(row=2, column=1, sticky="w", padx=6, pady=(0, 4))
     tk.Label(audio_controls, text="Language").grid(row=3, column=0, sticky="w", padx=6, pady=4)
     language_box = ttk.Combobox(
         audio_controls,
@@ -254,53 +269,70 @@ def show_window(summary: str) -> None:
     sensitivity.set(DEFAULT_MICROPHONE_THRESHOLD)
     sensitivity.grid(row=4, column=1, sticky="ew", padx=6, pady=4)
     audio_controls.columnconfigure(1, weight=1)
-    controls = tk.LabelFrame(home_right, text="Call window", font=("Segoe UI", 10, "bold"), bg="#ffffff", padx=8, pady=8)
-    controls.pack(fill="x", pady=(0, 10))
-    window_list = tk.Listbox(controls, height=6, exportselection=False)
-    window_list.pack(fill="x", pady=(0, 6))
+    controls = tk.Frame(sound_card)
+    controls.pack(fill="both", expand=True, pady=(8, 0))
+    tk.Label(controls, text="Call window", anchor="w").pack(fill="x")
+    window_list = tk.Listbox(controls, height=3, exportselection=False)
+    window_list.pack(fill="both", expand=True, pady=(3, 6))
     refresh_button = tk.Button(controls, text="Refresh")
     refresh_button.pack(side="left")
-    selected_label = tk.Label(controls, text="Selected: none", anchor="w", bg="#ffffff")
+    selected_label = tk.Label(controls, text="Selected: none", anchor="w")
     selected_label.pack(side="left", fill="x", expand=True, padx=8)
 
-    model_frame = tk.LabelFrame(home_right, text="Live and Ask model", font=("Segoe UI", 10, "bold"), bg="#ffffff", padx=8, pady=8)
-    model_frame.pack(fill="x", pady=(0, 10))
+    face_row = tk.Frame(watch_card)
+    face_row.pack(fill="x", pady=(0, 8))
+    home_face_preview = tk.Label(face_row, text="drop face photo\n120×120", width=16, height=7, justify="center")
+    home_face_preview.pack(side="left", padx=(0, 8))
+    face_actions = tk.Frame(face_row)
+    face_actions.pack(side="left", fill="both", expand=True)
+    home_switch_button = tk.Button(face_actions, text="Switch face")
+    home_switch_button.pack(fill="x")
+    face_hold_note = role(tk.Label(face_actions, text="Face lock holds for 18 seconds if the selected face steps away.", wraplength=330, justify="left", padx=7, pady=5), "success")
+    face_hold_note.pack(fill="x", pady=(6, 0))
+    model_frame = tk.LabelFrame(watch_card, text="Live and Ask model", padx=8, pady=8)
+    model_frame.pack(fill="x", pady=(6, 0))
     live_model_choice = tk.StringVar(value="Luna low")
     model_box = ttk.Combobox(model_frame, state="readonly", textvariable=live_model_choice, values=("Luna low", "Terra low"))
     model_box.pack(fill="x")
-    tk.Label(model_frame, text="Review and memory generation always use Terra low. Usage is cumulative and shown during calls.", bg="#ffffff", fg="#555555", justify="left", wraplength=360).pack(fill="x", pady=(6, 0))
+    tk.Label(model_frame, text="Terra: 10× Luna token rates. Review generation stays on Terra low.", justify="left", wraplength=400).pack(fill="x", pady=(6, 0))
 
-    home_actions = tk.LabelFrame(home_right, text="Prepare", font=("Segoe UI", 10, "bold"), bg="#ffffff", padx=8, pady=8)
-    home_actions.pack(fill="x", pady=(0, 10))
-    review_button = tk.Button(home_actions, text="Conversation history")
-    review_button.pack(fill="x", pady=2)
-    start_button = ttk.Button(home_right, text="Start call", style="Primary.TButton")
-    start_button.pack(fill="x", pady=(2, 8))
-    status_label = tk.Label(home_right, text="Select a call window", anchor="w", justify="left", bg="#f4f1eb", wraplength=400)
-    status_label.pack(fill="x")
-    audio_status_label = tk.Label(home_right, text="Audio devices loading", anchor="w", justify="left", bg="#f4f1eb", wraplength=400)
-    audio_status_label.pack(fill="x", pady=(3, 0))
+    ready_bar = tk.Frame(home_body, bd=2, relief="solid", padx=10, pady=8)
+    ready_bar.pack(fill="x", pady=(10, 0))
+    ready_icon = role(tk.Label(ready_bar, text="✓", font=(DISPLAY_FONT, 18, "bold"), padx=8, pady=4), "success")
+    ready_icon.pack(side="left")
+    ready_text = tk.Label(ready_bar, text="Ready — confirm everyone has heard the notice before capture starts.", anchor="w")
+    ready_text.pack(side="left", fill="x", expand=True, padx=8)
+    start_button = ttk.Button(ready_bar, text="Start call", style="Primary.TButton")
+    start_button.pack(side="right")
+    status_label = tk.Label(ready_bar, text="Select a call window", anchor="e", justify="right", wraplength=260)
+    status_label.pack(side="right", padx=8)
+    audio_status_label = tk.Label(sound_card, text="Audio devices loading", anchor="w", justify="left", wraplength=480)
+    audio_status_label.pack(fill="x", pady=(6, 0))
 
-    live_header = tk.Frame(live_screen, bg="#f4f1eb")
-    live_header.pack(fill="x", padx=12, pady=(10, 5))
-    live_contact_label = tk.Label(live_header, text="Live call", font=("Segoe UI", 15, "bold"), bg="#f4f1eb")
+    live_panel = surface(tk.Frame(live_screen, bd=2, relief="solid"))
+    live_panel.pack(fill="both", expand=True, padx=8, pady=8)
+    live_title_bar = role(tk.Label(live_panel, text="Conversation Copilot                         ● ● ●", anchor="w", padx=9, pady=7), "warning")
+    live_title_bar.pack(fill="x")
+    live_header = tk.Frame(live_panel)
+    live_header.pack(fill="x", padx=8, pady=(8, 3))
+    live_contact_label = tk.Label(live_header, text="Live call", font=(DISPLAY_FONT, 17, "bold"))
     live_contact_label.pack(side="left")
-    stop_button = ttk.Button(live_header, text="End call", style="Primary.TButton", state="disabled")
+    stop_button = role(tk.Button(live_header, text="End call", state="disabled"), "danger")
     stop_button.pack(side="right")
-    live_meta_label = tk.Label(live_screen, text="Luna low · $0.0000 this call", anchor="w", bg="#f4f1eb", fg="#555555")
-    live_meta_label.pack(fill="x", padx=12)
-    live_status = tk.Frame(live_screen, bg="#ffffff", bd=1, relief="solid")
-    live_status.pack(fill="x", padx=12, pady=6)
-    live_audio_label = tk.Label(live_status, text="Audio starting", bg="#ffffff", anchor="w")
-    live_audio_label.pack(side="left", padx=8, pady=6)
-    live_face_label = tk.Label(live_status, text="Face selected", bg="#ffffff", anchor="w")
-    live_face_label.pack(side="left", padx=8, pady=6)
-    switch_button = tk.Button(live_status, text="Switch face", state="disabled")
-    switch_button.pack(side="right", padx=6, pady=4)
-    suggest_button = tk.Button(live_status, text="Refresh all", state="disabled")
-    suggest_button.pack(side="right", padx=2, pady=4)
+    live_meta_label = tk.Label(live_header, text="Luna low · $0.0000", anchor="w")
+    live_meta_label.pack(side="left", padx=8)
+    live_status = tk.Frame(live_panel)
+    live_status.pack(fill="x", padx=8, pady=4)
+    live_audio_label = role(tk.Label(live_status, text="● Audio", anchor="w", padx=7, pady=2), "success")
+    live_audio_label.pack(side="left", padx=(0, 4))
+    live_face_label = role(tk.Label(live_status, text="● Face", anchor="w", padx=7, pady=2), "success")
+    live_face_label.pack(side="left", padx=4)
+    live_cloud_label = role(tk.Label(live_status, text="● Cloud", anchor="w", padx=7, pady=2), "success")
+    live_cloud_label.pack(side="left", padx=4)
+    suggest_button = role(tk.Button(live_panel, text="Refresh all", state="disabled"), "primary")
+    suggest_button.pack(fill="x", padx=8, pady=(3, 6))
 
-    hidden_state = tk.Frame(live_screen)
+    hidden_state = tk.Frame(live_panel)
     metrics_label = tk.Label(hidden_state, text="")
     interpretation_frame = tk.Frame(hidden_state)
     interpretation_status_label = tk.Label(
@@ -335,22 +367,25 @@ def show_window(summary: str) -> None:
         terra_controls, text="Check now", state="disabled"
     )
     terra_button.pack(side="left")
-    guidance_frame = tk.Frame(live_screen, bg="#f4f1eb")
-    guidance_frame.pack(fill="both", expand=True, padx=12, pady=(0, 6))
-    guidance_status = tk.Label(guidance_frame, text="Select a contact to enable guidance", anchor="w", bg="#f4f1eb", wraplength=460)
+    guidance_frame = tk.Frame(live_panel)
+    guidance_frame.pack(fill="both", expand=True, padx=8, pady=(0, 5))
+    guidance_status = tk.Label(guidance_frame, text="Select a contact to enable guidance", anchor="w", wraplength=430)
     guidance_status.pack(fill="x")
     guidance_rows = {}
     guidance_display = GuidanceDisplay()
-    for category, label in (("tones", "Possible tone"), ("social_cues", "Social cue"), ("replies", "Potential responses"), ("remember", "Related memory"), ("follow_up", "Follow-up")):
-        group = tk.LabelFrame(guidance_frame, text=label, font=("Segoe UI", 9, "bold"), bg="#ffffff", padx=5, pady=3)
+    for category, label, category_role in (("tones", "Possible tone", "tone"), ("social_cues", "Social cue", "social"), ("replies", "Potential responses", "replies"), ("remember", "Related memory", "memory"), ("follow_up", "Follow-up", "follow_up")):
+        group = role(tk.LabelFrame(guidance_frame, text=label, padx=5, pady=3), category_role)
         group.pack(fill="x", pady=2)
+        tk.Label(group, text="up to 4", anchor="e").pack(fill="x")
         guidance_rows[category] = group
-    live_footer = tk.Frame(live_screen, bg="#f4f1eb")
-    live_footer.pack(fill="x", padx=12, pady=(0, 10))
+    live_footer = tk.Frame(live_panel)
+    live_footer.pack(fill="x", padx=8, pady=(0, 8))
     transcript_button = tk.Button(live_footer, text="Transcript")
-    transcript_button.pack(side="left")
-    live_ask_button = tk.Button(live_footer, text="Memories")
-    live_ask_button.pack(side="left", padx=5)
+    transcript_button.pack(side="left", fill="x", expand=True)
+    live_ask_button = role(tk.Button(live_footer, text="Memories"), "warning")
+    live_ask_button.pack(side="left", fill="x", expand=True, padx=5)
+    switch_button = role(tk.Button(live_footer, text="Face ok · Switch", state="disabled"), "success")
+    switch_button.pack(side="left", fill="x", expand=True)
     thumbnail_label = tk.Label(hidden_state, text="No selected face")
     transcript_title = tk.Label(hidden_state, text="Finalized attributed text")
     transcript = tk.Text(hidden_state, state="disabled", wrap="word")
@@ -394,34 +429,38 @@ def show_window(summary: str) -> None:
     review_dialogs = {}
     review_results = queue.SimpleQueue()
 
+    def current_font_size() -> int:
+        return {"Default": 9, "Large": 10, "Extra large": 12}.get(ui_settings.get("text_size"), 10)
+
     def apply_readability() -> None:
-        import tkinter.font as tkfont
-        size = {"Default": 9, "Large": 11, "Extra large": 13}.get(ui_settings.get("text_size"), 9)
+        nonlocal colors
+        size = current_font_size()
+        colors = dict(THEMES[ui_settings.get("theme", theme_name)])
+        if ui_settings.get("high_contrast"):
+            dark = ui_settings.get("theme") == "dark"
+            colors.update({
+                "page": "#000000" if dark else "#FFFFFF",
+                "surface": "#000000" if dark else "#FFFFFF",
+                "sunken": "#000000" if dark else "#FFFFFF",
+                "muted": "#000000" if dark else "#FFFFFF",
+                "ink": "#FFFFFF" if dark else "#000000",
+                "ink_muted": "#FFFFFF" if dark else "#000000",
+                "line": "#FFFFFF" if dark else "#000000",
+                "outline": "#FFFFFF" if dark else "#000000",
+            })
         for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont"):
-            tkfont.nametofont(name).configure(size=size)
-        high = bool(ui_settings.get("high_contrast"))
-        def recolor(widget):
-            options = widget.configure()
-            try:
-                if "background" in options and not isinstance(widget, (tk.Entry, tk.Text, tk.Listbox)):
-                    if high:
-                        if not hasattr(widget, "_normal_background"):
-                            widget._normal_background = widget.cget("background")
-                        widget.configure(background="#000000")
-                    elif hasattr(widget, "_normal_background"):
-                        widget.configure(background=widget._normal_background)
-                if "foreground" in options and not isinstance(widget, (tk.Entry, tk.Text, tk.Listbox)):
-                    if high:
-                        if not hasattr(widget, "_normal_foreground"):
-                            widget._normal_foreground = widget.cget("foreground")
-                        widget.configure(foreground="#ffffff")
-                    elif hasattr(widget, "_normal_foreground"):
-                        widget.configure(foreground=widget._normal_foreground)
-            except tk.TclError:
-                pass
-            for child in widget.winfo_children():
-                recolor(child)
-        recolor(root)
+            root.tk.call("font", "configure", name, "-family", "Segoe UI Semibold", "-size", size)
+        configure_ttk(style, colors, font_size=size)
+        apply_theme(root, colors, font_size=size)
+        theme_button.configure(text="Dark theme" if ui_settings.get("theme") == "light" else "Light theme")
+
+    def toggle_theme() -> None:
+        ui_settings["theme"] = "dark" if ui_settings.get("theme") == "light" else "light"
+        apply_readability()
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(ui_settings, sort_keys=True), encoding="utf-8")
+
+    theme_button.configure(command=toggle_theme)
 
     def selected_live_model():
         return TERRA_MODEL if live_model_choice.get().startswith("Terra") else LUNA_MODEL
@@ -464,6 +503,7 @@ def show_window(summary: str) -> None:
         box.pack(fill="both", expand=True)
         box.insert("1.0", text)
         box.configure(state="disabled")
+        apply_theme(preview, colors, font_size=current_font_size())
         def validate_preview():
             if not preview.winfo_exists():
                 return
@@ -542,14 +582,16 @@ def show_window(summary: str) -> None:
                     messagebox.showinfo("Sources", "Exact source is unavailable; reopen the current suggestion.", parent=popup)
             tk.Button(actions, text="Sources", command=open_sources).pack(side="left")
             tk.Button(actions, text="Close", command=popup.destroy).pack(side="right")
+            apply_theme(popup, colors, font_size=current_font_size())
 
         for category, group in guidance_rows.items():
             for child in group.winfo_children():
                 child.destroy()
+            tk.Label(group, text="up to 4", anchor="e").pack(fill="x")
             items = displayed[category]
             if not items:
-                tk.Label(group, text="Nothing useful to show yet.", bg="#ffffff", fg="#777777",
-                         anchor="w").pack(fill="x")
+                tk.Label(group, text="Nothing useful to show yet.", anchor="w").pack(fill="x")
+                apply_theme(group, colors, font_size=current_font_size())
                 continue
             for index, wrapped in enumerate(items):
                 candidate = wrapped if category in {"tones", "social_cues"} else wrapped.candidate
@@ -560,15 +602,16 @@ def show_window(summary: str) -> None:
                 if category in {"tones", "social_cues"}:
                     modalities = ", ".join(str(value.value).replace("_", " ") for value in candidate.evidence.modalities)
                     why = f"Why: cautious reading of recent {modalities or 'conversation'} cues."
-                row = tk.Frame(group, bg="#ffffff")
+                row = tk.Frame(group)
                 row.pack(fill="x", pady=1)
                 text = content + (f"\n{why}" if why else "")
-                tk.Label(row, text=text, justify="left", wraplength=330, anchor="w", bg="#ffffff").pack(side="left", fill="x", expand=True)
+                tk.Label(row, text=text, justify="left", wraplength=300, anchor="w").pack(side="left", fill="x", expand=True)
                 def dismiss(category=category, index=index):
                     guidance_display.dismiss(category, index, update=update)
                     render_guidance()
-                tk.Button(row, text="Dismiss", command=dismiss).pack(side="right", padx=(3, 0))
+                role(tk.Button(row, text="Dismiss", command=dismiss), "danger").pack(side="right", padx=(3, 0))
                 tk.Button(row, text="Pop out", command=lambda c=category, x=candidate, t=content, w=why: pop_out(c, x, t, w)).pack(side="right")
+            apply_theme(group, colors, font_size=current_font_size())
 
     def open_ask(contact_id=None):
         nonlocal ask_dialog
@@ -587,7 +630,7 @@ def show_window(summary: str) -> None:
 
         dialog = ask_dialog = tk.Toplevel(root)
         dialog.title("Memories")
-        dialog.geometry("900x720")
+        dialog.geometry("920x650")
         state = AskSession(memory_contact_id)
         results = queue.SimpleQueue()
         shown = [None]
@@ -597,11 +640,12 @@ def show_window(summary: str) -> None:
 
         header = tk.Frame(dialog)
         header.pack(fill="x", padx=12, pady=(10, 4))
-        tk.Label(header, text="Memories", font=("Segoe UI", 18, "bold")).pack(side="left")
-        tk.Label(header, text=contact.label, font=("Segoe UI", 11, "bold")).pack(side="left", padx=10)
-        back_button = tk.Button(header, text="Back to Home", command=dialog.destroy)
+        tk.Label(header, text="Memories", font=(DISPLAY_FONT, 22, "bold")).pack(side="left")
+        contact_chip = role(tk.Label(header, text=contact.label, padx=7, pady=3), "warning")
+        contact_chip.pack(side="left", padx=10)
+        back_button = tk.Button(header, text="← Back to Home", command=dialog.destroy)
         back_button.pack(side="right")
-        tk.Label(dialog, text=f"Ask about {contact.label} or manage saved memories.", anchor="w").pack(
+        tk.Label(dialog, text=f"Ask me anything about {contact.display_name}, or tidy up what I've saved.", anchor="w").pack(
             fill="x", padx=12, pady=(0, 8)
         )
 
@@ -609,16 +653,21 @@ def show_window(summary: str) -> None:
         question_row.pack(fill="x", padx=12)
         question = tk.Entry(question_row)
         question.pack(side="left", fill="x", expand=True)
-        ask_action = tk.Button(question_row, text="Ask")
+        ask_action = role(tk.Button(question_row, text="Ask"), "primary")
         ask_action.pack(side="left", padx=(6, 0))
-        new_question = tk.Button(question_row, text="New question")
-        new_question.pack(side="left", padx=(6, 0))
         status = tk.Label(dialog, text="Ask a natural-language question, or edit and delete saved memories below.", anchor="w")
         status.pack(fill="x", padx=12, pady=(6, 2))
-        answer_frame = tk.LabelFrame(dialog, text="Answer", padx=8, pady=6)
+        answer_frame = role(tk.LabelFrame(dialog, text="✦  Answer", padx=8, pady=6), "warning")
         answer_frame.pack(fill="x", padx=12, pady=(0, 6))
-        answer = tk.Text(answer_frame, height=4, wrap="word", state="disabled")
+        answer = tk.Text(answer_frame, height=3, wrap="word", state="disabled")
         answer.pack(fill="x")
+        answer_caption = tk.Label(answer_frame, text="Ask a question to connect an answer to saved memories.", anchor="w")
+        answer_caption.pack(fill="x", pady=(3, 0))
+
+        done_bar = tk.Frame(dialog)
+        done_bar.pack(side="bottom", fill="x", padx=12, pady=(0, 10))
+        done_button = role(tk.Button(done_bar, text="✓  Done", command=dialog.destroy), "success")
+        done_button.pack(side="right")
 
         canvas = tk.Canvas(dialog, highlightthickness=0)
         scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
@@ -629,7 +678,7 @@ def show_window(summary: str) -> None:
         body_window = canvas.create_window((0, 0), window=memory_body, anchor="nw")
         memory_body.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>", lambda event: canvas.itemconfigure(body_window, width=event.width))
-        related_frame = tk.LabelFrame(memory_body, text="Related memories", padx=6, pady=4)
+        related_frame = tk.LabelFrame(memory_body, text="Memories behind this answer", padx=6, pady=4)
         related_frame.pack(fill="x", pady=(0, 6))
         other_frame = tk.LabelFrame(memory_body, text="Other saved memories", padx=6, pady=4)
         other_frame.pack(fill="x")
@@ -640,6 +689,7 @@ def show_window(summary: str) -> None:
             answer.configure(state="normal")
             answer.delete("1.0", tk.END)
             answer.configure(state="disabled")
+            answer_caption.configure(text="Ask a question to connect an answer to saved memories.")
             if clear_question:
                 question.delete(0, tk.END)
 
@@ -700,21 +750,23 @@ def show_window(summary: str) -> None:
             for child in parent.winfo_children():
                 child.destroy()
             if not rows:
-                tk.Label(parent, text=empty_text, anchor="w", fg="#666666").pack(fill="x", padx=4, pady=4)
+                tk.Label(parent, text=empty_text, anchor="w").pack(fill="x", padx=4, pady=4)
+                apply_theme(parent, colors)
                 return
             for row in rows:
-                item = tk.Frame(parent, bd=1, relief="solid")
+                item = surface(tk.Frame(parent, bd=1, relief="solid"))
                 item.pack(fill="x", padx=2, pady=2)
                 saved = (row["approved_at"] or "")[:10] or "date unavailable"
                 tk.Label(item, text=f"{row['content']}\nSaved {saved}", justify="left", anchor="w", wraplength=590).pack(
-                    side="left", fill="x", expand=True, padx=8, pady=6
+                    side="left", fill="x", expand=True, padx=10, pady=6
                 )
-                tk.Button(item, text="Delete", command=lambda current=row: delete_memory(current)).pack(
+                role(tk.Button(item, text="Delete", command=lambda current=row: delete_memory(current)), "danger").pack(
                     side="right", padx=(3, 6), pady=5
                 )
                 tk.Button(item, text="Edit", command=lambda current=row: edit_memory(current)).pack(
                     side="right", pady=5
                 )
+            apply_theme(parent, colors)
 
         def reload_memories():
             try:
@@ -738,12 +790,6 @@ def show_window(summary: str) -> None:
                         )
                     )
             return identifiers
-
-        def clear():
-            state.new_question()
-            clear_answer()
-            reload_memories()
-            status.configure(text="Ask a natural-language question, or edit and delete saved memories below.")
 
         def ask():
             if running[0]:
@@ -784,7 +830,6 @@ def show_window(summary: str) -> None:
             threading.Thread(target=work, name="explicit-cloud-ask", daemon=True).start()
 
         ask_action.configure(command=ask)
-        new_question.configure(command=clear)
         question.bind("<Return>", lambda _event: ask())
 
         def poll_ask():
@@ -823,6 +868,7 @@ def show_window(summary: str) -> None:
                 answer.insert("1.0", result.answer)
                 answer.configure(state="disabled")
                 reload_memories()
+                answer_caption.configure(text=f"Based on {len(related_ids)} saved memor{'y' if len(related_ids) == 1 else 'ies'}")
                 status.configure(text=f"Answer ready · {len(related_ids)} associated saved memor{'y' if len(related_ids) == 1 else 'ies'}.")
             if shown[0] and time.perf_counter() - last_source_check[0] >= 1:
                 last_source_check[0] = time.perf_counter()
@@ -845,8 +891,10 @@ def show_window(summary: str) -> None:
             schedule_semantic_backfill()
 
         back_button.configure(command=close_ask)
+        done_button.configure(command=close_ask)
         dialog.protocol("WM_DELETE_WINDOW", close_ask)
         reload_memories()
+        apply_theme(dialog, colors, font_size=current_font_size())
         dialog.after(150, poll_ask)
         question.focus_set()
 
@@ -862,6 +910,7 @@ def show_window(summary: str) -> None:
                    or "No finalized transcript text yet.")
         box.configure(state="disabled")
         tk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=(0, 10))
+        apply_theme(dialog, colors, font_size=current_font_size())
 
     transcript_button.configure(command=open_transcript)
 
@@ -889,6 +938,7 @@ def show_window(summary: str) -> None:
                     chooser.destroy()
                     open_review(chosen)
             tk.Button(chooser, text="Review selected record", command=choose).pack()
+            apply_theme(chooser, colors, font_size=current_font_size())
             return
         existing = review_dialogs.get(record_id)
         if existing is not None and existing.winfo_exists():
@@ -898,22 +948,26 @@ def show_window(summary: str) -> None:
         dialog = tk.Toplevel(root)
         review_dialogs[record_id] = dialog
         dialog.bind("<Destroy>", lambda event: review_dialogs.pop(record_id, None) if event.widget is dialog else None)
-        dialog.title("Summary and memories")
-        dialog.geometry("1120x720")
+        dialog.title("Review conversation")
+        dialog.geometry("1120x680")
         review_header = tk.Frame(dialog)
-        review_header.pack(fill="x", padx=12, pady=(10, 3))
-        tk.Label(review_header, text="Summary and memories", font=("Segoe UI", 18, "bold")).pack(side="left")
-        tk.Button(review_header, text="Back to Home", command=dialog.destroy).pack(side="right")
+        review_header.pack(fill="x", padx=18, pady=(16, 3))
+        title_stack = tk.Frame(review_header)
+        title_stack.pack(side="left", fill="x", expand=True)
+        tk.Label(title_stack, text="Review conversation", font=(DISPLAY_FONT, 24, "bold"), anchor="w").pack(fill="x")
+        tk.Label(title_stack, text="Shape the summary and choose which memories to keep.", anchor="w").pack(fill="x")
+        tk.Button(review_header, text="Back to Home", command=dialog.destroy).pack(side="right", padx=(12, 0))
         label = tk.Label(dialog, text="Draft · not searchable until approved", anchor="w")
-        label.pack(fill="x", padx=12, pady=(0, 8))
-        panes = tk.PanedWindow(dialog, orient=tk.HORIZONTAL)
-        panes.pack(fill="both", expand=True)
-        summary_panel = tk.Frame(panes)
-        memory_panel = tk.LabelFrame(panes, text="Memories from this conversation")
+        role(label, "warning")
+        label.pack(fill="x", padx=18, pady=(8, 10))
+        panes = tk.PanedWindow(dialog, orient=tk.HORIZONTAL, sashwidth=8, bd=0, relief="flat")
+        panes.pack(fill="both", expand=True, padx=18, pady=(0, 16))
+        summary_panel = tk.LabelFrame(panes, text="Summary · draft and editable")
+        memory_panel = tk.LabelFrame(panes, text="Memories to keep")
         panes.add(summary_panel, stretch="always", minsize=480)
         panes.add(memory_panel, stretch="always", minsize=360)
         narrative = tk.Text(summary_panel, wrap="word", height=12, state="disabled")
-        narrative.pack(fill="both", expand=True, padx=8)
+        narrative.pack(fill="both", expand=True, padx=10, pady=(10, 4))
         tk.Label(summary_panel, text="Click a sentence to select it for editing or source review.").pack(anchor="w", padx=8)
         listing = tk.Listbox(summary_panel, width=65, height=3, exportselection=False)
         listing.pack(fill="both", expand=True, padx=8)
@@ -987,7 +1041,12 @@ def show_window(summary: str) -> None:
             ("Approve all", review_all_memories),
             ("Reject all", lambda: review_all_memories(False)),
         ):
-            tk.Button(memory_actions, text=text, command=command).pack(side="left", padx=2, pady=4)
+            button = tk.Button(memory_actions, text=text, command=command)
+            if text.startswith("Approve"):
+                role(button, "success")
+            elif text.startswith("Reject"):
+                role(button, "danger")
+            button.pack(side="left", padx=2, pady=4)
         def reload():
             try:
                 selection = listing.curselection()
@@ -1246,7 +1305,14 @@ def show_window(summary: str) -> None:
                               ("Review legacy source exclusions", review_legacy_sources),
                               ("Summary versions", summary_versions), ("Transcript and source", transcript_source),
                               ("Contact and data", proposals), ("Review later", dialog.destroy)):
-            tk.Button(controls, text=text, command=command).pack(anchor="w", fill="x")
+            button = tk.Button(controls, text=text, command=command)
+            if text.startswith("Approve"):
+                role(button, "success")
+            elif text.startswith(("Delete", "Remove")):
+                role(button, "danger")
+            elif text.startswith("Generate"):
+                role(button, "primary")
+            button.pack(anchor="w", fill="x", pady=2)
         def refresh_review():
             if dialog.winfo_exists():
                 try:
@@ -1255,6 +1321,7 @@ def show_window(summary: str) -> None:
                     label.configure(text="Source unavailable or memory store busy; review will refresh shortly.")
                 finally:
                     dialog.after(1500, refresh_review)
+        apply_theme(dialog, colors, font_size=current_font_size())
         refresh_review()
 
     def start_review_job(record_id, ledger):
@@ -1405,12 +1472,12 @@ def show_window(summary: str) -> None:
             _relabel_contact_turns(turns, speaker_name)
             render_transcript_turns(turns, replace=True)
         if contact is not None:
-            confirmed_contact_label.configure(text=f"Confirmed contact: {contact.label}")
+            confirmed_contact_label.configure(text=f"✓  {contact.label} is selected and ready")
             memory_status_label.configure(text="Contact memory is eligible")
             if turns:
                 offer_interpretation_snapshot()
         else:
-            confirmed_contact_label.configure(text="Confirmed contact: none")
+            confirmed_contact_label.configure(text="Choose or create a contact to get ready")
             memory_status_label.configure(text="No contact confirmed — retrieval and extraction are off")
         return True
 
@@ -2111,6 +2178,7 @@ def show_window(summary: str) -> None:
         for column in range(6):
             buttons.columnconfigure(column, weight=1)
         reload_items()
+        apply_theme(dialog, colors, font_size=current_font_size())
 
     def import_chat() -> None:
         if memory_store is None or selected_contact_id is None:
@@ -2192,26 +2260,28 @@ def show_window(summary: str) -> None:
     def open_settings() -> None:
         dialog = tk.Toplevel(root)
         dialog.title("Settings")
-        dialog.geometry("820x680")
-        dialog.minsize(720, 620)
+        dialog.geometry("920x660")
+        dialog.minsize(820, 620)
         header = tk.Frame(dialog)
         header.pack(fill="x", padx=18, pady=(14, 8))
-        tk.Label(header, text="Settings", font=("Segoe UI", 20, "bold")).pack(side="left")
-        tk.Button(header, text="Back to Home", command=dialog.destroy).pack(side="right")
+        tk.Label(header, text="Settings", font=(DISPLAY_FONT, 22, "bold")).pack(side="left")
+        tk.Button(header, text="← Back to Home", command=dialog.destroy).pack(side="right")
         body = tk.Frame(dialog)
         body.pack(fill="both", expand=True, padx=18, pady=(0, 14))
         body.columnconfigure(0, weight=1)
         body.columnconfigure(1, weight=1)
 
-        api = tk.LabelFrame(body, text="API key", padx=10, pady=8)
-        api.grid(row=0, column=0, columnspan=2, sticky="ew", pady=5)
+        api = tk.LabelFrame(body, text="●  API key", padx=10, pady=8)
+        api.grid(row=0, column=0, sticky="nsew", padx=(0, 5), pady=5)
         configured = bool(local_openai_api_key())
-        tk.Label(api, text="System key in use" if configured else "No API key configured",
-                 font=("Segoe UI", 10, "bold"), anchor="w").pack(fill="x")
-        tk.Label(api, text="The saved key is never shown. Enter a replacement only when you want to change it.",
-                 anchor="w", justify="left").pack(fill="x")
+        key_badge = role(tk.Label(api, text="✓  System key in use" if configured else "No API key configured", anchor="w", padx=6, pady=3), "success")
+        key_badge.pack(anchor="w")
+        tk.Label(api, text="••••••••••••", anchor="w", font=("Segoe UI Semibold", 13, "bold"), padx=7, pady=4).pack(fill="x", pady=(7, 3))
+        tk.Label(api, text="The existing key stays hidden. Enter a replacement only to override it on this computer.",
+                 anchor="w", justify="left", wraplength=390).pack(fill="x")
+        tk.Label(api, text="Replacement API key", anchor="w").pack(fill="x", pady=(7, 2))
         key_row = tk.Frame(api)
-        key_row.pack(fill="x", pady=(7, 0))
+        key_row.pack(fill="x")
         key_entry = tk.Entry(key_row, show="•")
         key_entry.pack(side="left", fill="x", expand=True)
         key_status = tk.Label(api, text="", anchor="w")
@@ -2220,64 +2290,89 @@ def show_window(summary: str) -> None:
             try:
                 save_local_openai_api_key(key_entry.get())
             except (OSError, ValueError) as exc:
-                key_status.configure(text=str(exc), fg="#9b1c1c")
+                key_status.configure(text=str(exc))
+                key_status._cc_role = "danger"
                 return
             key_entry.delete(0, tk.END)
-            key_status.configure(text="Replacement saved privately.", fg="#1f6b3c")
-        tk.Button(key_row, text="Save override", command=save_key).pack(side="left", padx=(6, 0))
+            key_status.configure(text="Replacement saved privately.")
+            key_status._cc_role = "success"
+            apply_theme(key_status, colors)
+        role(tk.Button(key_row, text="Save override", command=save_key), "primary").pack(side="left", padx=(6, 0))
 
-        readability = tk.LabelFrame(body, text="Readability", padx=10, pady=8)
+        readability = tk.LabelFrame(body, text="●  Easy reading", padx=10, pady=8)
         readability.grid(row=1, column=0, sticky="nsew", padx=(0, 5), pady=5)
-        text_size = tk.StringVar(value=ui_settings.get("text_size", "Default"))
+        text_size = tk.StringVar(value=ui_settings.get("text_size", "Large"))
+        tk.Label(readability, text="Text size", anchor="w").pack(fill="x")
+        size_row = tk.Frame(readability)
+        size_row.pack(fill="x", pady=(2, 7))
         for name in ("Default", "Large", "Extra large"):
-            tk.Radiobutton(readability, text=name, value=name, variable=text_size).pack(anchor="w")
+            tk.Radiobutton(size_row, text=name, value=name, variable=text_size, indicatoron=False).pack(side="left", fill="x", expand=True)
         high_contrast = tk.BooleanVar(value=bool(ui_settings.get("high_contrast")))
         reduce_motion = tk.BooleanVar(value=bool(ui_settings.get("reduce_motion")))
+        selected_theme = tk.StringVar(value=ui_settings.get("theme", theme_name))
+        tk.Label(readability, text="Theme", anchor="w").pack(fill="x")
+        theme_row = tk.Frame(readability)
+        theme_row.pack(fill="x", pady=(2, 7))
+        for name in ("light", "dark"):
+            tk.Radiobutton(theme_row, text=name.title(), value=name, variable=selected_theme, indicatoron=False).pack(side="left", fill="x", expand=True)
         tk.Checkbutton(readability, text="High contrast", variable=high_contrast).pack(anchor="w")
         tk.Checkbutton(readability, text="Reduce motion", variable=reduce_motion).pack(anchor="w")
-        preview = tk.Label(readability, text="Preview: clear, calm guidance", font=("Segoe UI", 11, "bold"))
+        preview = role(tk.Label(readability, text="Preview: clear, calm guidance", padx=7, pady=5), "warning")
         preview.pack(fill="x", pady=(8, 0))
+        def update_preview(*_args):
+            preview.configure(text=f"Preview: {text_size.get()} text, {'high' if high_contrast.get() else 'standard'} contrast — guidance stays clear and easy to scan.")
+        text_size.trace_add("write", update_preview)
+        high_contrast.trace_add("write", update_preview)
+        update_preview()
 
-        privacy = tk.LabelFrame(body, text="Privacy and cloud", padx=10, pady=8)
-        privacy.grid(row=1, column=1, sticky="nsew", padx=(5, 0), pady=5)
-        tk.Label(privacy, text="Eligible call context is sent only for Live, Ask, and Review requests. OpenAI requests use store=false.",
-                 justify="left", wraplength=330, anchor="w").pack(fill="x")
-        tk.Label(privacy, text="Transcription, face tracking, contact data, and exact source review stay local.",
-                 justify="left", wraplength=330, anchor="w", fg="#555555").pack(fill="x", pady=(8, 0))
+        privacy = tk.LabelFrame(body, text="●  Privacy and cloud", padx=10, pady=8)
+        privacy.grid(row=0, column=1, sticky="nsew", padx=(5, 0), pady=5)
+        for statement in (
+            "● Calls, transcripts, memories, and settings are stored locally.",
+            "● Eligible text is sent to the selected model for assistance.",
+            "● English only.",
+        ):
+            tk.Label(privacy, text=statement, justify="left", wraplength=390, anchor="w").pack(fill="x", pady=2)
+        tk.Button(privacy, text="Learn how data is used", command=lambda: messagebox.showinfo("Privacy and cloud", "Raw media and contact records stay local. Only bounded eligible text is sent for requested assistance.", parent=dialog)).pack(anchor="w", pady=(6, 0))
 
-        contact = tk.LabelFrame(body, text="Selected contact", padx=10, pady=8)
-        contact.grid(row=2, column=0, columnspan=2, sticky="ew", pady=5)
-        tk.Label(contact, text=selected_contact_label or "No contact selected", font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        contact = tk.LabelFrame(body, text="●  Selected contact", padx=10, pady=8)
+        contact.grid(row=1, column=1, sticky="nsew", padx=(5, 0), pady=5)
+        tk.Label(contact, text=selected_contact_label or "No contact selected", font=("Segoe UI Semibold", 11, "bold")).pack(anchor="w")
+        tk.Label(contact, text="Manage aliases, merge, export, or delete this contact.", anchor="w").pack(fill="x", pady=(4, 2))
         contact_actions = tk.Frame(contact)
         contact_actions.pack(fill="x", pady=(6, 0))
-        for text in ("Edit aliases", "Merge", "Export", "Delete"):
-            tk.Button(contact_actions, text=text, command=open_contact_data).pack(side="left", padx=(0, 5))
+        for text in ("Edit aliases", "Merge contact", "Export data"):
+            tk.Button(contact_actions, text=text, command=open_contact_data).pack(side="left", fill="x", expand=True, padx=(0, 5))
+        role(tk.Button(contact_actions, text="Delete contact", command=open_contact_data), "danger").pack(side="left", fill="x", expand=True)
 
-        help_box = tk.LabelFrame(body, text="Help", padx=10, pady=8)
-        help_box.grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
+        help_box = tk.LabelFrame(body, text="●  Help", padx=10, pady=8)
+        help_box.grid(row=2, column=1, sticky="nsew", padx=(5, 0), pady=5)
         for title, detail in (
-            ("What the cues mean", "Cues are cautious possibilities based on recent context, never facts about a person."),
-            ("Where my data goes", "Contact data and raw sources stay local; bounded eligible context is used only for requested cloud features."),
-            ("Keyboard and accessibility", "Use Tab and Shift+Tab to move, Enter or Space to activate, and Escape to close supporting windows."),
+            ("How the workflow works", "Choose a contact, start a call, then review every proposed summary and memory."),
+            ("Privacy and cloud help", "Contact data and raw sources stay local; bounded eligible context is used only for requested cloud features."),
+            ("Troubleshooting", "Use device Refresh on Home, then reselect the call window and audio devices."),
+            ("About Conversation Copilot", "Conversation Copilot offers cautious possibilities, never facts about another person's emotions or intent."),
         ):
-            tk.Button(help_box, text=title, anchor="w", command=lambda t=title, d=detail: messagebox.showinfo(t, d, parent=dialog)).pack(fill="x", pady=2)
+            tk.Button(help_box, text=f"●  {title}  ›", anchor="w", command=lambda t=title, d=detail: messagebox.showinfo(t, d, parent=dialog)).pack(fill="x", pady=2)
 
         def save_settings():
             ui_settings.update({"text_size": text_size.get(), "high_contrast": high_contrast.get(),
-                                "reduce_motion": reduce_motion.get()})
+                                "reduce_motion": reduce_motion.get(), "theme": selected_theme.get()})
             apply_readability()
             settings_path.parent.mkdir(parents=True, exist_ok=True)
             settings_path.write_text(json.dumps(ui_settings, sort_keys=True), encoding="utf-8")
-            messagebox.showinfo("Settings", "Settings saved.", parent=dialog)
+            dialog.destroy()
 
-        ttk.Button(body, text="Save settings", style="Primary.TButton", command=save_settings).grid(
-            row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0)
-        )
+        actions = tk.Frame(body)
+        actions.grid(row=3, column=0, columnspan=2, sticky="e", pady=(8, 0))
+        tk.Button(actions, text="Cancel", command=dialog.destroy).pack(side="left", padx=(0, 6))
+        role(tk.Button(actions, text="Save settings", command=save_settings), "primary").pack(side="left")
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        apply_theme(dialog, colors, font_size=current_font_size())
 
-    contact_search_button.configure(command=refresh_contact_choices)
     contact_select_button.configure(command=select_contact)
     contact_create_button.configure(command=create_contact)
+    contact_edit_button.configure(command=open_contact_data)
     contact_clear_button.configure(command=lambda: set_selected_contact(None))
     memory_manage_button.configure(command=open_ask)
     import_button.configure(command=import_chat)
@@ -2759,10 +2854,10 @@ def show_window(summary: str) -> None:
         live_screen.pack_forget()
         home_screen.pack(fill="both", expand=True)
         screen_host.pack_propagate(False)
-        screen_host.configure(width=1120, height=730)
+        screen_host.configure(width=1150, height=730)
         root.pack_propagate(False)
         root.minsize(900, 640)
-        root.geometry("1120x730")
+        root.geometry("1150x730")
         model_box.configure(state="readonly")
 
     def show_live() -> None:
@@ -2778,6 +2873,10 @@ def show_window(summary: str) -> None:
         root.geometry(f"{width}x{height}+{x}+28")
         live_contact_label.configure(text=selected_contact_label or call_speaker_fallback)
         live_meta_label.configure(text=f"{live_model_choice.get()} · $0.0000 this call")
+        cloud_ready = bool(local_openai_api_key())
+        live_cloud_label.configure(text="● Cloud ready" if cloud_ready else "● Cloud unavailable")
+        live_cloud_label._cc_role = "success" if cloud_ready else "danger"
+        apply_theme(live_cloud_label, colors, font_size=current_font_size())
         model_box.configure(state="disabled")
 
     def set_running(running: bool) -> None:
@@ -2794,7 +2893,7 @@ def show_window(summary: str) -> None:
             state="disabled" if running or audio_runtime_error else "normal"
         )
         switch_button.configure(
-            text="Switch face", state="normal" if running else "disabled"
+            text="Face ok · Switch", state="normal" if running else "disabled"
         )
         terra_state = (
             "readonly"
@@ -3138,7 +3237,7 @@ def show_window(summary: str) -> None:
                 text=(
                     "Continue tracking"
                     if snapshot.status == "Face lost"
-                    else "Switch face"
+                    else "Face ok · Switch"
                 )
             )
             metrics_label.configure(
@@ -3281,6 +3380,7 @@ def show_window(summary: str) -> None:
     start_button.configure(command=start)
     stop_button.configure(command=stop)
     switch_button.configure(command=switch)
+    home_switch_button.configure(command=switch)
     root.protocol("WM_DELETE_WINDOW", close)
     apply_readability()
     refresh(initial_audio=True)
