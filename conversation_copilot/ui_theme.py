@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 import tkinter as tk
 import tkinter.font as tkfont
+from tkinter import ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
@@ -37,6 +38,42 @@ THEMES = {
 
 DISPLAY_FONT = "Trebuchet MS"
 BODY_FONT = "Segoe UI Semibold"
+
+
+def secondary_window(parent, *, modal=True):
+    """Own the local grab until closed, restoring a nested dialog's parent."""
+    previous = parent.grab_current()
+    dialog = tk.Toplevel(parent)
+    if not modal:
+        return dialog
+    dialog.transient(parent.winfo_toplevel())
+    dialog.grab_set()
+
+    def restore(event):
+        if event.widget is not dialog:
+            return
+        try:
+            if previous is not None and previous.winfo_exists():
+                previous.grab_set()
+                previous.focus_set()
+            elif parent.winfo_exists():
+                parent.focus_set()
+        except tk.TclError:
+            pass
+
+    dialog.bind("<Destroy>", restore, add="+")
+    dialog.bind("<Map>", lambda event: dialog.focus_set()
+                if event.widget is dialog and dialog.grab_current() is dialog else None, add="+")
+    return dialog
+
+
+class RoundedCard(ttk.LabelFrame):
+    """Native container using our rounded, resizable theme artwork."""
+
+    def __init__(self, master=None, **kwargs):
+        kwargs["padding"] = (kwargs.pop("padx", 12), kwargs.pop("pady", 10))
+        kwargs.setdefault("style", "Card.TLabelframe")
+        super().__init__(master, **kwargs)
 
 
 class RoundedButton(tk.Button):
@@ -143,6 +180,37 @@ def system_theme() -> str:
 
 def configure_ttk(style, colors: dict[str, str], *, font_size: int = 10) -> None:
     style.theme_use("clam")
+    # Nine-slice artwork keeps corners round as controls stretch.
+    assets = getattr(style.master, "_cc_theme_assets", {})
+    style.master._cc_theme_assets = assets
+    for name in ("surface", "tone", "social", "replies", "memory", "follow_up", "muted"):
+        key = (name, colors[name], colors["line"])
+        if key not in assets:
+            artwork = Image.new("RGBA", (32, 32))
+            ImageDraw.Draw(artwork).rounded_rectangle((1, 1, 30, 30), radius=10,
+                                                     fill=colors[name], outline=colors["line"], width=2)
+            photo = ImageTk.PhotoImage(artwork, master=style.master)
+            element = f"Copilot{len(assets)}.border"
+            variants = []
+            for state, fill, outline in (("disabled", colors["surface"], colors["line"]),
+                                         ("focus", colors[name], colors["accent"])):
+                variant = Image.new("RGBA", (32, 32))
+                ImageDraw.Draw(variant).rounded_rectangle((1, 1, 30, 30), radius=10,
+                                                         fill=fill, outline=outline, width=2)
+                variants.append((state, ImageTk.PhotoImage(variant, master=style.master)))
+            style.element_create(element, "image", photo, *variants, border=12, padding=(10, 3), sticky="nsew")
+            assets[key] = (photo, element, variants)
+        element = assets[key][1]
+        card_style = "Card.TLabelframe" if name == "surface" else f"{name}.Card.TLabelframe"
+        style.layout(card_style, [(element, {"sticky": "nswe"})])
+        style.configure(card_style, background=colors[name])
+        style.configure(card_style + ".Label", background=colors[name], foreground=colors["ink"],
+                        font=(DISPLAY_FONT, font_size + 1, "bold"))
+        if name == "muted":
+            style.layout("TCombobox", [(element, {"sticky": "nswe", "children": [
+                ("Combobox.downarrow", {"side": "right", "sticky": "ns"}),
+                ("Combobox.padding", {"expand": "1", "sticky": "nswe", "children": [
+                    ("Combobox.textarea", {"sticky": "nswe"})]})]})])
     style.configure("TFrame", background=colors["page"])
     style.configure("TLabel", background=colors["page"], foreground=colors["ink"], font=(BODY_FONT, font_size))
     style.configure(
@@ -158,11 +226,12 @@ def configure_ttk(style, colors: dict[str, str], *, font_size: int = 10) -> None
     style.map("Primary.TButton", background=[("active", colors["accent"])])
     style.configure("Quiet.TButton", background=colors["muted"], foreground=colors["ink"], padding=(9, 6))
     style.configure(
-        "TCombobox", fieldbackground=colors["muted"], background=colors["muted"],
+        "TCombobox", fieldbackground=colors["muted"], background=colors["surface"],
         foreground=colors["ink"], arrowcolor=colors["ink"], bordercolor=colors["line"],
         lightcolor=colors["line"], darkcolor=colors["line"], padding=6,
     )
-    style.map("TCombobox", fieldbackground=[("readonly", colors["muted"])], foreground=[("readonly", colors["ink"])])
+    style.map("TCombobox", fieldbackground=[("readonly", colors["muted"])],
+              foreground=[("disabled", colors["ink_muted"]), ("readonly", colors["ink"])])
     style.configure("Vertical.TScrollbar", background=colors["muted"], troughcolor=colors["surface"], arrowcolor=colors["ink"])
 
 
@@ -177,12 +246,17 @@ def apply_theme(widget, colors: dict[str, str], *, font_size: int = 10) -> None:
         parent = widget.nametowidget(widget.winfo_parent()) if widget.winfo_parent() else None
         if parent is not None and "background" in parent.configure():
             parent_bg = parent.cget("background")
+        elif isinstance(parent, RoundedCard):
+            parent_bg = colors.get(getattr(parent, "_cc_role", "surface"), colors["surface"])
     except (KeyError, tk.TclError):
         pass
 
     try:
         if widget.winfo_toplevel() == widget:
             widget.configure(background=colors["page"])
+        elif isinstance(widget, RoundedCard):
+            card_role = role if role in {"tone", "social", "replies", "memory", "follow_up"} else "surface"
+            widget.configure(style="Card.TLabelframe" if card_role == "surface" else f"{card_role}.Card.TLabelframe")
         elif isinstance(widget, tk.LabelFrame):
             background = colors.get(role, colors["surface"]) if role in {"tone", "social", "replies", "memory", "follow_up"} else colors.get(f"{role}_soft", colors["surface"])
             widget.configure(

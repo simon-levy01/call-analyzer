@@ -40,7 +40,9 @@ Home
                  └─ End call → Summary and memories → Back to Home
 ```
 
-These wireframes describe hierarchy, not final pixel placement. Use an in-window transition for the three main screens; keep capture ownership independent of view construction/destruction. Floating item/transcript windows and the Memories surface must not block the call.
+These wireframes describe hierarchy, not final pixel placement. Keep capture ownership independent of view construction/destruction. September 22 refinement: secondary windows (including Settings, Memories, History, Review and Transcript) block interaction with their parent until closed; nested dialogs restore the parent's modal ownership. Live suggestion popouts alone remain non-modal. Capture continues while a modal window is open.
+
+Home's Create, Edit, Memories, History and Import buttons share one horizontal centerline and respectively use the tone, social cue, memory, reply and follow-up category colors. Start call retains its primary blue. Use custom rounded artwork for buttons, cards and selectors, a compact model selector, and omit the attributed-text retention banner entirely.
 
 ## Screen 1 — Home
 

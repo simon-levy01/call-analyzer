@@ -131,7 +131,7 @@ def show_window(summary: str) -> None:
     from .guidance import CATEGORIES, GuidanceDisplay, interpret_guidance
     from .ask_memory import AskSession, memory_source, validate_sources, cloud_answer, ASK_INPUT_LIMIT, ASK_OUTPUT_LIMIT
     from .post_call import process_review, review_estimate
-    from .ui_theme import DISPLAY_FONT, THEMES, RoundedButton, apply_theme, configure_ttk, role, surface, system_theme
+    from .ui_theme import DISPLAY_FONT, THEMES, RoundedButton, apply_theme, configure_ttk, role, surface, system_theme, secondary_window, RoundedCard
     from .memory import (
         AmbiguousContact,
         MEMORY_TYPES,
@@ -217,23 +217,23 @@ def show_window(summary: str) -> None:
         memory_store = MemoryStore()
     except MemoryStoreUnavailable as exc:
         memory_startup_error = str(exc)
-    contact_frame = tk.LabelFrame(home_body, text="Who are you talking to?", padx=10, pady=8)
+    contact_frame = RoundedCard(home_body, text="Who are you talking to?", padx=10, pady=8)
     contact_frame.pack(fill="x", pady=(0, 10))
     contact_frame.columnconfigure(0, weight=1)
     contact_query = tk.StringVar()
     contact_box = ttk.Combobox(contact_frame, state="readonly", width=35)
     contact_box.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=4)
-    contact_create_button = role(RoundedButton(contact_frame, text="Create"), "primary")
+    contact_create_button = role(RoundedButton(contact_frame, text="Create"), "tone")
     contact_create_button.grid(row=0, column=1, padx=3, pady=4)
-    contact_edit_button = role(RoundedButton(contact_frame, text="Edit"), "warning")
+    contact_edit_button = role(RoundedButton(contact_frame, text="Edit"), "social")
     contact_edit_button.grid(row=0, column=2, padx=3, pady=4)
     quick_actions = tk.Frame(contact_frame)
-    quick_actions.grid(row=0, column=3, rowspan=2, sticky="nsew", padx=(16, 0))
-    memory_manage_button = role(RoundedButton(quick_actions, text="Memories"), "warning")
+    quick_actions.grid(row=0, column=3, sticky="ew", padx=(6, 0), pady=4)
+    memory_manage_button = role(RoundedButton(quick_actions, text="Memories"), "memory")
     memory_manage_button.pack(side="left", fill="x", expand=True, padx=(0, 6))
     review_button = role(RoundedButton(quick_actions, text="◷  History"), "replies")
     review_button.pack(side="left", fill="x", expand=True, padx=(0, 6))
-    import_button = role(RoundedButton(quick_actions, text="⇧  Import text"), "success")
+    import_button = role(RoundedButton(quick_actions, text="⇧  Import text"), "follow_up")
     import_button.pack(side="left", fill="x", expand=True)
     unassigned_button = RoundedButton(contact_frame, text="Unassigned")
     confirmed_contact_label = role(tk.Label(contact_frame, text="Choose or create a contact to get ready", anchor="w", padx=8, pady=3), "success")
@@ -244,21 +244,15 @@ def show_window(summary: str) -> None:
         anchor="w",
     )
     memory_status_label.grid(row=2, column=0, columnspan=4, sticky="ew", padx=6, pady=(4, 0))
-    privacy_notice = role(tk.Label(
-        contact_frame,
-        text="Assigned calls retain attributed text locally. After Stop, bounded eligible text may be sent to OpenAI with storage disabled.",
-        anchor="w", justify="left", wraplength=1030, padx=6, pady=3,
-    ), "warning")
-    privacy_notice.grid(row=3, column=0, columnspan=4, sticky="ew", pady=(3, 0))
 
     cards = tk.Frame(home_body)
     cards.pack(fill="both", expand=True)
     cards.columnconfigure(0, weight=1, uniform="cards")
     cards.columnconfigure(1, weight=1, uniform="cards")
     cards.rowconfigure(0, weight=1)
-    sound_card = tk.LabelFrame(cards, text="●  Sound check", padx=10, pady=8)
+    sound_card = RoundedCard(cards, text="●  Sound check", padx=10, pady=8)
     sound_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-    watch_card = tk.LabelFrame(cards, text="●  Who I'm watching", padx=10, pady=8)
+    watch_card = RoundedCard(cards, text="●  Who I'm watching", padx=10, pady=8)
     watch_card.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
     audio_controls = tk.Frame(sound_card)
     audio_controls.pack(fill="x")
@@ -301,14 +295,15 @@ def show_window(summary: str) -> None:
     home_switch_button.pack(fill="x")
     face_hold_note = role(tk.Label(face_actions, text="Face lock holds for 18 seconds if the selected face steps away.", wraplength=330, justify="left", padx=7, pady=5), "success")
     face_hold_note.pack(fill="x", pady=(6, 0))
-    model_frame = tk.LabelFrame(watch_card, text="Live and Ask model", padx=8, pady=8)
+    model_frame = tk.Frame(watch_card)
     model_frame.pack(fill="x", pady=(6, 0))
     live_model_choice = tk.StringVar(value="Luna low")
-    model_box = ttk.Combobox(model_frame, state="readonly", textvariable=live_model_choice, values=("Luna low", "Terra low"))
-    model_box.pack(fill="x")
-    tk.Label(model_frame, text="Terra: 10× Luna token rates. Review generation stays on Terra low.", justify="left", wraplength=400).pack(fill="x", pady=(6, 0))
+    tk.Label(model_frame, text="Live and Ask model").grid(row=0, column=0, sticky="w", padx=(0, 10))
+    model_box = ttk.Combobox(model_frame, width=12, state="readonly", textvariable=live_model_choice, values=("Luna low", "Terra low"))
+    model_box.grid(row=0, column=1, sticky="w")
+    tk.Label(model_frame, text="Terra: 10× Luna token rates. Review generation stays on Terra low.", justify="left", wraplength=400).grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
-    ready_bar = tk.Frame(home_body, bd=2, relief="solid", padx=10, pady=8)
+    ready_bar = RoundedCard(home_body, padx=10, pady=8)
     ready_bar.pack(fill="x", pady=(10, 0))
     ready_icon = role(tk.Label(ready_bar, text="✓", font=(DISPLAY_FONT, 18, "bold"), padx=8, pady=4), "success")
     ready_icon.pack(side="left")
@@ -321,7 +316,7 @@ def show_window(summary: str) -> None:
     audio_status_label = tk.Label(sound_card, text="Audio devices loading", anchor="w", justify="left", wraplength=480)
     audio_status_label.pack(fill="x", pady=(6, 0))
 
-    live_panel = surface(tk.Frame(live_screen, bd=2, relief="solid"))
+    live_panel = RoundedCard(live_screen, padx=4, pady=4)
     live_panel.pack(fill="both", expand=True, padx=8, pady=8)
     live_title_bar = role(tk.Label(live_panel, text="Conversation Copilot                         ● ● ●", anchor="w", padx=9, pady=7), "warning")
     live_title_bar.pack(fill="x")
@@ -386,7 +381,7 @@ def show_window(summary: str) -> None:
     guidance_rows = {}
     guidance_display = GuidanceDisplay()
     for category, label, category_role in (("tones", "Possible tone", "tone"), ("social_cues", "Social cue", "social"), ("replies", "Potential responses", "replies"), ("remember", "Related memory", "memory"), ("follow_up", "Follow-up", "follow_up")):
-        group = role(tk.LabelFrame(guidance_frame, text=label, padx=5, pady=3), category_role)
+        group = role(RoundedCard(guidance_frame, text=label, padx=5, pady=3), category_role)
         group.pack(fill="x", pady=2)
         tk.Label(group, text="up to 4", anchor="e").pack(fill="x")
         guidance_rows[category] = group
@@ -497,7 +492,7 @@ def show_window(summary: str) -> None:
             return None
 
     def show_evidence(parent, text, valid):
-        preview = tk.Toplevel(parent)
+        preview = secondary_window(parent)
         preview.title("Exact local source")
         box = tk.Text(preview, wrap="word", height=18, width=80)
         box.pack(fill="both", expand=True)
@@ -562,7 +557,7 @@ def show_window(summary: str) -> None:
             )
 
         def pop_out(category, candidate, content, why=""):
-            popup = tk.Toplevel(root)
+            popup = secondary_window(root, modal=False)
             popup.title(guidance_rows[category].cget("text"))
             popup.geometry("430x230")
             tk.Label(popup, text=content, font=("Segoe UI", 12, "bold"), wraplength=390,
@@ -628,7 +623,7 @@ def show_window(summary: str) -> None:
             memory_status_label.configure(text=f"Memories unavailable or memory store busy: {exc}")
             return
 
-        dialog = ask_dialog = tk.Toplevel(root)
+        dialog = ask_dialog = secondary_window(root)
         dialog.title("Memories")
         dialog.geometry("920x650")
         state = AskSession(memory_contact_id)
@@ -653,7 +648,7 @@ def show_window(summary: str) -> None:
         contact_actions.pack(fill="x", padx=12, pady=(0, 8))
 
         def edit_aliases() -> None:
-            alias_dialog = tk.Toplevel(dialog)
+            alias_dialog = secondary_window(dialog)
             alias_dialog.title("Edit aliases")
             alias_dialog.geometry("480x330")
             alias_list = tk.Listbox(alias_dialog)
@@ -795,7 +790,7 @@ def show_window(summary: str) -> None:
         ask_action.pack(side="left", padx=(6, 0))
         status = tk.Label(dialog, text="Ask a natural-language question, or edit and delete saved memories below.", anchor="w")
         status.pack(fill="x", padx=12, pady=(6, 2))
-        answer_frame = role(tk.LabelFrame(dialog, text="✦  Answer", padx=8, pady=6), "warning")
+        answer_frame = role(RoundedCard(dialog, text="✦  Answer", padx=8, pady=6), "tone")
         answer_frame.pack(fill="x", padx=12, pady=(0, 6))
         answer = tk.Text(answer_frame, height=3, wrap="word", state="disabled")
         answer.pack(fill="x")
@@ -816,9 +811,9 @@ def show_window(summary: str) -> None:
         body_window = canvas.create_window((0, 0), window=memory_body, anchor="nw")
         memory_body.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>", lambda event: canvas.itemconfigure(body_window, width=event.width))
-        related_frame = tk.LabelFrame(memory_body, text="Memories behind this answer", padx=6, pady=4)
+        related_frame = RoundedCard(memory_body, text="Memories behind this answer", padx=6, pady=4)
         related_frame.pack(fill="x", pady=(0, 6))
-        other_frame = tk.LabelFrame(memory_body, text="Other saved memories", padx=6, pady=4)
+        other_frame = RoundedCard(memory_body, text="Other saved memories", padx=6, pady=4)
         other_frame.pack(fill="x")
 
         def clear_answer(*, clear_question=True):
@@ -1039,7 +1034,7 @@ def show_window(summary: str) -> None:
     live_ask_button.configure(command=open_ask)
 
     def open_transcript() -> None:
-        dialog = tk.Toplevel(root)
+        dialog = secondary_window(root)
         dialog.title("Live transcript")
         dialog.geometry("520x540")
         box = tk.Text(dialog, wrap="word", state="normal")
@@ -1064,7 +1059,7 @@ def show_window(summary: str) -> None:
             except (ValueError, KeyError, sqlite3.Error) as exc:
                 memory_status_label.configure(text=f"Review unavailable or memory store busy: {exc}")
                 return
-            chooser = tk.Toplevel(root)
+            chooser = secondary_window(root)
             chooser.title("Review one conversation")
             choices = tk.Listbox(chooser, width=85)
             choices.pack(fill="both", expand=True)
@@ -1083,9 +1078,9 @@ def show_window(summary: str) -> None:
             existing.lift()
             existing.focus_set()
             return
-        dialog = tk.Toplevel(root)
+        dialog = secondary_window(root)
         review_dialogs[record_id] = dialog
-        dialog.bind("<Destroy>", lambda event: review_dialogs.pop(record_id, None) if event.widget is dialog else None)
+        dialog.bind("<Destroy>", lambda event: review_dialogs.pop(record_id, None) if event.widget is dialog else None, add="+")
         dialog.title("Review conversation")
         dialog.geometry("1120x680")
         review_header = tk.Frame(dialog)
@@ -1100,8 +1095,8 @@ def show_window(summary: str) -> None:
         label.pack(fill="x", padx=18, pady=(8, 10))
         panes = tk.PanedWindow(dialog, orient=tk.HORIZONTAL, sashwidth=8, bd=0, relief="flat")
         panes.pack(fill="both", expand=True, padx=18, pady=(0, 16))
-        summary_panel = tk.LabelFrame(panes, text="Summary · draft and editable")
-        memory_panel = tk.LabelFrame(panes, text="Memories to keep")
+        summary_panel = RoundedCard(panes, text="Summary · draft and editable")
+        memory_panel = RoundedCard(panes, text="Memories to keep")
         panes.add(summary_panel, stretch="always", minsize=480)
         panes.add(memory_panel, stretch="always", minsize=360)
         narrative = tk.Text(summary_panel, wrap="word", height=12, state="disabled")
@@ -1451,7 +1446,7 @@ def show_window(summary: str) -> None:
                 "SELECT id,state,created_at,partial FROM summary_versions WHERE record_id=? ORDER BY created_at DESC,rowid DESC",
                 (record_id,),
             ).fetchall()
-            popup = tk.Toplevel(dialog)
+            popup = secondary_window(dialog)
             popup.title("Summary versions")
             listing_versions = tk.Listbox(popup, width=80, height=12)
             listing_versions.pack(fill="both", expand=True, padx=10, pady=10)
@@ -1673,7 +1668,7 @@ def show_window(summary: str) -> None:
         if memory_store is None or contact_id is None:
             messagebox.showinfo("Contact memory", "Confirm one contact first.")
             return
-        dialog = tk.Toplevel(root)
+        dialog = secondary_window(root)
         dialog.title(f"Memory — {memory_store.get_contact(contact_id).label}")
         dialog.geometry("760x430")
         search_controls = tk.Frame(dialog)
@@ -1821,7 +1816,7 @@ def show_window(summary: str) -> None:
             normalized_date_start: str = "",
         ):
             result = None
-            editor = tk.Toplevel(dialog)
+            editor = secondary_window(dialog)
             editor.title(title)
             editor.geometry("620x430")
             editor.transient(dialog)
@@ -2107,7 +2102,7 @@ def show_window(summary: str) -> None:
             refresh_contact_choices()
 
         def manage_aliases() -> None:
-            alias_dialog = tk.Toplevel(dialog)
+            alias_dialog = secondary_window(dialog)
             alias_dialog.title("Contact aliases")
             alias_list = tk.Listbox(alias_dialog, width=60)
             alias_list.pack(fill="both", expand=True, padx=8, pady=8)
@@ -2221,7 +2216,7 @@ def show_window(summary: str) -> None:
             if not records:
                 messagebox.showinfo("Conversation records", "This contact has no retained conversation records.", parent=dialog)
                 return
-            chooser = tk.Toplevel(dialog)
+            chooser = secondary_window(dialog)
             chooser.title("Choose Conversation Record")
             record_list = tk.Listbox(chooser, width=90)
             record_list.pack(fill="both", expand=True, padx=8, pady=8)
@@ -2282,7 +2277,7 @@ def show_window(summary: str) -> None:
                         return
                     target = candidates[0]
                 preview = memory_store.reassignment_preview(record["id"])
-                review = tk.Toplevel(dialog)
+                review = secondary_window(dialog)
                 review.title("Derived memory preview")
                 tk.Label(
                     review,
@@ -2395,7 +2390,7 @@ def show_window(summary: str) -> None:
         if not records:
             messagebox.showinfo("Unassigned Conversations", "There are no unassigned conversations.")
             return
-        dialog = tk.Toplevel(root)
+        dialog = secondary_window(root)
         dialog.title("Unassigned Conversations")
         listing = tk.Listbox(dialog, width=90)
         listing.pack(fill="both", expand=True, padx=8, pady=8)
@@ -2418,7 +2413,7 @@ def show_window(summary: str) -> None:
         RoundedButton(dialog, text="Assign to confirmed contact", command=assign_selected).pack(pady=(0, 8))
 
     def open_settings() -> None:
-        dialog = tk.Toplevel(root)
+        dialog = secondary_window(root)
         dialog.title("Settings")
         dialog.geometry("620x360")
         dialog.minsize(540, 320)
@@ -2427,7 +2422,7 @@ def show_window(summary: str) -> None:
         tk.Label(header, text="Settings", font=(DISPLAY_FONT, 22, "bold")).pack(side="left")
         RoundedButton(header, text="← Back to Home", command=dialog.destroy).pack(side="right")
 
-        api = tk.LabelFrame(dialog, text="●  API key", padx=12, pady=10)
+        api = RoundedCard(dialog, text="●  API key", padx=12, pady=10)
         api.pack(fill="both", expand=True, padx=18, pady=(0, 18))
         configured = bool(local_openai_api_key())
         key_badge = role(tk.Label(api, text="✓  System key in use" if configured else "No API key configured", anchor="w", padx=6, pady=3), "success")
