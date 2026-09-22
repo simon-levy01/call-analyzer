@@ -122,6 +122,9 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
             unthemed.destroy()
             widgets = descendants(root)
             assert not any(isinstance(widget, tk.Canvas) for widget in widgets)
+            assert root._cc_app_icon.width() == root._cc_app_icon.height() == 64
+            assert root._cc_corner_logo.width() == root._cc_corner_logo.height() == 48
+            assert sum(bool(widget.cget("image")) for widget in widgets if isinstance(widget, tk.Label)) == 1
             assert all(str(widget.cget("background")).casefold() not in {"white", "#ffffff"}
                        for widget in widgets if isinstance(widget, (tk.Listbox, tk.Text)))
             assert button(root, "Start call")
@@ -226,7 +229,9 @@ def test_f10_home_memories_review_and_settings(tmp_path, monkeypatch):
                 assert button(root, text)
             group_titles = {widget.cget("text") for widget in descendants(root) if isinstance(widget, tk.LabelFrame)}
             assert {"Possible tone", "Social cue", "Potential responses", "Related memory", "Follow-up"} <= group_titles
-            assert not any(isinstance(widget, tk.Label) and widget.cget("image") for widget in descendants(root))
+            assert all(str(widget.cget("image")) == str(root._cc_corner_logo)
+                       for widget in descendants(root)
+                       if isinstance(widget, tk.Label) and widget.cget("image"))
             button(root, "Face ok · Switch").invoke()
             assert FakeVideo.instances[-1].switched == 1
             button(root, "Transcript").invoke()

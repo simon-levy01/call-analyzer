@@ -95,6 +95,7 @@ def show_window(summary: str) -> None:
     import time
     import tkinter as tk
     from tkinter import filedialog, messagebox, simpledialog, ttk
+    from PIL import Image, ImageTk
 
     from .audio import (
         AudioCallSession,
@@ -151,8 +152,26 @@ def show_window(summary: str) -> None:
     from .windows import list_call_windows, whatsapp_call_active
 
     test_log.start()
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ConversationCopilot")
     root = tk.Tk()
     root.title("Conversation Copilot")
+    logo_path = Path(__file__).with_name("assets") / "conversation-copilot-icon.png"
+
+    def logo_photo(size: int):
+        image = Image.open(logo_path).convert("RGBA")
+        visible = image.getchannel("A").point(lambda alpha: 255 if alpha >= 8 else 0).getbbox()
+        if visible:
+            image = image.crop(visible)
+        padding = max(2, size // 14)
+        image.thumbnail((size - padding * 2, size - padding * 2), Image.Resampling.LANCZOS)
+        canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        canvas.alpha_composite(image, ((size - image.width) // 2, (size - image.height) // 2))
+        return ImageTk.PhotoImage(canvas, master=root)
+
+    root._cc_app_icon = logo_photo(64)
+    root.iconphoto(True, root._cc_app_icon)
     settings_path = Path(os.environ.get("APPDATA", str(Path.home()))) / "ConversationCopilot" / "settings.json"
     try:
         ui_settings = json.loads(settings_path.read_text(encoding="utf-8"))
@@ -174,7 +193,8 @@ def show_window(summary: str) -> None:
 
     home_header = tk.Frame(home_screen, bg=colors["page"])
     home_header.pack(fill="x", padx=18, pady=(12, 8))
-    app_mark = role(tk.Label(home_header, text="◯", font=(DISPLAY_FONT, 22, "bold"), padx=9, pady=4), "accent")
+    root._cc_corner_logo = logo_photo(48)
+    app_mark = tk.Label(home_header, image=root._cc_corner_logo, padx=3, pady=2)
     app_mark.pack(side="left", padx=(0, 8))
     title_stack = tk.Frame(home_header, bg=colors["page"])
     title_stack.pack(side="left")
