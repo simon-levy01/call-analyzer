@@ -1,5 +1,13 @@
 # F10 — UI/UX and accessibility
 
+## September 22 — user-authorized Qt migration
+
+The user explicitly superseded the earlier keep-Tk assumption: select the best maintainable/customizable Windows/macOS toolkit and migrate the full interface on a branch. Work is on `codex/qt-ui-migration`; `main` is unchanged. Selected PySide6/Qt Widgets with shared light/dark styling and SVG control assets, retaining the Python capture/memory/inference backend. See [decision and checks](../docs/F10-QT-MIGRATION.md).
+
+Home, Live, Settings, Memories, History, Import, Review and nested dialogs now use Qt. Start is larger and requires contact, explicit audio devices, call window, runtime and configured key. Slow discovery/start/stop/model work runs outside the GUI thread. Secondary windows are application-modal except frozen suggestion popouts. Native macOS capture remains F09, not an implied result of changing UI toolkit.
+
+The user's reduced Memories scope still overrides the old data-management surface: Edit/Delete per memory and only aliases/merge/export/delete-contact controls. Merge-specific confirmation lives inside Merge, not as an extra normal Memories action. Old manual creation, all-contact filters, connections, cloud toggles and diagnostic model/settings buttons remain intentionally omitted. Automatic import/post-call generation remains approved behavior; no new permission prompt or product monetary cap is added. User acceptance and post-user-test review remain pending.
+
 **Status:** S1–S3 system work and the current U1–U3 interface pass are implemented with offline coverage. A tool-disabled Claude review was completed and its concrete button-state, focus, popup-safety and Review-selection findings were corrected on September 22, 2026. Native computer-use access was unavailable; user visual acceptance and final review remain pending.
 **Priority:** F10, then F08 Windows installation/review, then F09 macOS. October 1 remains the usable Windows MVP target with documented source setup.
 

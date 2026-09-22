@@ -1,5 +1,7 @@
 # Conversation Copilot
 
+The desktop interface now uses PySide6/Qt. After switching to the UI migration branch, rerun `.venv\Scripts\python.exe -m pip install -e ".[test]"` to install its dependency, then launch with `.venv\Scripts\python.exe -m conversation_copilot`. See [Qt migration notes](docs/F10-QT-MIGRATION.md) for scope and verification limits; native Mac capture remains separate work.
+
 For model evaluation choices, historical tests and reusable logs, read [project instructions](AGENTS.md) and the [testing index](docs/TESTING.md).
 
 The current application targets Windows. The September 21 priority is **F10 — UI/UX and accessibility**, then **F08 — easy Windows installation and Claude review**, then **F09 — macOS support**. Feature IDs remain stable despite the new execution order. Use the documented source setup below in the meantime; GitHub does not bundle the runtime or model dependencies. October 1 remains the usable Windows MVP target; dedicated-installation and Mac completion dates are deferred. Final demo preparation does not block these features.

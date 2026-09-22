@@ -47,6 +47,37 @@ class ConversationTurn(BaseModel):
     is_media: bool = False
 
 
+def conversation_turn_from_audio(draft, display_order: int):
+    return ConversationTurn(
+        speaker_name=draft.speaker_name,
+        speaker_role=draft.speaker_role,
+        source=draft.source,
+        content=draft.content,
+        timestamp=draft.timestamp,
+        display_order=display_order,
+        is_media=False,
+    )
+
+
+def vocal_observation_from_audio(draft, display_order: int):
+    if draft.vocal is None:
+        return None
+    from .interpretation import VocalObservation
+
+    vocal = draft.vocal
+    return VocalObservation(
+        turn_display_order=display_order,
+        available=vocal.available,
+        duration_seconds=vocal.duration_seconds,
+        relative_energy=vocal.relative_energy,
+        voiced_ratio=vocal.voiced_ratio,
+        words_per_voiced_second=vocal.words_per_voiced_second,
+        gap_seconds=vocal.gap_seconds,
+        overlaps_user=vocal.overlaps_user,
+        unavailable_reason=vocal.unavailable_reason,
+    )
+
+
 class Observation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
