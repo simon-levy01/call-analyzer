@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, ConfigDict, Field
 
 from .interpretation import (
-    InterpretationUpdate, _InterpretationWireUpdate, _canonical_interpretation,
+    InterpretationUpdate, InterpretationStatus, _InterpretationWireUpdate, _canonical_interpretation,
     _calibrate_high_confidence, _restrict_evidence_to_present_modalities,
     f06_structured_request, prepare_interpretation_request,
     estimate_english_tokens, REQUEST_PROTOCOL_OVERHEAD_TOKENS, EvidenceModality,
@@ -22,6 +22,7 @@ from .interpretation import (
 
 CATEGORIES = ("replies", "remember", "follow_up")
 LIVE_CATEGORIES = ("tones", "social_cues", *CATEGORIES)
+GUIDANCE_RETAIN_SECONDS = 48.0
 GUIDANCE_INPUT_LIMIT = 5_000  # Four-category-item schema plus explicit roles and source citations.
 
 GUIDANCE_INSTRUCTIONS = """
@@ -57,14 +58,14 @@ def guidance_context_reset(text):
 
 
 def reconcile_replies(update, turns, now=None):
-    """Recent, optional ideas may outlive a turn, never a reset or their 24s source age."""
+    """Revalidate live content at delivery/render time without changing saved results."""
     now = now or datetime.now(timezone.utc)
     changed = [turn for turn in turns if turn.display_order > update.analyzed_order]
     expired = update.context_at is not None and (now - update.context_at).total_seconds() >= 24
-    if any(guidance_context_reset(turn.content) for turn in changed):
-        return update.model_copy(update={key: [] for key in CATEGORIES})
-    if expired:
-        return update.model_copy(update={"replies": [], "follow_up": []})
+    reset = any(guidance_context_reset(turn.content) for turn in changed)
+    if reset or expired:
+        return update.model_copy(update={**{key: [] for key in LIVE_CATEGORIES},
+            "status": InterpretationStatus.INSUFFICIENT_EVIDENCE, "explanation": "The conversation moved on; waiting for current guidance."})
     return update.model_copy(update={key: [item for item in getattr(update, key)
         if not any(reply_superseded(item, turn) for turn in changed)]
         for key in ("replies", "follow_up")})
@@ -77,13 +78,20 @@ def normalized_words(text):
 def reply_superseded(item, turn):
     if turn.display_order <= max(item.turn_ids, default=0):
         return False
-    if turn.speaker_role.value == "user":
-        return normalized_words(item.text) in normalized_words(turn.content)
     # ponytail: conservative lexical supersession; paraphrases still need model evaluation.
     # Keep unrelated continuations, but retire a suggestion once the contact addresses its subject.
     stop = set("i you we they it that this the a an to of for is are was be have has do does can could would should will might think not so far about what which how your my me on in and or but just sure yes yeah no okay thanks like something anything say more now thing".split())
     def subjects(text):
         return {word.rstrip("s") for word in re.findall(r"[a-z]+", text.casefold()) if word not in stop and len(word) > 2}
+    if turn.speaker_role.value == "user":
+        if normalized_words(item.text) in normalized_words(turn.content):
+            return True
+        # ponytail: only retire same-subject questions, not arbitrary user continuations.
+        # Semantic paraphrases beyond lexical overlap still need model evaluation.
+        stop.update(('clarify', 'explain', 'please'))
+        terms = subjects(item.text)
+        return (item.text.rstrip().endswith('?') and turn.content.rstrip().endswith('?')
+                and len(terms) >= 2 and terms <= subjects(turn.content))
     if (turn.content.rstrip().endswith(("?", "—", "-", "...", "…"))
         or re.search(r"\b(?:and|but|because|which|why|the|a|an)\s*$", turn.content, re.I)
         or re.match(r"\s*(?:who|what|when|where|why|how|can|could|would|should|do|does|did|is|are)\b",turn.content,re.I)):
@@ -134,7 +142,7 @@ class GuidedInterpretation(InterpretationUpdate):
 
 def interpret_guidance(snapshot, *, ledger, client=None, model=LUNA_MODEL, reasoning=LIVE_ASK_REASONING, is_current=lambda _item: True, live=True):
     if model not in LIVE_ASK_MODELS or reasoning != LIVE_ASK_REASONING:
-        raise ValueError("Live guidance supports only Luna low or Terra low")
+        raise ValueError("Live guidance requires a selectable model with low reasoning")
     policy = _cautious_policy(snapshot)
     test_log.emit("guidance_input", snapshot=snapshot, local_policy=policy)
     if not any(turn.speaker_role.value == "selected_contact" for turn in snapshot.turns):
@@ -204,7 +212,11 @@ def interpret_guidance(snapshot, *, ledger, client=None, model=LUNA_MODEL, reaso
                     for clause in re.findall(r"[^.!?;—]+[.!?;—]?", turn.content)
                     if not clause.rstrip().endswith("?") and not re.search(r"[\"“”]", clause))
                 for turn in snapshot.turns if turn.speaker_role.value == "user" and turn.display_order in item.turn_ids)
-                for claim in personal_claims)
+                for claim in personal_claims if not (
+                    category in {"replies", "follow_up"} and (
+                    (re.match(r"i(?:['’]ll| will) (?:bring (?:it|that|this) closer|check (?:that|it|this|whether|if|the)|look (?:at|up)|compare (?:these|those|the))\b", item.text[claim.start():], re.I)
+                     and not re.search(r"\b(?:and|then|by|after|before|tomorrow|tonight|later|soon|weekend|next|monday|tuesday|wednesday|thursday|friday|saturday|sunday|this (?:morning|afternoon|evening))\b", item.text[claim.start():], re.I))
+                    or re.search(r"\b(?:see|check) (?:whether|if) $", item.text[:claim.start()], re.I))))
             if unsupported_claim:
                 test_log.emit("guidance_filtered", generation=snapshot.generation, snapshot_id=snapshot.snapshot_id, category=category, item=item, reason="unsupported personal claim")
                 continue
@@ -290,7 +302,7 @@ class GuidanceDisplay:
         self.reset()
 
     def reset(self):
-        self.items = {key: [] for key in CATEGORIES}
+        self.items = {key: [] for key in LIVE_CATEGORIES}
         self.local_remember = []
         self.dismissed: set[tuple] = set()
         self.expanded: set[str] = set()
@@ -306,15 +318,15 @@ class GuidanceDisplay:
         # warranted if measured paraphrases evade this bounded, non-cloud check.
         text = item.hypothesis if hasattr(item, "hypothesis") else item.text
         evidence = item.evidence if hasattr(item, "evidence") else item
+        if category == 'remember' and evidence.memory_ids:
+            return category, tuple(sorted(evidence.memory_ids))
         words = re.findall(r"\w+", text.casefold())
         meaning = tuple("clarify" if word in {"explain", "clarify", "elaborate"} else word
                         for word in words if word not in {"could", "would", "can", "you", "please", "that"})
         return category, tuple(sorted(evidence.memory_ids)), meaning
 
     def dismiss(self, category, index, *, update=None):
-        if category in {"tones", "social_cues"}:
-            if update is None:
-                raise ValueError("tone and cue dismissal needs the current update")
+        if category in {"tones", "social_cues"} and not self.items[category] and update is not None:
             item = getattr(update, category)[index]
             if len(self.dismissed) < 256:
                 self.dismissed.add(self.fingerprint(category, item))
@@ -338,7 +350,7 @@ class GuidanceDisplay:
         return self.all_items(category)[:LIVE_CATEGORY_LIMIT]
 
     def all_items(self, category):
-        return ((self.local_remember + self.items[category])[:LIVE_CATEGORY_LIMIT]
+        return (sorted(self.local_remember + self.items[category], key=lambda item: item.supported_at, reverse=True)[:LIVE_CATEGORY_LIMIT]
                 if category == "remember" else self.items[category])
 
     def offer_local_remember(self, memories, snapshot_id, now):
@@ -351,7 +363,7 @@ class GuidanceDisplay:
             if old and old.snapshot_id < snapshot_id:
                 old.supported_at, old.snapshot_id = now, snapshot_id
             renewed.append(old or DisplayedGuidance(candidate, now, now, snapshot_id))
-        retained = [item for item in self.local_remember if now - item.supported_at < 24 and item not in renewed]
+        retained = [item for item in self.local_remember if now - item.supported_at < GUIDANCE_RETAIN_SECONDS and item not in renewed]
         self.local_remember = (renewed + retained)[:LIVE_CATEGORY_LIMIT]
 
     def offer(self, update, now, *, manual=False, source_age=0):
@@ -362,7 +374,10 @@ class GuidanceDisplay:
             self.dismissed.clear()
         self.last_snapshot = update.snapshot_id
         self.pending = update
-        self.pending_categories = set(CATEGORIES)
+        self.pending_categories = set(LIVE_CATEGORIES)
+        if update.status == InterpretationStatus.CONFLICTING_EVIDENCE:
+            self.items['tones'].clear()
+            self.items['social_cues'].clear()
         self.pending_at = now - max(0, source_age)
         self.pending_manual = manual
         self.tick(now)
@@ -380,13 +395,19 @@ class GuidanceDisplay:
                     if not reply_superseded(item, turn)]})
 
     def invalidate(self, *, turn_ids=None, memory_ids=None, new_topic=False):
-        if new_topic:
-            self.reset()
+        if new_topic or (turn_ids == set() and memory_ids == set()):
+            if new_topic:
+                self.dismissed.clear()
+                self.expanded.clear()
+            self.items = {key: [] for key in LIVE_CATEGORIES}
+            self.local_remember.clear()
+            self.pending = None
+            self.pending_categories.clear()
             return
-        for category in CATEGORIES:
+        for category in LIVE_CATEGORIES:
             self.items[category] = [item for item in self.items[category] if
-                (turn_ids is None or set(item.candidate.turn_ids) <= turn_ids) and
-                (memory_ids is None or {*item.candidate.memory_ids, *item.candidate.preference_ids} <= memory_ids)]
+                (turn_ids is None or set(getattr(item.candidate, 'evidence', item.candidate).turn_ids) <= turn_ids) and
+                (memory_ids is None or {*getattr(item.candidate, 'evidence', item.candidate).memory_ids, *getattr(item.candidate, 'preference_ids', [])} <= memory_ids)]
         if memory_ids is not None:
             self.local_remember = [item for item in self.local_remember if set(item.candidate.memory_ids) <= memory_ids]
         if self.pending:
@@ -394,38 +415,48 @@ class GuidanceDisplay:
             self.pending_categories.clear()
 
     def tick(self, now):
-        self.local_remember = [item for item in self.local_remember if now - item.supported_at < 24]
-        for category in CATEGORIES:
-            self.items[category] = [item for item in self.items[category] if now - item.supported_at < 24]
+        self.local_remember = [item for item in self.local_remember if now - item.supported_at < GUIDANCE_RETAIN_SECONDS]
+        for category in LIVE_CATEGORIES:
+            self.items[category] = [item for item in self.items[category] if now - item.supported_at < GUIDANCE_RETAIN_SECONDS]
         if self.pending is None:
             return
         if now - self.pending_at >= 24:
             self.pending = None
             self.pending_categories.clear()
             return
-        for category in CATEGORIES:
+        for category in LIVE_CATEGORIES:
             if category not in self.pending_categories:
                 continue
             current = self.items[category]
             candidates = [item for item in getattr(self.pending, category) if self.fingerprint(category, item) not in self.dismissed]
             replacement = []
             for candidate in candidates:
-                existing = next((item for item in current if item.candidate.text.casefold() == candidate.text.casefold()), None)
+                fingerprint = self.fingerprint(category, candidate)
+                if any(self.fingerprint(category, item.candidate) == fingerprint for item in replacement):
+                    continue
+                existing = next((item for item in current if self.fingerprint(category, item.candidate) == fingerprint), None)
                 if existing:
                     # Identical old evidence is not a fresh supporting match.
-                    fresh = set(candidate.turn_ids) - set(existing.candidate.turn_ids)
+                    fresh = set(getattr(candidate, 'evidence', candidate).turn_ids) - set(getattr(existing.candidate, 'evidence', existing.candidate).turn_ids)
+                    fresh = fresh or (not getattr(candidate, 'evidence', candidate).turn_ids
+                        and self.pending.snapshot_id > existing.snapshot_id and self.pending_at > existing.supported_at)
+                    if not fresh and not self.pending_manual:
+                        confidence = {'low': 0, 'medium': 1, 'high': 2}
+                        if confidence[candidate.confidence] < confidence[existing.candidate.confidence]:
+                            existing.candidate = candidate
+                        continue  # Retain in its old position; repeated evidence is not newest.
                     if fresh or self.pending_manual:
-                        existing.supported_at = self.pending_at
+                        existing.supported_at = max(existing.supported_at, self.pending_at)
                         existing.candidate = candidate
+                        existing.snapshot_id = self.pending.snapshot_id
                     if self.pending_manual:
                         existing.shown_at = now
                     replacement.append(existing)
                 else:
                     replacement.append(DisplayedGuidance(candidate, now, self.pending_at, self.pending.snapshot_id))
-            if not self.pending_manual and any(now - item.shown_at < 12 for item in current):
-                continue
-            else:
-                self.items[category] = replacement
-                self.pending_categories.discard(category)
+            retained = [item for item in current if item not in replacement]
+            # New results lead; older supported items fill unused slots, never renew on omission.
+            self.items[category] = (replacement + retained)[:LIVE_CATEGORY_LIMIT]
+            self.pending_categories.discard(category)
         if not self.pending_categories:
             self.pending = None

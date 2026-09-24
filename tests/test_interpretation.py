@@ -330,6 +330,7 @@ def test_openai_request_is_bounded_stateless_structured_text_and_accounted():
     assert "tools" not in calls[0] and "previous_response_id" not in calls[0]
     assert ledger.records[0].reasoning_tokens == 30
     assert ledger.records[0].cache_write_input_tokens == 300
+    assert calls[0]["model"] == "gpt-5.6-luna"
     assert ledger.total_dollars == pytest.approx(0.000299)
     assert not hasattr(ledger.records[0], "content")
 
@@ -614,7 +615,7 @@ def test_first_request_cadence_and_one_latest_pending_snapshot():
 
 
 def test_duplicate_and_stale_results_never_replace_output():
-    same_meaning = update(words="Different wording", evidence="Same source")
+    same_meaning = update(evidence="Same source")
     fake = FakeInterpreter([update(), same_meaning])
     coordinator = InterpretationCoordinator(fake)
     coordinator.offer(snapshot(1, 2), 0)
@@ -678,8 +679,8 @@ def test_stable_card_delays_automatic_changes_and_manual_terra_is_explicit():
         ),
         13,
         manual=True,
-    ) == "unchanged"
-    assert card.shown_at == shown_at
+    ) == "replaced"
+    assert card.shown_at == 13 and card.shown_at != shown_at
     assert card.offer(first, 14, manual=True) == "replaced"
     card.show_unavailable("Cloud unavailable — local processing continues", 15)
     assert card.update is None and card.shown_at == 15

@@ -110,27 +110,27 @@ def test_direct_tone_rule_does_not_hide_second_model_tone(monkeypatch):
 
 
 def update(number, text="Would you like to tell me more?", turn=1):
-    return SimpleNamespace(snapshot_id=number,
+    return SimpleNamespace(snapshot_id=number, status='insufficient_evidence', tones=[], social_cues=[],
         replies=[GuidanceCandidate(text=text, confidence="medium", turn_ids=[turn])], remember=[], follow_up=[])
 
 
 def test_guidance_targets_contact_not_user_and_uses_requested_model(monkeypatch):
     from conversation_copilot import guidance
     from conversation_copilot.f04_evaluation import EvaluationScenario
-    from conversation_copilot.interpretation import UsageLedger, TERRA_MODEL, _InterpretationWireUpdate
+    from conversation_copilot.interpretation import UsageLedger, SOL_MODEL, _InterpretationWireUpdate
     snapshot = EvaluationScenario("direction", "f06", "What time is your appointment?", "It is at three.").snapshot("transcript")
     def request(schema, payload, instructions, **kwargs):
-        assert kwargs["model"] == TERRA_MODEL and kwargs["reasoning"] == "low"
+        assert kwargs["model"] == SOL_MODEL and kwargs["reasoning"] == "low"
         assert "avoid questions" in instructions
         return guidance.GuidanceOutput(interpretation=_InterpretationWireUpdate(status="insufficient_evidence"), replies=[
             GuidanceCandidate(text="My appointment is at three.", confidence="medium", turn_ids=[1]),
             GuidanceCandidate(text="Would a reminder help?", confidence="medium", turn_ids=[2])], follow_up=[
             GuidanceCandidate(text="What time is it?", confidence="medium", turn_ids=[1])]), None
     monkeypatch.setattr(guidance, "f06_structured_request", request)
-    result = guidance.interpret_guidance(snapshot, ledger=UsageLedger(), model=TERRA_MODEL, reasoning="low")
+    result = guidance.interpret_guidance(snapshot, ledger=UsageLedger(), model=SOL_MODEL, reasoning="low")
     assert [c.text for c in result.replies] == ["Would a reminder help?"] and not result.follow_up
     user_last = snapshot.model_copy(update={"turns": [*snapshot.turns, snapshot.turns[0].model_copy(update={"display_order": 3})]})
-    result = guidance.interpret_guidance(user_last, ledger=UsageLedger(), model=TERRA_MODEL, reasoning="low")
+    result = guidance.interpret_guidance(user_last, ledger=UsageLedger(), model=SOL_MODEL, reasoning="low")
     assert not result.replies and not result.follow_up
     def next_move(schema, payload, instructions, **kwargs):
         assert payload['user_spoke_last'] and payload['reply_to_turn_id']==2 and payload['latest_turn_id']==3
@@ -165,22 +165,22 @@ def test_guidance_stability_dismissal_expiry_and_hidden_candidates():
     display.offer(update(1), 0)
     original = display.visible("replies")[0].candidate.text
     display.offer(update(2, "Could you clarify?", 2), 3)
-    assert display.visible("replies")[0].candidate.text == original
+    assert display.visible("replies")[0].candidate.text == "Could you clarify?"
     display.tick(11.99)
-    assert display.visible("replies")[0].candidate.text == original
+    assert display.visible("replies")[0].candidate.text == "Could you clarify?"
     display.tick(12)
     assert display.visible("replies")[0].candidate.text == "Could you clarify?"
     display.dismiss("replies", 0)
     display.offer(update(3, "Would you explain that?", 2), 13)
-    assert not display.visible("replies")
+    assert all(item.candidate.text != "Could you clarify?" for item in display.visible("replies"))
     display.offer(update(4, "A fresh question?", 3), 14, manual=True)
     assert display.visible("replies")
-    display.tick(38)
+    display.tick(62)
     assert not display.visible("replies")
     many = update(5)
     many.replies *= 4
-    display.offer(many, 40)
-    assert len(display.visible("replies")) == 4
+    display.offer(many, 64)
+    assert len(display.visible("replies")) == 1  # Exact duplicates do not fill spare slots.
     display.invalidate(turn_ids=set())
     assert not display.visible("replies")
 
@@ -223,7 +223,7 @@ def test_repeated_manual_requests_coalesce_and_more_does_not_dispatch():
     prepared.replies *= 3
     display.offer(prepared, 11)
     display.expanded.add("replies")
-    assert len(display.visible("replies")) == 3 and calls == [1, 3]
+    assert len(display.visible("replies")) == 1 and calls == [1, 3]
 
 
 def test_manual_duplicate_reaches_display_and_renews_explicitly():

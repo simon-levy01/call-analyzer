@@ -23,7 +23,8 @@ def test_resume_legacy_layout_and_overlap_preserves_new_facts(tmp_path):
         contact = store.create_contact("Alex")
         record = store.create_record(source_kind="call", source_label="Legacy", contact_id=contact.id,
                                      timezone_name="UTC", status="stopped", turns=turns(41))
-        batch = store.create_batch(record, model="fake", reasoning="none", chunks_total=3)
+        from conversation_copilot.interpretation import REVIEW_MODEL, REVIEW_REASONING
+        batch = store.create_batch(record, model=REVIEW_MODEL, reasoning=REVIEW_REASONING, chunks_total=3)
         store.append_batch_chunk(batch, [], input_tokens=0, output_tokens=0, reasoning_tokens=0, cost_dollars=0)
         store.fail_batch(batch, "interrupted")
         fake = FakeMemoryExtractor([ExtractionOutput(), ExtractionOutput()])

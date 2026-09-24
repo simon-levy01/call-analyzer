@@ -40,13 +40,17 @@ TRANSCRIPT_TOKEN_BUDGET = 1_300
 # Each segment costs at least eight framing tokens; short fragments cannot exhaust this guard first.
 MAX_SNAPSHOT_TURNS = TRANSCRIPT_TOKEN_BUDGET // 8
 AUTO_INTERPRETATION_INTERVAL_SECONDS = 12.0
+FIRST_ANALYSIS_DELAY_SECONDS = 6.0
 MEMORY_DISPLAY_SECONDS = 24.0
 LUNA_MODEL = "gpt-5.6-luna"
 LIVE_BUDGET_CEILING_DOLLARS = 0.27
 TERRA_MODEL = "gpt-5.6-terra"
-LIVE_ASK_MODELS = (LUNA_MODEL, TERRA_MODEL)
+SOL_MODEL = "gpt-6-sol"
+# Ordered from economical to higher-end; generation follows the higher-end choice.
+LIVE_ASK_MODELS = (LUNA_MODEL, SOL_MODEL)
+MODEL_LABELS = {model: f"{model.rsplit('-', 1)[-1].title()} low" for model in LIVE_ASK_MODELS}
 LIVE_ASK_REASONING = "low"
-REVIEW_MODEL = TERRA_MODEL
+REVIEW_MODEL = LIVE_ASK_MODELS[-1]
 REVIEW_REASONING = "low"
 LIVE_CATEGORY_LIMIT = 4
 
@@ -57,7 +61,7 @@ _CLOUD_WAITING = [0, 0, 0, 0]
 
 @contextmanager
 def cloud_work(priority: int = 2):
-    """One app-wide paid work slot; explicit Ask/Terra precede queued automatic work."""
+    """One app-wide paid work slot; explicit Ask/higher-end precede automatic work."""
     global _CLOUD_ACTIVE
     with _CLOUD_CONDITION:
         _CLOUD_WAITING[priority] += 1
@@ -320,10 +324,17 @@ def _ground_interpretation(update, snapshot, supplied_orders):
                 return False
         if item.kind == ToneKind.NEUTRAL_CALM and not modalities & {EvidenceModality.VOCAL, EvidenceModality.VISUAL}:
             text = " ".join(t.content for t in recent if t.display_order in ids)
-            return bool(re.search(r"\b(?:calm|relaxed|at ease)\b", text, re.I))
+            return bool(re.search(r"\b(?:calm|relaxed|at ease)\b", text, re.I)
+                or (re.search(r"\b(?:matter.of.fact|neutral wording|practical|factual)\b", item.hypothesis, re.I)
+                    and not re.search(r"\b(?:calm|relaxed|at ease|untroubled|composed|comfortable|content|unbothered)\b", item.hypothesis, re.I)))
         return True
-    tones = [item for item in update.tones if supported(item)]
-    cues = [item for item in update.social_cues if supported(item)]
+    low_memories = {memory.revision_id for memory in snapshot.memories if memory.confidence == InterpretationConfidence.LOW}
+    def grounded(items):
+        return [item.model_copy(update={'confidence': InterpretationConfidence.LOW})
+                if low_memories.intersection(item.evidence.memory_ids) else item
+                for item in items if supported(item)]
+    tones = grounded(update.tones)
+    cues = grounded(update.social_cues)
     if not tones and not cues:
         return InterpretationUpdate(status="insufficient_evidence", explanation="No current, attributed contact evidence supports a cue")
     return update.model_copy(update={"tones": tones, "social_cues": cues})
@@ -1007,7 +1018,9 @@ class ModelPrice:
 
 
 MODEL_PRICES = {
-    LUNA_MODEL: ModelPrice(0.20, 0.02, 1.20),
+    "gpt-6-luna": ModelPrice(0.10, 0.01, 0.50),
+    SOL_MODEL: ModelPrice(2.00, 0.20, 10.00),
+    "gpt-5.6-luna": ModelPrice(0.20, 0.02, 1.20),
     TERRA_MODEL: ModelPrice(2.00, 0.20, 12.00),
 }
 
@@ -1369,6 +1382,22 @@ def conservative_request_cost(
     )
 
 
+def ten_minute_call_estimate(model: str) -> float | None:
+    """Illustrative logged workload, priced through the shared model registry.
+
+    Sep 23: 20 paired live cases; full 341.461-second call extraction/summary.
+    Assume one live update per normal cadence; exclude Ask, retries and manual refresh.
+    See docs/UI-REFINEMENTS-20260924.md for provenance and limitations.
+    """
+    generation_model = LIVE_ASK_MODELS[-1]
+    if model not in MODEL_PRICES or generation_model not in MODEL_PRICES:
+        return None
+    output = {LUNA_MODEL: 351.05, SOL_MODEL: 263.25}.get(model, 307.15)
+    live = _request_cost(model, 3371.15, 1722, output, 1646.15) * 600 / AUTO_INTERPRETATION_INTERVAL_SECONDS
+    post_call = _request_cost(generation_model, 9276, 0, 762, 9270) * 600 / 341.461483
+    return live + post_call
+
+
 class UsageLedger:
     def __init__(self, limits: BudgetLimits | None = None, *, enforce_limits: bool = True) -> None:
         self.limits = limits or budget_limits_from_environment()
@@ -1474,7 +1503,7 @@ class OpenAIInterpreter:
         self._live = live
 
     def __call__(self, snapshot: InterpretationSnapshot) -> InterpretationUpdate:
-        with cloud_work(0 if self.model == TERRA_MODEL else 2):
+        with cloud_work(0 if snapshot.manual else 2):
             if not self._is_current(snapshot):
                 raise InterpretationUnavailable("interpretation source changed")
             return self._interpret(snapshot)
@@ -1709,6 +1738,9 @@ def interpretation_signature(update: InterpretationUpdate) -> tuple:
                     value.kind.value,
                     value.confidence.value,
                     tuple(sorted(modality.value for modality in value.evidence.modalities)),
+                    " ".join(value.hypothesis.casefold().split()),
+                    tuple(sorted(value.evidence.turn_ids)),
+                    tuple(sorted(value.evidence.memory_ids)),
                 )
                 for value in values
             )
@@ -1911,7 +1943,7 @@ class StableInterpretationCard:
         self.update: InterpretationUpdate | None = None
         self.memory_possibilities: list[RetrievedMemoryContext] = []
         self._memory_last_seen: dict[tuple[str, str], float] = {}
-        self.message = "Analysis starts after 12 seconds, once speech is transcribed"
+        self.message = f"Analysis starts after {FIRST_ANALYSIS_DELAY_SECONDS:g} seconds, once speech is transcribed"
         self.shown_at: float | None = None
         self._pending: InterpretationUpdate | None = None
 
@@ -1919,7 +1951,7 @@ class StableInterpretationCard:
         self.update = None
         self.memory_possibilities = []
         self._memory_last_seen = {}
-        self.message = "Analysis starts after 12 seconds, once speech is transcribed"
+        self.message = f"Analysis starts after {FIRST_ANALYSIS_DELAY_SECONDS:g} seconds, once speech is transcribed"
         self.shown_at = None
         self._pending = None
 

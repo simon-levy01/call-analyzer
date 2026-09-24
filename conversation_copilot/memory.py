@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import shutil
 import sqlite3
 import time
+import textwrap
 import unicodedata
 import uuid
 from contextlib import contextmanager
@@ -21,7 +23,7 @@ from .models import ConversationTurn, SpeakerRole
 from . import test_log
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 EXPORT_VERSION = 2
 MEMORY_TYPES = (
     "person",
@@ -574,9 +576,11 @@ class MemoryStore:
                                 "ALTER TABLE memory_proposals ADD COLUMN likely_generic "
                                 "INTEGER NOT NULL DEFAULT 0 CHECK(likely_generic IN (0,1))"
                             )
-                    for statement in _SUMMARY_SCHEMA:
-                        connection.execute(statement)
-                    if version:
+                    if version < 4:
+                        for statement in _SUMMARY_SCHEMA:
+                            connection.execute(statement)
+                    connection.execute("CREATE TABLE declined_memories (record_id TEXT NOT NULL REFERENCES conversation_records(id) ON DELETE CASCADE, digest TEXT NOT NULL, PRIMARY KEY(record_id,digest))")
+                    if 0 < version < 4:
                         # F05 tombstones lack turn provenance. Quarantine retained records.
                         connection.execute(
                             """INSERT INTO summary_exclusions
@@ -641,6 +645,8 @@ class MemoryStore:
             if version >= 4:
                 required.update({"summary_versions", "summary_statements", "summary_evidence",
                                  "summary_dependencies", "summary_exclusions", "summary_search", "review_jobs", "review_chunks"})
+            if version >= 5:
+                required.add("declined_memories")
             present = {row[0] for row in connection.execute("SELECT name FROM sqlite_master")}
             if not required <= present:
                 raise MemoryStoreUnavailable("memory database schema is incomplete")
@@ -1006,6 +1012,8 @@ class MemoryStore:
             if batch["status"] not in {"running", "failed"}:
                 raise ValueError("proposal batch cannot accept another chunk")
             for proposal in proposals:
+                if db.execute("SELECT 1 FROM declined_memories WHERE record_id=? AND digest=?", (batch["record_id"], hashlib.sha256(normalize_alias(proposal.content).encode()).hexdigest())).fetchone():
+                    continue
                 db.execute(
                     """INSERT INTO memory_proposals(id,batch_id,content,normalized_content,memory_type,confidence,sensitivity,
                        likely_generic,original_date_text,normalized_date_start,normalized_date_end,evidence_turns,state,created_at)
@@ -1045,6 +1053,7 @@ class MemoryStore:
         row = self._connection.execute(
             """SELECT b.id,b.prompt_version FROM proposal_batches b JOIN conversation_records r ON r.id=b.record_id
                WHERE b.record_id=? AND b.record_generation=r.generation AND b.status IN ('running','failed')
+               AND b.prompt_version NOT LIKE 'summary-edit/%'
                ORDER BY b.created_at DESC LIMIT 1""", (record_id,)
         ).fetchone()
         if row and row[1].startswith("f06-context-v2/"):
@@ -1079,6 +1088,8 @@ class MemoryStore:
                 raise ValueError("proposal batch cannot be replaced")
             ids = []
             for proposal in proposals:
+                if db.execute("SELECT 1 FROM declined_memories WHERE record_id=? AND digest=?", (batch["record_id"], hashlib.sha256(normalize_alias(proposal.content).encode()).hexdigest())).fetchone():
+                    continue
                 proposal_id = _id()
                 ids.append(proposal_id)
                 db.execute(
@@ -1266,6 +1277,8 @@ class MemoryStore:
             raise ValueError("choose at least one pending proposal")
         with self.transaction() as db:
             pending = self.record_pending_proposals(record_id)
+            if db.execute("SELECT 1 FROM review_jobs WHERE record_id=? AND state='running'", (record_id,)).fetchone():
+                raise ValueError("wait for generation to finish before reviewing memories")
             chosen = pending if selected_ids is None else [row for row in pending if row["id"] in selected_ids]
             actual = {row["id"]: row["content"] for row in chosen}
             if (selected_ids is not None and len(chosen) != len(selected_ids)) or actual != expected_pending:
@@ -1273,14 +1286,11 @@ class MemoryStore:
             if approve:
                 return tuple(self._approve_proposal(db, row["id"]) for row in chosen)
             for row in chosen:
-                db.execute(
-                    "UPDATE memory_proposals SET state='rejected',reviewed_at=? WHERE id=? AND state='pending'",
-                    (_now(), row["id"]),
-                )
-                db.execute(
-                    "UPDATE summary_statements SET excluded=1 WHERE id IN (SELECT statement_id FROM summary_dependencies WHERE proposal_id=?)",
-                    (row["id"],),
-                )
+                # Reject the suggestion, not unrelated facts sharing its transcript turns.
+                # ponytail: digest suppresses exact normalized repeats, not semantic paraphrases.
+                db.execute("INSERT OR IGNORE INTO declined_memories VALUES (?,?)", (record_id, hashlib.sha256(normalize_alias(row["content"]).encode()).hexdigest()))
+                db.execute("DELETE FROM memory_proposals WHERE id=?", (row["id"],))
+            self._reindex_summaries(db)
         return ()
 
     def _approve_proposal(
@@ -1299,6 +1309,8 @@ class MemoryStore:
             or proposal["record_generation"] != proposal["generation"]
         ):
             raise ValueError("only a current pending assigned proposal can be approved")
+        if not set(json.loads(proposal["evidence_turns"])) <= {t.display_order for t in self.summary_turns(proposal["record_id"])}:
+            raise ValueError("proposal sources were deleted or excluded")
         memory_id = self._create_memory_revision(
             db, str(proposal["contact_id"]), edited_content or proposal["content"], proposal["memory_type"],
             proposal["confidence"], proposal["sensitivity"], "user_corrected" if edited_content is not None or proposal["reviewed_at"] else "model_approved", record_id=proposal["record_id"],
@@ -1547,9 +1559,17 @@ class MemoryStore:
             (memory_id,),
         ).fetchall():
             if source["record_id"] is not None:
-                for sequence in json.loads(source["turn_sequences"]) or [0]:
+                for revision in db.execute("SELECT content FROM memory_revisions WHERE memory_id=?", (memory_id,)).fetchall():
+                    normalized = normalize_alias(revision["content"])
+                    db.execute("INSERT OR IGNORE INTO declined_memories VALUES (?,?)", (source["record_id"], hashlib.sha256(normalized.encode()).hexdigest()))
+                    db.execute("DELETE FROM memory_proposals WHERE state='pending' AND normalized_content=? AND batch_id IN (SELECT id FROM proposal_batches WHERE record_id=?)", (normalized, source["record_id"]))
+                removed_sequences = set(json.loads(source["turn_sequences"]) or [0])
+                for sequence in removed_sequences:
                     db.execute("INSERT OR IGNORE INTO summary_exclusions VALUES (?,?,?,?,?)",
                                (source["record_id"], sequence, "deleted_memory" if sequence else "legacy_deletion", memory_id, _now()))
+                for proposal in db.execute("SELECT p.id,p.evidence_turns FROM memory_proposals p JOIN proposal_batches b ON b.id=p.batch_id WHERE b.record_id=? AND p.state='pending'", (source["record_id"],)).fetchall():
+                    if 0 in removed_sequences or removed_sequences.intersection(json.loads(proposal["evidence_turns"])):
+                        db.execute("DELETE FROM memory_proposals WHERE id=?", (proposal["id"],))
         db.execute(
             """DELETE FROM summary_statements WHERE id IN
                (SELECT statement_id FROM summary_dependencies WHERE memory_id=?) OR id IN
@@ -2349,6 +2369,8 @@ class MemoryStore:
                         expected_statements: dict[str, tuple[str, int]] | None = None,
                         approve_all_pending: bool = False) -> None:
         with self.transaction() as db:
+            if db.execute("SELECT 1 FROM review_jobs j JOIN summary_versions v ON v.record_id=j.record_id WHERE v.id=? AND j.state='running'", (summary_id,)).fetchone():
+                raise ValueError("wait for generation to finish before approval")
             version = db.execute("SELECT * FROM summary_versions WHERE id=?", (summary_id,)).fetchone()
             if version is None or version["state"] not in {"draft", "approved"}:
                 raise ValueError("review a current summary draft")
@@ -2385,6 +2407,55 @@ class MemoryStore:
             expected_statements=expected_statements,
             approve_all_pending=True,
         )
+
+    def edit_review_summary(self, summary_id: str, content: str, *, expected_statements: dict[str, tuple[str, int]]) -> str | None:
+        """Save a whole-text correction; unchanged text never schedules extraction."""
+        content = content.strip()
+        if not content or len(content.split()) > 500 or len(content) > 16000:
+            raise ValueError("summary must contain 1–500 words (at most 16,000 characters)")
+        with self.transaction() as db:
+            version = db.execute("SELECT v.*,r.generation,r.status FROM summary_versions v JOIN conversation_records r ON r.id=v.record_id WHERE v.id=?", (summary_id,)).fetchone()
+            if version is None or version["record_generation"] != version["generation"] or version["status"] == "active":
+                raise ValueError("summary source changed; reopen the review")
+            record_id = version["record_id"]
+            latest = db.execute("SELECT id FROM summary_versions WHERE record_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1", (record_id,)).fetchone()
+            statements = self.summary_statements(summary_id)
+            if latest[0] != summary_id or {s["id"]: (s["content"], s["excluded"]) for s in statements} != expected_statements:
+                raise ValueError("summary changed; reopen the editor")
+            if db.execute("SELECT 1 FROM review_jobs WHERE record_id=? AND state='running'", (record_id,)).fetchone():
+                raise ValueError("wait for generation to finish before editing")
+            visible = [s for s in statements if not s["excluded"]]
+            original = "\n\n".join(s["content"] for s in visible)
+            if content.split() == original.split():
+                return None
+            if not visible or any(not self._summary_eligible(s["id"], require_approved=False) for s in visible):
+                raise ValueError("summary sources were deleted or changed")
+            sequences = {r[0] for s in visible for r in db.execute("SELECT sequence FROM summary_evidence WHERE statement_id=?", (s["id"],))}
+            sensitivity = "sensitive" if any(s["sensitivity"] == "sensitive" for s in visible) else "normal"
+            new_id = _id()
+            db.execute("UPDATE summary_versions SET state='replaced' WHERE record_id=? AND state='approved'", (record_id,))
+            db.execute("INSERT INTO summary_versions VALUES (?,?,?,'draft',?,'user-edited',?,NULL)",
+                       (new_id, record_id, version["generation"], version["partial"], _now()))
+            # Old proposal review decisions must not silently hide an explicit correction.
+            db.execute("DELETE FROM memory_proposals WHERE state='pending' AND batch_id IN (SELECT id FROM proposal_batches WHERE record_id=?)", (record_id,))
+            db.execute("UPDATE proposal_batches SET status='invalidated' WHERE record_id=?", (record_id,))
+            # Keep the existing bounded storage fields; the editor presents the whole text.
+            for paragraph in content.split("\n\n"):
+                matched = next((s for s in visible if s["content"].strip() == paragraph.strip()), None)
+                paragraph_sequences = ({r[0] for r in db.execute("SELECT sequence FROM summary_evidence WHERE statement_id=?", (matched["id"],))}
+                                       if matched else sequences)
+                for part in textwrap.wrap(paragraph, width=280):
+                    identifier = _id()
+                    db.execute("INSERT INTO summary_statements VALUES (?,?, 'discussed',?,'fact','medium','user_corrected',?,0,0,?)",
+                               (identifier, new_id, part, sensitivity, _now()))
+                    db.executemany("INSERT INTO summary_evidence VALUES (?,?,?)", [(identifier, record_id, seq) for seq in paragraph_sequences])
+                    self._link_summary_statement(db, identifier, record_id, paragraph_sequences)
+            # Approved memories survive; obsolete pending proposals do not remain actionable.
+            db.execute("DELETE FROM review_chunks WHERE record_id=?", (record_id,))
+            db.execute("INSERT INTO review_jobs(record_id,generation,state,created_at) VALUES (?,?,'pending',?) ON CONFLICT(record_id) DO UPDATE SET generation=excluded.generation,state='pending',created_at=excluded.created_at",
+                       (record_id, version["generation"], _now()))
+            self._reindex_summaries(db)
+            return new_id
 
     def edit_review_sentence(self, statement_id: str, content: str, *, expected_content: str, links: dict[str, str]) -> None:
         """Save a sentence and explicitly selected linked facts in one transaction."""
@@ -2471,7 +2542,10 @@ class MemoryStore:
 
     def delete_summary(self, record_id: str) -> None:
         with self.transaction() as db:
-            db.execute("DELETE FROM review_jobs WHERE record_id=?", (record_id,))
+            if db.execute("SELECT 1 FROM review_jobs WHERE record_id=? AND state='running'", (record_id,)).fetchone():
+                raise ValueError("wait for generation to finish before rejecting the summary")
+            db.execute("UPDATE review_jobs SET state='complete' WHERE record_id=?", (record_id,))
+            db.execute("DELETE FROM review_chunks WHERE record_id=?", (record_id,))
             db.execute("DELETE FROM summary_versions WHERE record_id=?", (record_id,))
 
     def export_json(self, *, contact_id: str | None = None, all_data: bool = False) -> dict[str, object]:
@@ -2810,10 +2884,21 @@ def analyze_record(
     model = model or REVIEW_MODEL
     reasoning = reasoning or REVIEW_REASONING
     if model != REVIEW_MODEL or reasoning != REVIEW_REASONING:
-        raise ValueError("memory generation uses Terra low")
+        raise ValueError(f"memory generation uses {REVIEW_MODEL} {REVIEW_REASONING}")
     turns = store.record_turns(record_id)
     if not turns:
         raise ValueError("conversation record has no attributed text")
+    if batch_id:
+        previous = store._connection.execute(
+            "SELECT record_id,model,reasoning,status FROM proposal_batches WHERE id=?", (batch_id,)
+        ).fetchone()
+        if previous is None or previous["record_id"] != record_id:
+            raise ValueError("batch does not belong to this record")
+        if (previous["model"], previous["reasoning"]) != (model, reasoning):
+            if previous["status"] not in {"running", "failed"}:
+                raise ValueError("cannot resume a completed batch with a different model")
+            # create_batch retains and invalidates the old partial batch; never relabel it.
+            batch_id = None
     # Persist the chunking version so interrupted older jobs retain their original boundaries.
     version = store._connection.execute("SELECT prompt_version FROM proposal_batches WHERE id=?", (batch_id,)).fetchone() if batch_id else None
     try:

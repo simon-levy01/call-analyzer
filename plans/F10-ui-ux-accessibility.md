@@ -1,5 +1,13 @@
 # F10 — UI/UX and accessibility
 
+## September 24 — revised Review and Home controls
+
+Latest user instructions supersede older detailed controls below: window-only Refresh preserving contact/audio/unchanged preview; centered green Start wording; Enter searches Memories with a headerless result; fixed proportional Review panes; direct View transcript and Reject summary (no More actions); whole-summary editing regenerates pending memories only for changed wording and preserves approved memories; concise confirmations, immediate rejected-suggestion deletion with no reopen/permanent-delete step. Show only the selected model's illustrative ten-minute cost including higher-end post-call generation. Distinguish empty successful generation, no transcript and retryable failure. See [verification](../docs/UI-REFINEMENTS-20260924.md); user acceptance is still pending.
+
+## September 22 — GPT-6 model update
+
+Supersedes every earlier Luna/Terra choice below: Live/Ask now select GPT-6 Luna low (default) or GPT-6 Sol low. Memory extraction, imported-text generation and the post-call summary pipeline follow the higher-end entry of that ordered list, currently Sol low, regardless of the Live/Ask selection. Luna medium is a requested timing-test arm only, not an additional UI option. Historical results and evaluation caps remain unchanged. See [migration verification](../docs/GPT6-MODEL-UPDATE.md).
+
 ## September 22 — user-authorized Qt migration
 
 The user explicitly superseded the earlier keep-Tk assumption: select the best maintainable/customizable Windows/macOS toolkit and migrate the full interface on a branch. Work is on `codex/qt-ui-migration`; `main` is unchanged. Selected PySide6/Qt Widgets with shared light/dark styling and SVG control assets, retaining the Python capture/memory/inference backend. See [decision and checks](../docs/F10-QT-MIGRATION.md).

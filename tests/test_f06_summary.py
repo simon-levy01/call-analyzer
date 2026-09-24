@@ -56,6 +56,84 @@ def test_review_accepts_six_discussed_statements_without_retry(tmp_path):
             store.create_summary_draft(record, oversized, expected_generation=1)
 
 
+@pytest.mark.parametrize("changed", [False, True])
+def test_long_edited_summary_chunks_resume_and_preserve_correction(tmp_path, changed):
+    with MemoryStore(tmp_path / "edited.sqlite3") as store:
+        _, record = setup_record(store)
+        source = store.record_turns(record)[0]
+        for order in range(2, 41):
+            store.append_turn(record, source.model_copy(update={"display_order": order, "content": "We discussed a project milestone and its next steps. " * 40}))
+        summary = draft(store, record)
+        statement = store.summary_statements(summary)[0]
+        # Model-generated fixtures retain evidence across the long call.
+        with store.transaction() as db:
+            db.executemany("INSERT INTO summary_evidence VALUES (?,?,?)", [(statement["id"], record, i) for i in range(2, 41)])
+        edited = store.edit_review_summary(summary, "The appointment is Wednesday at 3 PM.", expected_statements={statement["id"]: (statement["content"], 0)})
+        seen = []
+        def parse(**kwargs):
+            payload = json.loads(kwargs["input"])
+            ids = [t["id"] for t in payload["source_context"]["turns"]]
+            seen.append(ids)
+            if len(seen) == 2:
+                raise TimeoutError("fixture interruption")
+            return SimpleNamespace(output_parsed=ExtractionOutput(), usage=SimpleNamespace(input_tokens=100, output_tokens=10))
+        client = SimpleNamespace(responses=SimpleNamespace(parse=parse))
+        ledger = UsageLedger.product()
+        with pytest.raises(TimeoutError):
+            process_review(store, record, ledger=ledger, client=client)
+        assert store.retryable_batch(record) is None  # Normal transcript extraction must not resume an edit batch.
+        if changed:
+            # A changed visible source must not reuse another payload's chunk offsets.
+            with store.transaction() as db:
+                db.execute("UPDATE summary_statements SET content=content || ' Please remember.' WHERE summary_id=?", (edited,))
+        assert process_review(store, record, ledger=ledger, client=client) == edited
+        assert seen.count(seen[0]) == (2 if changed else 1)
+        assert store._connection.execute("SELECT count(*) FROM proposal_batches WHERE record_id=?", (record,)).fetchone()[0] == (2 if changed else 1)
+        assert set(i for chunk in seen for i in chunk) == set(range(1, 41))
+        assert len(seen) > 2
+        assert store.summary_statements(edited)[0]["content"].startswith("The appointment is Wednesday at 3 PM.")
+
+
+def test_legacy_rejection_does_not_hide_explicit_edit_and_deleted_siblings_are_erased(tmp_path):
+    with MemoryStore(tmp_path / "legacy.sqlite3") as store:
+        _, record = setup_record(store)
+        summary = draft(store, record)
+        row = store.summary_statements(summary)[0]
+        batch = store.create_batch(record, model="fake", reasoning="none")
+        ids = store.store_proposals(batch, [MemoryProposalInput(content=text, memory_type="other", confidence="high", evidence_turns=[1]) for text in ("Legacy rejection", "Appointment", "Appointment paraphrase")])
+        store.reject_proposal(ids[0])
+        edited = store.edit_review_summary(summary, "Dentist appointment Wednesday.", expected_statements={row["id"]: (row["content"], 0)})
+        assert all(not s["excluded"] for s in store.summary_statements(edited))
+        batch = store.create_batch(record, model="fake", reasoning="none")
+        ids = store.store_proposals(batch, [MemoryProposalInput(content=text, memory_type="other", confidence="high", evidence_turns=[1]) for text in ("Appointment", "Appointment paraphrase")])
+        approved = store.approve_proposal(ids[0])
+        store.delete_memory(approved)
+        assert not store._connection.execute("SELECT 1 FROM memory_proposals WHERE id=?", (ids[1],)).fetchone()
+        assert store.review_record_proposals(record, None, approve=True, expected_pending={}) == ()
+
+
+def test_emptied_edited_summary_can_regenerate_from_remaining_source(tmp_path):
+    with MemoryStore(tmp_path / "remaining.sqlite3") as store:
+        contact, record = setup_record(store)
+        source = store.record_turns(record)[0]
+        store.append_turn(record, source.model_copy(update={"display_order": 2, "content": "I prefer mint tea."}))
+        summary = draft(store, record)
+        row = store.summary_statements(summary)[0]
+        approved = store.create_memory(contact, "Appointment", record_id=record, evidence_turns=[1])
+        edited = store.edit_review_summary(summary, "Appointment Wednesday.", expected_statements={row["id"]: (row["content"], 0)})
+        store.delete_memory(approved)
+        assert not store.summary_statements(edited)
+        batch = store.create_batch(record, model="fake", reasoning="none")
+        assert store.store_proposals(batch, [MemoryProposalInput(content="Appointment", memory_type="other", confidence="high", evidence_turns=[2])]) == []
+        def parse(**kwargs):
+            payload = json.loads(kwargs["input"])
+            assert [t["id"] for t in payload["turns"]] == [2]
+            return SimpleNamespace(output_parsed=SummaryOutput(statements=[SummaryStatementInput(section="discussed", content="Prefers mint tea.", kind="fact", confidence="high", evidence_turns=[2])]), usage=SimpleNamespace(input_tokens=100, output_tokens=20))
+        regenerated = process_review(store, record, ledger=UsageLedger.product(), client=SimpleNamespace(responses=SimpleNamespace(parse=parse)))
+        assert regenerated != edited
+        assert store.summary_statements(regenerated)[0]["content"] == "Prefers mint tea."
+
+
 def test_sensitive_generated_topic_survives_consolidation_with_automatic_cloud_eligibility(tmp_path, monkeypatch):
     monkeypatch.setattr("conversation_copilot.post_call._whole_summary_fits", lambda turns: False)
     with MemoryStore(tmp_path / "memory.sqlite3") as store:
@@ -375,17 +453,17 @@ def test_post_call_failure_resume_and_regeneration_do_not_repeat_extraction(tmp_
         assert store._connection.execute("SELECT state FROM summary_versions WHERE id=?", (regenerated,)).fetchone()[0] == "draft"
 
 
-def test_delete_summary_during_request_cancels_checkpoint(tmp_path):
+def test_delete_summary_during_request_is_refused(tmp_path):
     with MemoryStore(tmp_path / "memory.sqlite3") as store:
         _, record = setup_record(store)
         def parse(**kwargs):
-            store.delete_summary(record)
+            with pytest.raises(ValueError, match="generation"):
+                store.delete_summary(record)
             return SimpleNamespace(output_parsed=SummaryOutput(), usage=SimpleNamespace(input_tokens=100, output_tokens=40))
-        with pytest.raises(InterpretationUnavailable):
-            process_review(store, record, ledger=UsageLedger(), extractor=FakeMemoryExtractor([ExtractionOutput()]),
-                           client=SimpleNamespace(responses=SimpleNamespace(parse=parse)))
-        assert not store._connection.execute("SELECT 1 FROM summary_versions").fetchone()
-        assert not store._connection.execute("SELECT 1 FROM review_jobs").fetchone()
+        process_review(store, record, ledger=UsageLedger(), extractor=FakeMemoryExtractor([ExtractionOutput()]),
+                       client=SimpleNamespace(responses=SimpleNamespace(parse=parse)))
+        assert store._connection.execute("SELECT 1 FROM summary_versions").fetchone()
+        assert store._connection.execute("SELECT state FROM review_jobs").fetchone()[0] == "complete"
         assert store.integrity_ok()
 
 

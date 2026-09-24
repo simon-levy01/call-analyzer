@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .interpretation import LUNA_MODEL, LIVE_ASK_MODELS, LIVE_ASK_REASONING
+from .interpretation import LUNA_MODEL, LIVE_ASK_MODELS, LIVE_ASK_REASONING, MODEL_LABELS
 from .memory import MemoryStore, normalize_alias
 
 
@@ -74,7 +74,7 @@ def cloud_answer(store, question, sources=(), *, ledger, contact_id=None, event_
                  model=LUNA_MODEL, reasoning=LIVE_ASK_REASONING):
     from .interpretation import f06_structured_request
     if model not in LIVE_ASK_MODELS or reasoning != LIVE_ASK_REASONING:
-        raise ValueError("Ask supports only Luna low or Terra low")
+        raise ValueError("Ask requires a selectable model with low reasoning")
     complete = False
     if contact_id is not None:
         sources, complete = cloud_sources(store, contact_id, question, event_id=event_id)
@@ -119,7 +119,7 @@ def cloud_answer(store, question, sources=(), *, ledger, contact_id=None, event_
             raise ValueError("cloud answer quote does not match its cited source")
     return AskResult(output.status, output.answer, tuple(source for source in allowed if source.id in output.source_ids),
                      coverage="All current approved contact memories and summaries with valid sources considered." if complete else "Bounded evidence shortlist considered; other history may exist.",
-                     backend=f"{'Luna' if model == LUNA_MODEL else 'Terra'} low · ${usage.dollars:.5f}",
+                     backend=f"{MODEL_LABELS[model]} · ${usage.dollars:.5f}",
                      confidence=min((source.confidence for source in cited), key=("low", "medium", "high").index)
                      if output.status == "answered" and cited else None)
 

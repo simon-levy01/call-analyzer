@@ -29,6 +29,9 @@ def apply_theme(app, dark):
         QPushButton:pressed {{ background: #344C83; color: white; }}
         QPushButton:disabled {{ color: {muted}; background: {page}; border-color: {line}; }}
         QPushButton[role=primary] {{ background: #2B5BE0; color: white; border-color: #7395ED; }}
+        QPushButton[role=start]:enabled {{ background: #15803D; color: white; border-color: #4ADE80; }}
+        QPushButton[role=start]:enabled:hover {{ background: #166534; }}
+        QPushButton[role=start]:enabled:pressed {{ background: #14532D; }}
         QPushButton[role=danger] {{ background: #B42E27; color: white; border-color: #F68479; }}
         QPushButton[large=true] {{ font-size: 20px; border-radius: 18px; }}
         QLineEdit, QPlainTextEdit, QListWidget, QComboBox {{ background: {surface}; border: 1px solid {line}; border-radius: 10px; padding: 8px; selection-background-color: #344C83; selection-color: white; }}

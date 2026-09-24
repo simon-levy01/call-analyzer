@@ -20,7 +20,7 @@ from conversation_copilot.interpretation import (
     REVIEW_MODEL,
     REVIEW_REASONING,
     SocialCue,
-    TERRA_MODEL,
+    SOL_MODEL,
     ToneHypothesis,
     UsageLedger,
     UsageRecord,
@@ -60,14 +60,14 @@ def record(store: MemoryStore, contact_id: str) -> str:
 
 
 def test_product_profiles_and_uncapped_accounting_preserve_evaluation_caps():
-    assert LIVE_ASK_MODELS == (LUNA_MODEL, TERRA_MODEL)
+    assert LIVE_ASK_MODELS == (LUNA_MODEL, SOL_MODEL) == ("gpt-5.6-luna", "gpt-6-sol")
     assert LIVE_ASK_REASONING == REVIEW_REASONING == "low"
-    assert REVIEW_MODEL == TERRA_MODEL
+    assert REVIEW_MODEL == LIVE_ASK_MODELS[-1]
 
     product = UsageLedger.product()
-    reservation = product.reserve(TERRA_MODEL, 9_000, max_output_tokens=2_400)
-    product.complete(reservation, UsageRecord(TERRA_MODEL, "low", 0, 0, 0, 0, 0, 10.0))
-    product.release(product.reserve(TERRA_MODEL, 9_000, max_output_tokens=2_400))
+    reservation = product.reserve(SOL_MODEL, 9_000, max_output_tokens=2_400)
+    product.complete(reservation, UsageRecord(SOL_MODEL, "low", 0, 0, 0, 0, 0, 10.0))
+    product.release(product.reserve(SOL_MODEL, 9_000, max_output_tokens=2_400))
     assert product.total_dollars == 10.0 and not product.warning_reached
 
     capped = UsageLedger(BudgetLimits(0.01, 0.02, 0.03))
@@ -86,7 +86,7 @@ def test_sensitive_approved_memory_is_cloud_eligible_without_rewriting_permissio
         assert source is not None and source.cloud_allowed
 
 
-def test_review_pipeline_uses_fixed_terra_low_provenance(tmp_path, monkeypatch):
+def test_review_pipeline_uses_higher_end_low_provenance(tmp_path, monkeypatch):
     from conversation_copilot import post_call
 
     calls = []
@@ -120,9 +120,32 @@ def test_review_pipeline_uses_fixed_terra_low_provenance(tmp_path, monkeypatch):
         summary = store._connection.execute(
             "SELECT model FROM summary_versions WHERE id=?", (summary_id,)
         ).fetchone()
-        assert tuple(batch) == (TERRA_MODEL, "low")
-        assert summary[0] == TERRA_MODEL
-        assert calls and all(call["model"] == TERRA_MODEL and call["reasoning"] == "low" for call in calls)
+        assert tuple(batch) == (REVIEW_MODEL, "low")
+        assert summary[0] == REVIEW_MODEL
+        assert calls and all(call["model"] == REVIEW_MODEL and call["reasoning"] == "low" for call in calls)
+
+
+def test_gpt6_prices_preserve_historical_accounting():
+    from conversation_copilot.interpretation import _request_cost
+    assert _request_cost(LUNA_MODEL, 1_000_000, 0, 1_000_000) == pytest.approx(1.40)
+    assert _request_cost("gpt-6-luna", 1_000_000, 0, 1_000_000) == pytest.approx(0.60)
+    assert _request_cost(SOL_MODEL, 1_000_000, 0, 1_000_000) == pytest.approx(12.00)
+    assert _request_cost("gpt-5.6-luna", 1_000_000, 0, 1_000_000) == pytest.approx(1.40)
+    assert _request_cost("gpt-5.6-terra", 1_000_000, 0, 1_000_000) == pytest.approx(14.00)
+
+
+def test_model_change_restarts_partial_extraction_without_relabeling(tmp_path):
+    from conversation_copilot.memory import analyze_record
+    with MemoryStore(tmp_path / "memory.sqlite3") as store:
+        contact = store.create_contact("Alex")
+        record_id = record(store, contact.id)
+        old = store.create_batch(record_id, model="gpt-5.6-terra", reasoning="low", chunks_total=1)
+        store.fail_batch(old, "interrupted")
+        new = analyze_record(store, record_id, FakeMemoryExtractor([ExtractionOutput()]), batch_id=old)
+        assert new != old
+        rows = {row["id"]: row for row in store._connection.execute("SELECT * FROM proposal_batches")}
+        assert rows[old]["model"] == "gpt-5.6-terra" and rows[old]["status"] == "invalidated"
+        assert rows[new]["model"] == REVIEW_MODEL and rows[new]["status"] == "pending_review"
 
 
 def test_four_item_live_contract_and_fixed_snapshots_cover_all_categories():
@@ -219,4 +242,4 @@ def test_record_bulk_review_is_atomic_and_combined_approval_includes_unlinked_pe
         )
         assert {row["state"] for row in store._connection.execute(
             "SELECT state FROM memory_proposals WHERE id IN (?,?)", rejected
-        )} == {"rejected"}
+        )} == set()

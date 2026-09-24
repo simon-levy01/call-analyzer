@@ -11,7 +11,6 @@ from .interpretation import (
     InterpretationUnavailable,
     InterpretationSnapshot,
     InterpretationUpdate,
-    LUNA_MODEL,
     OpenAIInterpreter,
     TERRA_MODEL,
     UsageLedger,
@@ -23,6 +22,7 @@ from .interpretation import (
 from .models import ConversationTurn, SpeakerRole
 
 MODES = ("transcript", "vocal", "visual", "all")
+LUNA_MODEL = "gpt-5.6-luna"  # Preserve this historical evaluation's explicit profiles.
 STAGE_A_MODES = ("transcript", "all")
 PROFILES = (
     (LUNA_MODEL, "none"),

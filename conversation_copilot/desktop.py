@@ -15,7 +15,7 @@ from PySide6.QtGui import QIcon, QImage, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QComboBox, QLineEdit, QPlainTextEdit, QListWidget,
-    QScrollArea, QFrame, QSlider, QStackedWidget, QMessageBox, QListView,
+    QScrollArea, QFrame, QSlider, QStackedWidget, QMessageBox, QListView, QSizePolicy, QLayout,
 )
 
 from . import test_log
@@ -24,14 +24,21 @@ from .models import vocal_observation_from_audio as _vocal_observation_from_audi
 from .memory import MemoryStore, memory_retrieval_inputs, memory_semantic_input
 from .models import SpeakerRole
 from .interpretation import (
-    CoordinatorEventKind, InterpretationAuthenticationUnavailable,
-    InterpretationBudgetExceeded, InterpretationCoordinator, LUNA_MODEL, TERRA_MODEL,
+    CoordinatorEventKind, InterpretationAuthenticationUnavailable, InterpretationConfidence,
+    InterpretationBudgetExceeded, InterpretationCoordinator, LIVE_ASK_MODELS, MODEL_LABELS, REVIEW_MODEL,
     OpenAIInterpreter, RetrievedMemoryContext, StableInterpretationCard, UsageLedger,
     VisualAggregator, build_snapshot, prepare_interpretation_request,
     local_openai_api_key, save_local_openai_api_key,
+    ten_minute_call_estimate,
 )
 from .guidance import GuidanceDisplay, interpret_guidance
 from .ask_memory import memory_source, validate_sources
+
+
+class GuidanceLabel(QLabel):
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.setMinimumHeight(self.heightForWidth(event.size().width()))
 
 
 def label(text="", *, heading=False):
@@ -45,6 +52,7 @@ def label(text="", *, heading=False):
 
 def button(text, callback, role=""):
     widget = QPushButton(text)
+    widget.setAutoDefault(False)
     widget.setProperty("role", role)
     widget.setCursor(Qt.PointingHandCursor)
     widget.clicked.connect(lambda _checked=False: callback())
@@ -190,6 +198,7 @@ class Desktop(QWidget):
         self.local_pending = {"ask": None, "live": None}
         self.local_active = False
         self.review_running = set()
+        self.review_ledgers = {}
         self.review_errors = {}
         self.review_estimates = {}
         self.cloud_error = ""
@@ -280,9 +289,8 @@ class Desktop(QWidget):
         self.window_box.setAccessibleName("Call window")
         self.window_box.setPlaceholderText("Choose an active call window")
         self.window_box.currentIndexChanged.connect(self.window_changed)
-        self.refresh_button = button("Refresh devices and windows", self.refresh_devices, "replies")
-        self.refresh_button.setText("Refresh")
-        self.refresh_button.setAccessibleName("Refresh devices and windows")
+        self.refresh_button = button("Refresh", self.refresh_windows, "replies")
+        self.refresh_button.setAccessibleName("Refresh call windows")
         watch_layout.addLayout(row(self.window_box, self.refresh_button))
         self.face_preview = label("Choose a window, then preview the selected face.")
         self.face_preview.setMinimumHeight(90)
@@ -293,17 +301,22 @@ class Desktop(QWidget):
         preview_actions.addWidget(self.preview_button)
         preview_actions.addWidget(self.home_switch_button)
         watch_layout.addLayout(row(self.face_preview, preview_actions))
-        self.model_box = combo(("Luna low", "Terra low"))
+        self.model_box = combo(tuple(MODEL_LABELS[model] for model in LIVE_ASK_MODELS))
         self.model_box.setAccessibleName("Live and Ask model")
         self.model_box.setFixedWidth(150)
-        watch_layout.addLayout(row(label("Live and Ask"), self.model_box, 1))
-        watch_layout.addWidget(label("Terra has 10× Luna's token rates. Review generation uses Terra low."))
+        self.call_cost_label = label()
+        self.call_cost_label.setAccessibleName("Estimated ten-minute call cost")
+        self.call_cost_label.setToolTip("Illustrative estimate from saved call token usage and current configured prices, including post-call summary/memories. Actual speech density, caching and output vary; excludes Ask, retries and manual refreshes.")
+        self.model_box.currentIndexChanged.connect(self.update_cost_estimate)
+        self.update_cost_estimate()
+        watch_layout.addLayout(row(label("Live and Ask"), self.model_box, self.call_cost_label, 1))
+        watch_layout.addWidget(label(f"Memory and summary generation use {MODEL_LABELS[REVIEW_MODEL]} (the higher-end option)."))
         setup.addWidget(sound, 1)
         setup.addWidget(watch, 1)
         layout.addLayout(setup, 1)
         ready, ready_layout = card()
         self.ready_text = label()
-        self.start_button = button("Start call  →", self.start_call, "primary")
+        self.start_button = button("Start call", self.start_call, "start")
         self.start_button.setMinimumSize(220, 64)
         self.start_button.setProperty("large", True)
         ready_line = row(self.ready_text, self.start_button)
@@ -348,6 +361,7 @@ class Desktop(QWidget):
             ("follow_up", "Follow-up questions", "follow_up"),
         )):
             group, content = card(title, role)
+            group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
             content.setAlignment(Qt.AlignTop)
             self.guidance_rows[category] = content
             self.guidance_grid.addWidget(group, index // 2, index % 2, 1, 2 if index == 4 else 1)
@@ -420,6 +434,7 @@ class Desktop(QWidget):
                     timezone_name=str(datetime.now().astimezone().tzinfo))
                 self.selected_contact_id, self.selected_contact_label = contact.id, contact.label
                 self.refresh_contacts()
+                self.invalidate_memory_context()
                 self.update_readiness()
                 panel.close()
             except (ValueError, sqlite3.Error) as exc:
@@ -428,7 +443,7 @@ class Desktop(QWidget):
         panel.show()
 
     def selected_live_model(self):
-        return TERRA_MODEL if self.model_box.currentText().startswith("Terra") else LUNA_MODEL
+        return LIVE_ASK_MODELS[self.model_box.currentIndex()]
 
     def readiness(self):
         missing = []
@@ -452,6 +467,39 @@ class Desktop(QWidget):
         self.start_button.setEnabled(not missing and not active and not self.discovery_running and not self.preview_loading)
         self.ready_text.setText("Call in progress" if active else "Checking devices…" if self.discovery_running else "Preparing face preview…" if self.preview_loading else
             ("Choose or fix: " + ", ".join(missing) if missing else "✓  Everything is ready for your call"))
+
+    def update_cost_estimate(self, *_):
+        amount = ten_minute_call_estimate(self.selected_live_model())
+        self.call_cost_label.setText(f"≈ ${amount:.2f} / 10 min" if amount is not None else "Cost estimate unavailable")
+
+    def refresh_windows(self):
+        if self.discovery_running or self.audio_session or self.starting or self.stopping:
+            return
+        self.discovery_running = True
+        self.refresh_button.setEnabled(False)
+        def discover():
+            if sys.platform != "win32":
+                return []
+            from .windows import list_call_windows
+            return list_call_windows()
+        def done(windows, error):
+            self.discovery_running = False
+            self.refresh_button.setEnabled(True)
+            if error:
+                self.status_label.setText(f"Call windows could not be refreshed: {error}")
+            else:
+                selected = self.window_box.currentIndex()
+                previous = self.windows[selected] if 0 <= selected < len(self.windows) else None
+                self.window_box.blockSignals(True)
+                self.window_box.clear()
+                self.windows = windows
+                self.window_box.addItems([item.display_name for item in windows])
+                self.window_box.setCurrentIndex(windows.index(previous) if previous in windows else -1)
+                self.window_box.blockSignals(False)
+                if previous not in windows:
+                    self.window_changed()
+            self.update_readiness()
+        self.run_job(discover, done)
 
     def refresh_devices(self):
         if self.discovery_running or self.audio_session or self.starting or self.stopping:
@@ -697,10 +745,8 @@ class Desktop(QWidget):
         self.run_job(work, done)
 
     def render_guidance(self):
-        update = self.guidance_display.filter_update(self.stable_interpretation.update) if self.stable_interpretation.update else None
-        displayed = {category: (list(getattr(update, category)) if update else []) if category in {"tones", "social_cues"}
-                     else self.guidance_display.visible(category) for category in self.guidance_rows}
-        signature = repr(displayed)
+        displayed = {category: self.guidance_display.visible(category) for category in self.guidance_rows}
+        signature = repr((displayed, self.guidance_display.last_snapshot))
         if signature == self.last_guidance:
             return
         self.last_guidance = signature
@@ -713,15 +759,25 @@ class Desktop(QWidget):
             if not displayed[category]:
                 layout.addWidget(label("Nothing useful to show yet."))
             for index, wrapped in enumerate(displayed[category]):
-                candidate = wrapped if category in {"tones", "social_cues"} else wrapped.candidate
+                candidate = wrapped.candidate
                 content = candidate.hypothesis if hasattr(candidate, "hypothesis") else candidate.text
+                if (candidate.confidence == 'low' and getattr(getattr(candidate, 'evidence', candidate), 'memory_ids', [])
+                        and not content.casefold().startswith(('possibly related:', 'possible connection:'))):
+                    content = 'Possible connection: ' + content
+                if wrapped.snapshot_id < self.guidance_display.last_snapshot:
+                    content = 'Earlier: ' + content
                 item = QWidget()
+                item.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
                 item.setProperty("plain", True)
                 item_layout = QHBoxLayout(item)
+                item_layout.setSizeConstraint(QLayout.SetMinimumSize)
                 item_layout.setContentsMargins(0, 3, 0, 3)
-                item_layout.addWidget(label(content), 1)
-                def dismiss(c=category, i=index, u=update):
-                    self.guidance_display.dismiss(c, i, update=u)
+                wording = GuidanceLabel(content)
+                wording.setWordWrap(True)
+                wording.setTextFormat(Qt.PlainText)
+                item_layout.addWidget(wording, 1)
+                def dismiss(c=category, i=index):
+                    self.guidance_display.dismiss(c, i)
                     self.render_guidance()
                 for caption, accessible, callback in (("↗", "Pop out", lambda c=category, x=candidate, t=content: self.pop_out(c, x, t)), ("×", "Dismiss", dismiss)):
                     action = button(caption, callback)
@@ -861,12 +917,15 @@ class Desktop(QWidget):
         panel.show()
 
     def start_review_job(self, record_id, ledger):
+        if not self.memory_store.summary_turns(record_id, for_cloud=True):
+            return False
         if self.review_running or self.audio_session:
             panel = self.review_dialogs.get(record_id)
             if panel:
-                panel.status.setText("Another call or review is running. This record is saved; use Continue afterward.")
+                panel.status.setText("Another call or review is running. This record is saved; use Retry generation afterward.")
             return False
         self.review_running.add(record_id)
+        self.review_ledgers[record_id] = ledger
         self.review_errors.pop(record_id, None)
         panel = self.review_dialogs.get(record_id)
         if panel:
@@ -876,7 +935,7 @@ class Desktop(QWidget):
             from .post_call import process_review, review_estimate
             with MemoryStore(path, verify=False) as store:
                 self.review_estimates[record_id] = review_estimate(store, record_id)[1]
-                return process_review(store, record_id, ledger=ledger, can_run=lambda: not self.audio_session and not self.starting)
+                return process_review(store, record_id, ledger=ledger, can_run=lambda: not self.audio_session and not self.starting and not self.closing)
         def done(result, error):
             self.review_running.discard(record_id)
             if error:
@@ -1018,6 +1077,7 @@ class Desktop(QWidget):
 
     def begin_interpretation_session(self) -> None:
         self.guidance_topic_start = 0
+        self.guidance_last_speech_order = 0
         test_log.emit('call_start', contact_id=self.selected_contact_id)
         self.interpretation_generation += 1
         self.next_interpretation_snapshot_id = 0
@@ -1051,7 +1111,8 @@ class Desktop(QWidget):
                         result = interpret_guidance(item, ledger=ledger, client=interpreter._client, model=live_model, reasoning='low', is_current=lambda snapshot: current_guidance(snapshot, store))
                         return result
                 return interpreter(item)
-            self.interpretation_coordinator = InterpretationCoordinator(combined, generation=self.interpretation_generation, first_request_at=time.perf_counter() + 12, adaptive_cadence=True)
+            from .interpretation import FIRST_ANALYSIS_DELAY_SECONDS
+            self.interpretation_coordinator = InterpretationCoordinator(combined, generation=self.interpretation_generation, first_request_at=time.perf_counter() + FIRST_ANALYSIS_DELAY_SECONDS, adaptive_cadence=True)
         except InterpretationAuthenticationUnavailable:
             self.interpretation_coordinator = None
             self.set_interpretation_unavailable('OpenAI key not configured — local capture and transcription continue', time.perf_counter())
@@ -1066,16 +1127,18 @@ class Desktop(QWidget):
     def offer_interpretation_snapshot(self) -> None:
         if self.stopping or not self.turns:
             return
-        previous_guidance = repr(self.guidance_display.items)
-        self.guidance_display.on_speech(self.turns[-1])
-        if previous_guidance != repr(self.guidance_display.items):
-            self.render_guidance()
+        previous_guidance = repr((self.guidance_display.items, self.guidance_display.local_remember))
         from .memory import _TOPIC_BOUNDARY
-        new_topic = bool(_TOPIC_BOUNDARY.search(self.turns[-1].content))
         from .guidance import guidance_context_reset
-        if guidance_context_reset(self.turns[-1].content):
-            self.guidance_topic_start = self.turns[-1].display_order
-            self.guidance_display.invalidate(new_topic=new_topic, turn_ids=set(), memory_ids=set())
+        for turn in self.turns:
+            if turn.display_order <= getattr(self, 'guidance_last_speech_order', 0):
+                continue
+            self.guidance_display.on_speech(turn)
+            if guidance_context_reset(turn.content):
+                self.guidance_topic_start = turn.display_order
+                self.guidance_display.invalidate(new_topic=bool(_TOPIC_BOUNDARY.search(turn.content)), turn_ids=set(), memory_ids=set())
+            self.guidance_last_speech_order = turn.display_order
+        if previous_guidance != repr((self.guidance_display.items, self.guidance_display.local_remember)):
             self.render_guidance()
         self.next_interpretation_snapshot_id += 1
         snapshot_id = self.next_interpretation_snapshot_id
@@ -1101,8 +1164,9 @@ class Desktop(QWidget):
                     ambiguous = result.ambiguous
                     semantic_available = result.semantic_available
                     possible_contexts = [RetrievedMemoryContext(memory_id=item.memory_id, revision_id=item.revision_id, excerpt=textwrap.shorten(item.content, width=180, placeholder='…'), memory_type=item.memory_type, confidence=item.confidence, sensitivity_safe=item.cloud_eligible, rank=item.rank, relevance=item.reason) for item in result.matches[:4]]
-                    if not ambiguous:
-                        contexts = [item for item in possible_contexts if item.sensitivity_safe]
+                    contexts = [item.model_copy(update={'confidence': InterpretationConfidence.LOW,
+                        'relevance': 'uncertain retrieval candidate; identity not established'}) if ambiguous else item
+                        for item in possible_contexts if item.sensitivity_safe]
                     with MemoryStore(self.memory_store.path, verify=False) as worker_store:
                         available_memories = worker_store.list_current_memories(captured_contact_id)
                         test_log.emit('retrieval_corpus', generation=generation, snapshot_id=snapshot_id, contact_id=captured_contact_id, memories=[dict(row) for row in available_memories])
@@ -1165,10 +1229,13 @@ class Desktop(QWidget):
             else:
                 self.stable_interpretation.offer_memory_possibilities([item for item in possibilities if not item.sensitivity_safe and (not ambiguous) and ('lexical' in item.relevance)], time.perf_counter())
                 if not ambiguous:
-                    self.guidance_display.offer_local_remember([item for item in possibilities if not item.sensitivity_safe and 'lexical' in item.relevance], max((turn.display_order for turn in snapshot.turns)), time.perf_counter())
+                    self.guidance_display.offer_local_remember([item for item in possibilities if not item.sensitivity_safe and 'lexical' in item.relevance], snapshot.snapshot_id, time.perf_counter())
                     self.render_guidance()
                 if ambiguous:
-                    self.memory_status_label.setText('Several memories may fit — ambiguous facts withheld; approved style preferences may still apply')
+                    self.stable_interpretation.clear_memory_possibilities()
+                    self.guidance_display.local_remember.clear()
+                    self.render_guidance()
+                    self.memory_status_label.setText('Checking possible memory connections — identity is uncertain')
                 elif snapshot.memories:
                     suffix = '' if semantic_available else ' · indirect recall reduced'
                     shown = len(self.stable_interpretation.memory_possibilities)
@@ -1207,8 +1274,13 @@ class Desktop(QWidget):
                         from .guidance import selected_memory_context, reconcile_replies
                         guidance_update = reconcile_replies(event.update, self.turns)
                         if self.latest_interpretation_snapshot:
-                            self.stable_interpretation.offer_memory_possibilities(selected_memory_context(self.latest_interpretation_snapshot.memories, guidance_update), now)
-                            self.memory_status_label.setText(f'Showing {len(self.stable_interpretation.memory_possibilities)} relevant memory context item(s)')
+                            same_snapshot = self.latest_interpretation_snapshot.snapshot_id == guidance_update.snapshot_id
+                            selected = selected_memory_context(self.latest_interpretation_snapshot.memories, guidance_update) if same_snapshot else []
+                            uncertain = any(item.relevance.startswith('uncertain retrieval candidate') for item in selected) or any(item.confidence == 'low' and item.memory_ids for item in guidance_update.remember)
+                            if not same_snapshot or uncertain:
+                                self.stable_interpretation.clear_memory_possibilities()
+                            self.stable_interpretation.offer_memory_possibilities([item for item in selected if not item.relevance.startswith('uncertain retrieval candidate')], now)
+                            self.memory_status_label.setText('Possible memory connection — uncertain' if uncertain else f'Showing {len(self.stable_interpretation.memory_possibilities)} relevant memory context item(s)')
                         source_age = (datetime.now(timezone.utc) - guidance_update.context_at).total_seconds() if guidance_update.context_at is not None else 0
                         self.guidance_display.offer(guidance_update, now, source_age=source_age)
                         self.render_guidance()
@@ -1247,6 +1319,8 @@ class Desktop(QWidget):
             self.render_interpretation(replaced=True)
         elif memory_expired:
             self.render_interpretation()
+        # Revalidate tone/cue age and topic even when no new model result arrives.
+        self.render_guidance()
 
     def suggest_now(self):
         if self.latest_interpretation_snapshot and self.interpretation_coordinator and (not self.stopping):

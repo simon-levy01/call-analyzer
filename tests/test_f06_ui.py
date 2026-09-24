@@ -24,7 +24,8 @@ def qt():
 def wait_for(predicate, timeout=3000):
     deadline = time.monotonic() + timeout / 1000
     while not predicate() and time.monotonic() < deadline:
-        QTest.qWait(20)
+        QApplication.processEvents()
+        time.sleep(.01)  # Release the GIL for the real Python worker threads.
     assert predicate()
 
 
@@ -71,6 +72,7 @@ def ready(app):
 
 
 def test_home_readiness_theme_and_modal_controls(window, monkeypatch):
+    assert window.start_button.property("role") == "start"
     assert not window.start_button.isEnabled()
     assert "✓" not in window.ready_text.text()
     ready(window)
@@ -84,6 +86,18 @@ def test_home_readiness_theme_and_modal_controls(window, monkeypatch):
     assert window.model_box.width() <= 160
     assert window.start_button.height() >= 64
     old_theme = window.dark
+    for dark in (False, True):
+        window.dark = dark
+        window.apply_theme()
+        QApplication.processEvents()
+        sample = QPoint(20, window.start_button.height() // 2)
+        enabled_color = window.start_button.grab().toImage().pixelColor(sample).name()
+        assert enabled_color in ("#15803d", "#166534")
+        window.start_button.setEnabled(False)
+        assert window.start_button.grab().toImage().pixelColor(sample).name() != enabled_color
+        window.start_button.setEnabled(True)
+    window.dark = old_theme
+    window.apply_theme()
     QTest.mouseClick(window.theme_button, Qt.LeftButton)
     assert window.dark != old_theme
     window.open_settings()
@@ -119,8 +133,11 @@ def test_memories_ask_edit_delete_and_large_editor(window, monkeypatch):
     panel = desktop_data.Memories(window, window.selected_contact_id)
     panel.show()
     panel.question.setText("What time is the dentist appointment?")
-    click(panel, "Ask")
+    assert panel.answer_card.isHidden()
+    panel.question.setFocus()
+    QTest.keyClick(panel.question, Qt.Key_Return)
     wait_for(lambda: not panel.running)
+    assert panel.isVisible() and not panel.answer_card.isHidden()
     assert "3" in panel.answer.text() and panel.related
     assert not any(b.text() in {"Pending", "Add", "Connect", "Sources"} for b in panel.findChildren(QPushButton))
     item = dict(window.memory_store.list_current_memories(window.selected_contact_id)[0])
@@ -158,6 +175,185 @@ def seed_review(window):
     return record
 
 
+def test_window_refresh_preserves_devices_and_contact(window, monkeypatch):
+    from conversation_copilot import windows
+    ready(window)
+    previous = window.windows[0]
+    preview = SimpleNamespace(stop=lambda: None, snapshot=lambda: SimpleNamespace(status="Preview", current_signal=None, thumbnail_rgb=None))
+    window.preview_session = preview
+    catalog = window.audio_catalog
+    selected = (window.selected_contact_id, window.microphone_box.currentText(), window.playback_box.currentText())
+    monkeypatch.setattr(windows, "list_call_windows", lambda: [previous, SimpleNamespace(display_name="New call")])
+    click(window, "Refresh")
+    wait_for(lambda: not window.discovery_running)
+    assert window.audio_catalog is catalog
+    assert selected == (window.selected_contact_id, window.microphone_box.currentText(), window.playback_box.currentText())
+    assert window.window_box.count() == 2 and window.window_box.currentIndex() == 0
+    assert window.preview_session is preview
+    monkeypatch.setattr(windows, "list_call_windows", lambda: [])
+    click(window, "Refresh")
+    wait_for(lambda: not window.discovery_running)
+    assert window.window_box.currentIndex() == -1 and not window.start_button.isEnabled()
+    assert window.preview_session is None
+    assert window.audio_catalog is catalog and window.microphone_box.currentIndex() == 0
+
+
+def test_model_cost_selection_and_future_price(window, monkeypatch):
+    from conversation_copilot import interpretation as api
+    first = window.call_cost_label.text()
+    window.model_box.setCurrentIndex(1)
+    assert window.call_cost_label.text() != first
+    assert window.call_cost_label.text().count("$") == 1
+    assert api.ten_minute_call_estimate("unknown") is None
+    monkeypatch.setitem(api.MODEL_PRICES, "future", api.ModelPrice(3, .3, 15))
+    monkeypatch.setattr(api, "LIVE_ASK_MODELS", (api.LUNA_MODEL, "future"))
+    assert api.ten_minute_call_estimate("future") > api.ten_minute_call_estimate(api.LUNA_MODEL)
+
+
+def test_review_rejection_shared_sources_and_generation_guards(window, monkeypatch):
+    store = window.memory_store
+    record = seed_review(window)
+    original = store.record_pending_proposals(record)[0]
+    batch = store.create_batch(record, model="fake", reasoning="none")
+    store.store_proposals(batch, [memory.MemoryProposalInput(content="Likes books", memory_type="preference", confidence="high", evidence_turns=[1])])
+    # create_batch supersedes old batches; put both shared-source suggestions in the current batch.
+    store._connection.execute("UPDATE memory_proposals SET batch_id=? WHERE id=?", (batch, original["id"]))
+    store._connection.commit()
+    window.open_review(record)
+    panel = window.review_dialogs[record]
+    original_summary = panel.narrative.toPlainText()
+    panel.review_memories(False, one=next(m for m in panel.memories if m["id"] == original["id"]))
+    assert panel.narrative.toPlainText() == original_summary
+    survivor = store.record_pending_proposals(record)[0]
+    store.review_record_proposals(record, [survivor["id"]], approve=True, expected_pending={survivor["id"]: survivor["content"]})
+    # Same rejected wording cannot be reinserted through either ingestion path.
+    retry = store.create_batch(record, model="fake", reasoning="none")
+    assert store.store_proposals(retry, [memory.MemoryProposalInput(content=original["content"], memory_type="event_date", confidence="high", evidence_turns=[1])]) == []
+    store._connection.execute("INSERT INTO review_jobs(record_id,generation,state,created_at) VALUES (?,1,'running','test')", (record,))
+    store._connection.commit()
+    panel.reload()
+    assert not next(b for b in panel.findChildren(QPushButton) if b.text() == "Reject summary").isEnabled()
+    with pytest.raises(ValueError, match="generation"):
+        store.delete_summary(record)
+    with pytest.raises(ValueError, match="generation"):
+        store.review_record_proposals(record, None, approve=True, expected_pending={})
+    store._connection.execute("UPDATE review_jobs SET state='complete' WHERE record_id=?", (record,))
+    store._connection.commit()
+    panel.reload()
+    # A memory correction must not replace a larger summary paragraph.
+    approved = next(m for m in panel.memories if m["state"] == "approved")
+    monkeypatch.setattr(desktop_data, "edit_text", lambda *_a, **_k: "Enjoys novels")
+    panel.edit_memory(approved)
+    assert panel.narrative.toPlainText() == original_summary
+
+
+def test_empty_call_has_no_generation_or_retry(window):
+    record = window.memory_store.create_record(source_kind="call", source_label="Empty test", timezone_name="UTC", contact_id=window.selected_contact_id, status="stopped", turns=[])
+    window.open_review(record)
+    assert not window.start_review_job(record, desktop.UsageLedger.product())
+    panel = window.review_dialogs[record]
+    assert "Nothing was transcribed" in panel.status.text()
+    assert panel.retry_button.isHidden()
+
+
+def test_oversized_source_fails_before_inference_without_retry_loop(window, monkeypatch):
+    from conversation_copilot import post_call
+    called = []
+    monkeypatch.setattr(post_call, "process_review", lambda *_a, **_k: called.append(True))
+    record = window.memory_store.create_record(source_kind="call", source_label="Oversized fixture", timezone_name="UTC", contact_id=window.selected_contact_id, status="stopped", turns=[ConversationTurn(speaker_name="Alex", speaker_role=SpeakerRole.SELECTED_CONTACT, source="fixture", content="Long sentence. " * 20000, display_order=1)])
+    window.open_review(record)
+    window.start_review_job(record, desktop.UsageLedger.product())
+    wait_for(lambda: not window.review_running)
+    panel = window.review_dialogs[record]
+    assert not called and "too long" in panel.status.text()
+    assert panel.retry_button.isHidden()
+
+
+def test_whole_summary_edit_noop_regenerate_retry_and_delete(window, monkeypatch):
+    from conversation_copilot import post_call
+    from conversation_copilot.interpretation import UsageRecord
+    from PySide6.QtWidgets import QSplitter
+    store = window.memory_store
+    record = seed_review(window)
+    approved = store.create_memory(window.selected_contact_id, "Keep this approved fact")
+    window.open_review(record)
+    panel = window.review_dialogs[record]
+    assert not panel.findChildren(QSplitter)
+    captions = {b.text() for b in panel.findChildren(QPushButton)}
+    assert {"Edit summary", "View transcript", "Reject summary"} <= captions
+    assert "Edit sentence" not in captions and not hasattr(panel, "more")
+    requests = []
+    def generation(schema, payload, instructions, **kwargs):
+        requests.append(payload)
+        assert schema is memory.ExtractionOutput and "Saturday" in payload["user_edited_summary"]
+        if len(requests) == 1:
+            raise RuntimeError("Simulated provider interruption")
+        return memory.ExtractionOutput(proposals=[memory.MemoryProposalInput(content="Meet Saturday", memory_type="event_date", confidence="medium", evidence_turns=[1])]), UsageRecord("fake", "low", 0, 0, 0, 0, 0, 0)
+    monkeypatch.setattr(post_call, "f06_structured_request", generation)
+    original = panel.narrative.toPlainText()
+    monkeypatch.setattr(desktop_data, "edit_text", lambda *_a, **_k: original)
+    panel.edit_summary()
+    assert not requests and not window.review_running
+    monkeypatch.setattr(desktop_data, "edit_text", lambda *_a, **_k: "They planned to meet Saturday. " * 15)
+    panel.edit_summary()
+    wait_for(lambda: not window.review_running)
+    assert len(requests) == 1 and "Saturday" in panel.narrative.toPlainText()
+    assert record in window.review_errors and not panel.retry_button.isHidden()
+    assert store.current_revision(approved)["content"] == "Keep this approved fact"
+    saved = panel.narrative.toPlainText()
+    monkeypatch.setattr(desktop_data, "edit_text", lambda *_a, **_k: saved)
+    panel.edit_summary()
+    assert len(requests) == 1
+    click(panel, "Retry generation")
+    wait_for(lambda: not window.review_running)
+    assert len(requests) == 2 and record not in window.review_errors
+    pending = store.record_pending_proposals(record)
+    assert len(pending) == 1 and pending[0]["content"] == "Meet Saturday"
+    confirmations = []
+    monkeypatch.setattr(desktop_data, "confirm", lambda _p, _t, message, **_k: confirmations.append(message) or True)
+    panel.review_memories(False, all_items=True)
+    assert confirmations == ["Are you sure?"]
+    assert not store.record_pending_proposals(record)
+    assert not store._connection.execute("SELECT 1 FROM memory_proposals WHERE id=?", (pending[0]["id"],)).fetchone()
+    assert store.summary_turns(record)  # Rejecting a suggestion is not transcript deletion.
+    assert store._connection.execute("SELECT 1 FROM declined_memories WHERE record_id=?", (record,)).fetchone()
+    assert all(b.text() not in {"Reopen", "Permanently delete"} for b in panel.findChildren(QPushButton))
+    panel.reject_summary()
+    assert not store._connection.execute("SELECT 1 FROM summary_versions WHERE record_id=?", (record,)).fetchone()
+    assert store.record_turns(record) and store.current_revision(approved)
+
+
+def test_automatic_review_uses_stopped_call_ledger(window, monkeypatch):
+    from conversation_copilot import post_call
+    from conversation_copilot.interpretation import UsageLedger, UsageRecord
+    store = window.memory_store
+    record = seed_review(window)
+    store.delete_summary(record)
+    ledger = UsageLedger.product()
+    ledger.stopped = True
+    requests = []
+    def generation(schema, payload, instructions, **kwargs):
+        requests.append(payload)
+        # Stopping live requests must not stop the post-call phase or reset its accounting.
+        assert kwargs["ledger"].records == ledger.records
+        reserve = kwargs["ledger"].reserve(post_call.REVIEW_MODEL, 100, live=False)
+        usage = UsageRecord(post_call.REVIEW_MODEL, "low", 100, 0, 0, 20, 0, .0004)
+        kwargs["ledger"].complete(reserve, usage)
+        unrelated = ledger.reserve(post_call.REVIEW_MODEL, 50, live=False)
+        ledger.complete(unrelated, UsageRecord(post_call.REVIEW_MODEL, "low", 50, 0, 0, 10, 0, .0002))
+        return memory.SummaryOutput(statements=[memory.SummaryStatementInput(section="plans", content="Meet Friday.", kind="fact", confidence="high", evidence_turns=[1])]), usage
+    monkeypatch.setattr(post_call, "f06_structured_request", generation)
+    window.open_review(record)
+    window.start_review_job(record, ledger)
+    wait_for(lambda: not window.review_running)
+    assert len(requests) == 1 and record not in window.review_errors
+    assert window.review_dialogs[record].narrative.toPlainText() == "Meet Friday."
+    assert ledger.total_dollars == pytest.approx(.0006)
+    import json
+    receipts = json.loads(store._connection.execute("SELECT usage_json FROM review_jobs WHERE record_id=?", (record,)).fetchone()[0])
+    assert len(receipts) == 1 and receipts[0]["dollars"] == .0004
+
+
 def test_review_history_checks_and_approval(window, monkeypatch):
     record = seed_review(window)
     panel = desktop_data.Review(window, record)
@@ -174,9 +370,9 @@ def test_review_history_checks_and_approval(window, monkeypatch):
     assert not window.memory_store.record_pending_proposals(record)
     click(panel, "Approve summary")
     assert panel.version["state"] == "approved"
-    panel.sentences.setCurrentRow(0)
+    monkeypatch.setattr(window, "start_review_job", lambda *_: True)
     monkeypatch.setattr(desktop_data, "edit_text", lambda *_a, **_k: "They planned to meet Saturday.")
-    panel.edit_sentence()
+    panel.edit_summary()
     assert "Saturday" in panel.narrative.toPlainText()
     panel.close()
     history = desktop_data.History(window, window.selected_contact_id)
@@ -245,7 +441,7 @@ def test_fake_call_start_stop_flush_and_preview(window, monkeypatch):
     preview = window.preview_session
     window.switch_preview()
     assert preview.switched == 1
-    click(window, "Start call  →")
+    click(window, "Start call")
     wait_for(lambda: window.audio_session is not None)
     assert window.session is preview and window.pages.currentWidget() is window.live
     record = window.current_record_id
@@ -336,7 +532,8 @@ def test_delayed_device_discovery_and_combobox_keyboard(window, monkeypatch):
     window.model_box.showPopup()
     QTest.keyClick(window.model_box, Qt.Key_End)
     QTest.keyClick(window.model_box, Qt.Key_Return)
-    assert window.model_box.currentText() == "Terra low"
+    assert window.model_box.currentText() == "Sol low"
+    assert window.selected_live_model() == "gpt-6-sol"
 
 
 def test_import_preview_and_contact_aliases_export(window, monkeypatch, tmp_path):
@@ -378,29 +575,25 @@ def test_import_preview_and_contact_aliases_export(window, monkeypatch, tmp_path
     window.memory_store.validate_export(payload)
 
 
-def test_review_reject_reopen_bulk_and_stale_edit(window, monkeypatch):
+def test_review_reject_deletes_bulk_and_stale_edit(window, monkeypatch):
     panel = desktop_data.Review(window, seed_review(window))
     panel.show()
     pending = next(m for m in panel.memories if m["state"] == "pending")
     panel.review_memories(False, all_items=True)
-    assert next(m for m in panel.memories if m["id"] == pending["id"])["state"] == "rejected"
-    panel.reopen(pending)
-    assert window.memory_store.record_pending_proposals(panel.record_id)
-    panel.approve_summary(combined=True)
-    assert panel.version["state"] == "approved"
+    assert not any(m["id"] == pending["id"] for m in panel.memories)
+    assert window.memory_store._connection.execute("SELECT 1 FROM memory_proposals WHERE id=?", (pending["id"],)).fetchone() is None
     assert not window.memory_store.record_pending_proposals(panel.record_id)
     panel.close()
     panel = desktop_data.Review(window, seed_review(window))
     panel.show()
     errors = []
     monkeypatch.setattr(window, "report", lambda error, *_: errors.append(str(error)))
-    panel.sentences.setCurrentRow(0)
     def raced_edit(*_a, **_k):
-        sentence = panel.selected_sentence()
+        sentence = panel.statements[0]
         window.memory_store.edit_summary_statement(sentence["id"], "A newer correction.")
         return "Stale correction."
     monkeypatch.setattr(desktop_data, "edit_text", raced_edit)
-    panel.edit_sentence()
+    panel.edit_summary()
     assert errors and "changed" in errors[0]
     assert window.memory_store.summary_statements(panel.version["id"])[0]["content"] == "A newer correction."
 
@@ -477,3 +670,137 @@ def test_native_capture_and_qt_imports_in_either_order():
     ):
         result = subprocess.run([sys.executable, "-X", "faulthandler", "-c", script], capture_output=True, timeout=20)
         assert result.returncode == 0, result.stderr.decode(errors="replace")
+
+
+def test_silent_poll_expires_actual_cue_labels(window, monkeypatch):
+    from datetime import timedelta
+    from PySide6.QtWidgets import QLabel
+    from conversation_copilot import guidance
+    clock=[datetime.now(timezone.utc)]
+    class Clock:
+        @classmethod
+        def now(cls, tz=None):
+            return clock[0]
+    monkeypatch.setattr(guidance, 'datetime', Clock)
+    update=guidance.GuidedInterpretation.model_validate({
+        'snapshot_id':1,'generation':1,'analyzed_order':2,'context_at':clock[0],
+        'status':'updated','social_cues':[{'kind':'interest_engagement','confidence':'medium',
+        'hypothesis':'They are comparing delivery options.', 'evidence':{'explanation':'They asked about alternatives.',
+        'modalities':['language'],'turn_ids':[2]}}]})
+    window.stable_interpretation.offer(update,0)
+    window.guidance_display.offer(update,0)
+    window.render_guidance()
+    def visible():
+        return any('They are comparing delivery options.' in label.text() for label in window.findChildren(QLabel))
+    assert visible()
+    clock[0]+=timedelta(seconds=48)
+    window.poll_interpretation(48)
+    QApplication.sendPostedEvents(None, 0)
+    # Removed widgets await deferred destruction, so inspect the current layout.
+    layout=window.guidance_rows['social_cues']
+    assert not any('They are comparing delivery options.' in label.text()
+        for i in range(1,layout.count()) if (widget:=layout.itemAt(i).widget())
+        for label in widget.findChildren(QLabel))
+
+
+def test_live_ambiguous_memories_are_uncertain_candidates_not_direct_labels(window, monkeypatch):
+    from conversation_copilot.interpretation import InterpretationConfidence
+    memory_id=window.memory_store.create_memory(window.selected_contact_id,'Alex lost a restaurant position.')
+    revision=window.memory_store.current_revision(memory_id)
+    match=SimpleNamespace(memory_id=memory_id,revision_id=revision['id'],content=revision['content'],
+        memory_type='event_date',confidence='high',cloud_eligible=True,rank=1,reason='semantic')
+    monkeypatch.setattr(memory.MemoryStore,'retrieve',lambda *a,**k:SimpleNamespace(matches=[match],ambiguous=True,semantic_available=True))
+    monkeypatch.setattr(window,'submit_local',lambda _name,work:work())
+    window.turns=[ConversationTurn(speaker_name='Alex',speaker_role='selected_contact',source='test',
+        content='There is no paycheck now.',timestamp=datetime.now(timezone.utc),display_order=1)]
+    window.offer_interpretation_snapshot();window.poll_memory_results()
+    snapshot=window.latest_interpretation_snapshot
+    assert snapshot and snapshot.memories
+    assert snapshot.memories[0].confidence==InterpretationConfidence.LOW
+    assert 'uncertain' in snapshot.memories[0].relevance
+    assert not window.guidance_display.visible('remember')
+    assert 'uncertain' in window.memory_status_label.text()
+
+
+def test_retained_cue_buttons_target_visible_item(window):
+    from conversation_copilot.guidance import GuidedInterpretation
+    from PySide6.QtWidgets import QLabel
+    for n in (1,2):
+        update=GuidedInterpretation.model_validate({'snapshot_id':n,'generation':1,'analyzed_order':n,
+            'context_at':datetime.now(timezone.utc),'status':'updated','social_cues':[{'kind':'interest_engagement',
+            'confidence':'medium','hypothesis':f'Compare option {n}.','evidence':{'explanation':'Asking to compare.',
+            'modalities':['language'],'turn_ids':[n]}}]})
+        window.guidance_display.offer(update,n)
+    window.render_guidance();layout=window.guidance_rows['social_cues']
+    assert 'Compare option 2.' in layout.itemAt(1).widget().findChild(QLabel).text()
+    older=layout.itemAt(2).widget();assert older.findChild(QLabel).text()=='Earlier: Compare option 1.'
+    QTest.mouseClick(next(b for b in older.findChildren(QPushButton) if b.accessibleName()=='Dismiss'),Qt.LeftButton)
+    assert [x.candidate.hypothesis for x in window.guidance_display.visible('social_cues')]==['Compare option 2.']
+
+
+def test_first_dispatch_timer_and_earlier_label_on_empty_update(window, monkeypatch):
+    from conversation_copilot.guidance import GuidedInterpretation,GuidanceCandidate
+    monkeypatch.setattr(desktop,'OpenAIInterpreter',lambda **kw:SimpleNamespace(_client=None))
+    monkeypatch.setattr(desktop.time,'perf_counter',lambda:100.)
+    window.begin_interpretation_session()
+    assert window.interpretation_coordinator._first_request_at==106.
+    update=GuidedInterpretation(snapshot_id=1,generation=1,analyzed_order=1,status='insufficient_evidence',explanation='No affect evidence.',
+        replies=[GuidanceCandidate(text='Could you clarify?',confidence='medium',turn_ids=[1])])
+    window.guidance_display.offer(update,100);window.render_guidance()
+    window.guidance_display.offer(update.model_copy(update={'snapshot_id':2,'replies':[]}),105);window.render_guidance()
+    from PySide6.QtWidgets import QLabel
+    assert window.guidance_rows['replies'].itemAt(1).widget().findChild(QLabel).text()=='Earlier: Could you clarify?'
+
+
+def test_batched_speech_resets_and_uncertain_reply_label(window, monkeypatch):
+    from conversation_copilot.guidance import GuidedInterpretation,GuidanceCandidate
+    from PySide6.QtWidgets import QLabel
+    update=GuidedInterpretation(snapshot_id=1,generation=1,analyzed_order=1,status='insufficient_evidence',explanation='No affect evidence.',
+        replies=[GuidanceCandidate(text='How was the trip?',confidence='low',memory_ids=['uncertain-revision'])])
+    window.guidance_display.offer(update,0);window.render_guidance()
+    assert window.guidance_rows['replies'].itemAt(1).widget().findChild(QLabel).text().startswith('Possible connection:')
+    now=datetime.now(timezone.utc)
+    window.turns=[ConversationTurn(speaker_name='Alex',speaker_role='selected_contact',source='test',timestamp=now,display_order=n,content=text)
+        for n,text in [(1,'I do not want to talk about that anymore.'),(2,'The weather is nice.')]]
+    monkeypatch.setattr(window,'submit_local',lambda *a:None)
+    window.offer_interpretation_snapshot()
+    assert not window.guidance_display.visible('replies')
+    assert window.guidance_topic_start==1 and window.guidance_last_speech_order==2
+
+
+def test_reset_removes_local_only_memory_row_and_wrapped_rows_fit(window, monkeypatch):
+    from conversation_copilot.interpretation import RetrievedMemoryContext
+    from conversation_copilot.guidance import GuidedInterpretation,GuidanceCandidate
+    from PySide6.QtWidgets import QLabel
+    local=RetrievedMemoryContext(memory_id='m',revision_id='r',excerpt='Local only memory.',memory_type='other',confidence='high',sensitivity_safe=False,rank=1,relevance='lexical')
+    window.guidance_display.offer_local_remember([local],1,0);window.render_guidance()
+    window.turns=[ConversationTurn(speaker_name='Alex',speaker_role='selected_contact',source='test',timestamp=datetime.now(timezone.utc),display_order=1,content='I do not want to talk about that anymore.')]
+    monkeypatch.setattr(window,'submit_local',lambda *a:None)
+    window.offer_interpretation_snapshot()
+    assert window.guidance_rows['remember'].itemAt(1).widget().text()=='Nothing useful to show yet.'
+    update=GuidedInterpretation(snapshot_id=2,generation=1,analyzed_order=1,status='insufficient_evidence',explanation='No affect evidence.',
+        replies=[GuidanceCandidate(text=f'Option {i}: Could you explain the specific alternatives you are considering before deciding what to do next?',confidence='medium',turn_ids=[1]) for i in range(4)])
+    window.guidance_display.offer(update,1);window.pages.setCurrentWidget(window.live);window.render_guidance();window.resize(900,780)
+    for _ in range(10):QApplication.processEvents()
+    for wording in window.findChildren(desktop.GuidanceLabel):
+        if wording.isVisible():
+            assert wording.height()>=wording.heightForWidth(wording.width())
+            assert wording.parentWidget().height()>=wording.height()+6
+
+
+def test_older_analysis_cannot_use_newer_snapshot_memory_confidence(window, monkeypatch):
+    from conversation_copilot import interpretation as ip,guidance as g
+    now=datetime.now(timezone.utc)
+    window.turns=[ConversationTurn(speaker_name='Alex',speaker_role='selected_contact',source='test',timestamp=now,display_order=1,content='Money is tight.')]
+    context=ip.RetrievedMemoryContext(memory_id='m',revision_id='r',excerpt='An earlier job loss.',memory_type='other',confidence='high',sensitivity_safe=True,rank=1,relevance='lexical')
+    window.latest_interpretation_snapshot=ip.build_snapshot(window.turns,snapshot_id=2,generation=1,created_at=now,contact_id=window.selected_contact_id,retrieved_memories=[context])
+    # Existing direct context must also be withdrawn, not retained by the stable card.
+    window.stable_interpretation.offer_memory_possibilities([context],0)
+    result=g.GuidedInterpretation(snapshot_id=1,generation=1,analyzed_order=1,context_at=now,status='insufficient_evidence',explanation='No affect evidence.',
+        remember=[g.GuidanceCandidate(text='Possibly related: an earlier job loss.',confidence='low',memory_ids=['r'],turn_ids=[1])])
+    event=ip.CoordinatorEvent(ip.CoordinatorEventKind.ACCEPTED,1,result)
+    window.interpretation_coordinator=SimpleNamespace(snapshot=lambda:SimpleNamespace(in_flight=False),poll=lambda _: [event])
+    window.poll_interpretation(1)
+    assert not window.stable_interpretation.memory_possibilities
+    assert 'uncertain' in window.memory_status_label.text()
+    window.interpretation_coordinator=None

@@ -8,10 +8,10 @@ from pathlib import Path
 from functools import wraps
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QPlainTextEdit, QLineEdit, QListWidget, QCheckBox, QFileDialog, QSplitter
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QPlainTextEdit, QLineEdit, QListWidget, QCheckBox, QFileDialog, QPushButton
 from .desktop import Panel, label, button, row, card, clear, scroll, combo, confirm, edit_text
-from .memory import MemoryStore
-from .interpretation import UsageLedger
+from .memory import MemoryStore, normalize_alias
+from .interpretation import UsageLedger, MODEL_LABELS, REVIEW_MODEL
 from .ask_memory import AskSession, cloud_answer, validate_sources
 
 
@@ -74,11 +74,12 @@ class Memories(Panel):
         self.body.addLayout(row(self.question, self.ask_button))
         self.status = label()
         self.body.addWidget(self.status)
-        answer_card, answer_layout = card("Answer", "tone")
-        self.answer = label("Ask a question to see an answer and the memories associated with it.")
+        self.answer_card, answer_layout = card(role="tone")
+        self.answer = label()
         self.answer.setTextInteractionFlags(Qt.TextSelectableByMouse)
         answer_layout.addWidget(self.answer)
-        self.body.addWidget(answer_card)
+        self.body.addWidget(self.answer_card)
+        self.answer_card.hide()
         contents = QWidget()
         self.items = QVBoxLayout(contents)
         self.items.setContentsMargins(0, 0, 0, 0)
@@ -96,7 +97,9 @@ class Memories(Panel):
         self.state.new_question()
         self.result = None
         self.related.clear()
-        self.answer.setText("Saved information changed. Ask again for a current answer.")
+        self.answer.clear()
+        self.answer_card.hide()
+        self.status.setText("Saved information changed. Ask again for a current answer.")
 
     def validate_answer(self):
         if self.result:
@@ -152,6 +155,7 @@ class Memories(Panel):
                         self.related.update(r[0] for r in self.store._connection.execute(
                             "SELECT memory_id FROM summary_dependencies WHERE statement_id=? AND memory_id IS NOT NULL", (source.id,)))
                 self.answer.setText(result.answer)
+                self.answer_card.show()
                 self.status.setText(f"{len(self.related)} associated saved memories")
                 self.reload()
             except (sqlite3.Error, ValueError, KeyError) as exc:
@@ -184,7 +188,10 @@ class Memories(Panel):
         try:
             choices = {}
             for statement in self.store.memory_summary_preview(memory["memory_id"]):
-                answer = confirm(self, "Linked summary", "Update this linked sentence with your correction?\n\n" + statement["content"], three=True)
+                if normalize_alias(statement["content"]) != normalize_alias(memory["content"]):
+                    choices[statement["id"]] = "keep"
+                    continue
+                answer = confirm(self, "Linked summary", "Update the linked summary with your correction?", three=True)
                 if answer is None:
                     return
                 choices[statement["id"]] = "update" if answer else "keep"
@@ -197,7 +204,7 @@ class Memories(Panel):
             self.app.report(exc, self)
 
     def delete_memory(self, memory):
-        if not confirm(self, "Delete memory", "Permanently delete this memory and all its revisions?\n\n" + memory["content"]):
+        if not confirm(self, "Delete memory", "Delete this memory and its revisions? Linked summary text will also be removed. Are you sure?"):
             return
         try:
             self.store.delete_memory(memory["memory_id"])
@@ -474,22 +481,17 @@ class Review(Panel):
         self.body.addWidget(self.status)
         self.provenance = label()
         self.body.addWidget(self.provenance)
-        panes = QSplitter(Qt.Horizontal)
-        self.body.addWidget(panes, 1)
+        panes = row()
+        self.body.addLayout(panes, 1)
         summary, summary_layout = card("Summary")
         self.narrative = QPlainTextEdit()
         self.narrative.setReadOnly(True)
         self.narrative.setAccessibleName("Saved summary")
         summary_layout.addWidget(self.narrative, 1)
-        self.sentences = QListWidget()
-        self.sentences.setAccessibleName("Summary sentences")
-        self.sentences.setMaximumHeight(96)
-        summary_layout.addWidget(label("Select a sentence below to edit it or inspect its source."))
-        summary_layout.addWidget(self.sentences, 1)
-        summary_layout.addLayout(row(button("Edit sentence", self.edit_sentence), button("Sources", self.sources)))
-        summary_layout.addLayout(row(button("Exclude", lambda: self.exclude(True)), button("Restore", lambda: self.exclude(False))))
+        self.edit_button = button("Edit summary", self.edit_summary)
+        summary_layout.addWidget(self.edit_button)
         summary_layout.addWidget(button("Approve summary", self.approve_summary, "memory"))
-        panes.addWidget(summary)
+        panes.addWidget(summary, 1)
         memories, memory_layout = card("Memories from this conversation")
         body = QWidget()
         self.memory_layout = QVBoxLayout(body)
@@ -499,12 +501,12 @@ class Review(Panel):
                                     button("Reject selected", lambda: self.review_memories(False), "follow_up")))
         memory_layout.addLayout(row(button("Approve all", lambda: self.review_memories(True, all_items=True), "memory"),
                                     button("Reject all pending", lambda: self.review_memories(False, all_items=True), "follow_up")))
-        panes.addWidget(memories)
+        panes.addWidget(memories, 1)
         self.body.addLayout(row(button("Approve all memories and summary", lambda: self.approve_summary(combined=True), "primary"),
                                 button("Review later", self.close)))
-        self.more = combo(("More actions…", "Generate / continue", "Summary versions", "Transcript", "Delete summary", "Review legacy source exclusions"))
-        self.more.activated.connect(self.more_action)
-        self.body.addWidget(self.more)
+        self.retry_button = button("Retry generation", self.retry_generation)
+        self.body.addLayout(row(button("View transcript", self.view_transcript),
+                                button("Reject summary", self.reject_summary, "danger"), self.retry_button, 1))
         self.progress_timer = QTimer(self)
         self.progress_timer.timeout.connect(self.show_progress)
         self.progress_timer.start(500)
@@ -513,7 +515,7 @@ class Review(Panel):
     def show_progress(self):
         if self.record_id in self.app.review_running:
             estimate = self.app.review_estimates.get(self.record_id)
-            self.status.setText("Generating with Terra low… Your transcript is saved." +
+            self.status.setText(f"Generating with {MODEL_LABELS[REVIEW_MODEL]}… Your transcript is saved." +
                 (f" Estimated generation maximum ${estimate:.4f}." if estimate is not None else ""))
 
     @store_errors
@@ -523,13 +525,12 @@ class Review(Panel):
         self.version = dict(version) if version else None
         self.statements = [dict(s) for s in self.store.summary_statements(version["id"])] if version else []
         self.narrative.setPlainText("\n\n".join(s["content"] for s in self.statements if not s["excluded"]))
-        self.sentences.clear()
-        for statement in self.statements:
-            self.sentences.addItem(("Excluded · " if statement["excluded"] else "") + statement["content"])
+        self.narrative.setPlaceholderText("No saved summary text. Generation may have returned no content, or its text was removed during review.")
+        self.edit_button.setEnabled(bool(self.narrative.toPlainText()) and self.record_id not in self.app.review_running)
         record = db.execute("SELECT * FROM conversation_records WHERE id=?", (self.record_id,)).fetchone()
         if record:
             contact = self.store.get_contact(record["contact_id"]) if record["contact_id"] else None
-            model = self.version["model"] if self.version else "Terra low when generated"
+            model = self.version["model"] if self.version else f"{MODEL_LABELS[REVIEW_MODEL]} when generated"
             usage = db.execute("SELECT usage_json FROM review_jobs WHERE record_id=?", (self.record_id,)).fetchone()
             dollars = sum(item.get("dollars", 0) for item in json.loads(usage[0])) if usage else 0
             self.provenance.setText(f"{contact.label if contact else 'Unassigned'} · {record['started_at'] or record['created_at']} · {model} · recorded generation usage ${dollars:.4f}")
@@ -538,7 +539,7 @@ class Review(Panel):
             for memory in self.store.list_current_memories(record["contact_id"]):
                 if db.execute("SELECT 1 FROM memory_sources WHERE revision_id=? AND record_id=?", (memory["revision_id"], self.record_id)).fetchone():
                     self.memories.append(dict(id=memory["memory_id"], revision=memory["revision_id"], content=memory["content"], state="approved"))
-            for proposal in self.store.list_proposals(record["contact_id"]):
+            for proposal in self.store.record_pending_proposals(self.record_id):
                 if proposal["state"] != "approved" and db.execute("SELECT 1 FROM proposal_batches WHERE id=? AND record_id=?", (proposal["batch_id"], self.record_id)).fetchone():
                     self.memories.append(dict(id=proposal["id"], content=proposal["content"], state=proposal["state"]))
         selected = {identifier for identifier, check in self.checks.items() if check.isChecked()}
@@ -561,19 +562,51 @@ class Review(Panel):
                 controls.addWidget(button("Reject", lambda m=memory: self.review_memories(False, one=m), "follow_up"))
             elif memory["state"] == "approved":
                 controls.addWidget(button("Delete", lambda m=memory: self.delete_memory(m), "danger"))
-            elif memory["state"] == "rejected":
-                controls.addWidget(button("Reopen", lambda m=memory: self.reopen(m)))
-                controls.addWidget(button("Permanently delete", lambda m=memory: self.delete_memory(m), "danger"))
             layout.addLayout(controls)
             self.memory_layout.addWidget(item)
         self.memory_layout.addStretch()
+        job = db.execute("SELECT state FROM review_jobs WHERE record_id=?", (self.record_id,)).fetchone()
+        running = self.record_id in self.app.review_running or bool(job and job[0] == "running")
+        empty = not self.store.record_turns(self.record_id)
+        eligible = bool(self.store.summary_turns(self.record_id, for_cloud=True))
+        oversized = any(message in self.app.review_errors.get(self.record_id, "") for message in
+                        ("one conversation turn exceeds", "one source turn exceeds"))
+        if not self.memories and job and job[0] == "complete" and not running and self.record_id not in self.app.review_errors:
+            batch = db.execute("SELECT 1 FROM proposal_batches b JOIN conversation_records r ON r.id=b.record_id WHERE b.record_id=? AND b.record_generation=r.generation AND b.status IN ('pending_review','complete')", (self.record_id,)).fetchone()
+            message = "No proposed memories remain. Extraction may have returned none, or they were removed during review."
+            if not batch:
+                message = "Memory extraction is incomplete or was skipped because some source content is excluded."
+            if not eligible:
+                message = "No eligible source remains for memory generation."
+            self.memory_layout.insertWidget(0, label(message))
+        self.retry_button.setVisible(self.record_id not in self.app.review_running and
+            eligible and not oversized and (self.record_id in self.app.review_errors or bool(job and job[0] == "pending") or not self.narrative.toPlainText()))
         state = self.version["state"] if self.version else "No summary yet"
         if self.record_id in self.app.review_running:
-            state = "Generating with Terra low… Your transcript is saved."
+            state = f"Generating with {MODEL_LABELS[REVIEW_MODEL]}… Your transcript is saved."
         elif self.record_id in self.app.review_errors:
             state = "Generation incomplete: " + self.app.review_errors[self.record_id]
+            if oversized:
+                state = "A single message is too long for generation. Split it into shorter messages before importing again."
         elif self.version and self.version["partial"]:
-            state += " · partial coverage; use Continue to process remaining content"
+            state += " · partial coverage"
+        if empty:
+            state = "Nothing was transcribed in this call."
+        elif not eligible:
+            state = "Source content is excluded or deleted; generation is unavailable."
+        elif self.version and self.version["model"] == "user-edited" and self.version["state"] == "draft":
+            state += " · edited draft; approve it to use the correction in Ask"
+        for action in self.findChildren(QPushButton):
+            action.setEnabled(not running or action.text() in {"View transcript", "Review later", "Close"})
+        self.edit_button.setEnabled(not running and bool(self.narrative.toPlainText()))
+        if not self.version:
+            for action in self.findChildren(QPushButton):
+                if action.text() in {"Approve summary", "Approve all memories and summary", "Reject summary"}:
+                    action.setEnabled(False)
+        elif not self.narrative.toPlainText() or self.version["state"] not in {"draft", "approved"}:
+            for action in self.findChildren(QPushButton):
+                if action.text() in {"Approve summary", "Approve all memories and summary"}:
+                    action.setEnabled(False)
         self.status.setText(state)
 
     def select_all(self):
@@ -592,7 +625,8 @@ class Review(Panel):
 
     def review_memories(self, approve, *, all_items=False, one=None):
         selected = [one] if one else [m for m in self.memories if m["state"] == "pending" and (all_items or self.checks[m["id"]].isChecked())]
-        if not selected or not confirm(self, "Review memories", ("Approve" if approve else "Reject") + " these memories?\n\n" + "\n".join(m["content"] for m in selected)):
+        if not selected or not confirm(self, "Approve memories" if approve else "Reject memories",
+                                       "Are you sure?" if not approve else f"Approve {len(selected)} memories? Are you sure?"):
             return
         try:
             self.store.review_record_proposals(self.record_id, None if all_items else [m["id"] for m in selected],
@@ -604,7 +638,7 @@ class Review(Panel):
     def approve_summary(self, *, combined=False):
         if not self.version:
             return
-        pending = [dict(r) for r in self.store.record_pending_proposals(self.record_id)]
+        pending = [m for m in self.memories if m["state"] == "pending"]
         if not combined:
             linked = {r[0] for r in self.store._connection.execute(
                 "SELECT DISTINCT d.proposal_id FROM summary_dependencies d JOIN summary_statements s ON s.id=d.statement_id WHERE s.summary_id=? AND s.excluded=0", (self.version["id"],))}
@@ -620,41 +654,37 @@ class Review(Panel):
         except (ValueError, KeyError, sqlite3.Error) as exc:
             self.app.report(exc, self)
 
-    def selected_sentence(self):
-        index = self.sentences.currentRow()
-        return self.statements[index] if 0 <= index < len(self.statements) else None
-
-    def edit_sentence(self):
-        sentence = self.selected_sentence()
-        if not sentence:
+    def edit_summary(self):
+        if not self.version or self.record_id in self.app.review_running:
             return
-        content = edit_text(self, "Edit summary sentence", sentence["content"])
+        summary_id = self.version["id"]
+        expected = {s["id"]: (s["content"], s["excluded"]) for s in self.statements}
+        content = edit_text(self, "Edit summary", self.narrative.toPlainText(),
+                            prompt="Save as a draft and regenerate pending memories. Re-approve the summary to use it in Ask. Approved memories stay unchanged.")
         if content is None:
             return
         try:
-            dependencies = self.store._connection.execute("SELECT * FROM summary_dependencies WHERE statement_id=?", (sentence["id"],)).fetchall()
-            links = {}
-            for memory in self.memories:
-                if memory["state"] not in {"pending", "approved"} or not any(memory["id"] in (d["memory_id"], d["proposal_id"]) for d in dependencies):
-                    continue
-                choice = confirm(self, "Linked memory", "Also update this linked memory? Pending memories remain pending.\n\n" + memory["content"], three=True)
-                if choice is None:
-                    return
-                if choice:
-                    links[memory["id"]] = memory.get("revision", memory["content"])
-            self.store.edit_review_sentence(sentence["id"], content, expected_content=sentence["content"], links=links)
-            self.changed()
+            updated = self.store.edit_review_summary(summary_id, content, expected_statements=expected)
+            if updated:
+                self.changed()
+                self.app.start_review_job(self.record_id, self.app.review_ledgers.get(self.record_id) or UsageLedger.product())
         except (ValueError, KeyError, sqlite3.Error) as exc:
             self.app.report(exc, self)
 
-    def exclude(self, excluded):
-        sentence = self.selected_sentence()
-        if sentence and confirm(self, "Change summary", "Exclude this sentence?" if excluded else "Explicitly restore this sentence? This does not approve a rejected memory."):
-            try:
-                self.store.edit_summary_statement(sentence["id"], sentence["content"], excluded=excluded)
-                self.changed()
-            except (ValueError, KeyError, sqlite3.Error) as exc:
-                self.app.report(exc, self)
+    @store_errors
+    def view_transcript(self):
+        turns = self.store.record_turns(self.record_id)
+        text_panel(self, "Transcript", "\n\n".join(f"{t.timestamp} · {t.speaker_name}: {t.content}" for t in turns),
+                   lambda: self.store.record_turns(self.record_id) == turns)
+
+    @store_errors
+    def reject_summary(self):
+        if self.version and confirm(self, "Reject summary", "Are you sure? The transcript and approved memories will remain."):
+            self.store.delete_summary(self.record_id)
+            self.changed()
+
+    def retry_generation(self):
+        self.app.start_review_job(self.record_id, self.app.review_ledgers.get(self.record_id) or UsageLedger.product())
 
     def edit_memory(self, memory):
         content = edit_text(self, "Edit memory", memory["content"])
@@ -664,7 +694,11 @@ class Review(Panel):
             linked = self.store._connection.execute("SELECT DISTINCT s.* FROM summary_statements s JOIN summary_dependencies d ON d.statement_id=s.id WHERE (d.memory_id=? OR d.proposal_id=?) AND s.excluded=0", (memory["id"], memory["id"])).fetchall()
             choices = {}
             for statement in linked:
-                choice = confirm(self, "Linked summary", "Also update this summary sentence?\n\n" + statement["content"], three=True)
+                if (not self.version or statement["summary_id"] != self.version["id"]
+                        or normalize_alias(statement["content"]) != normalize_alias(memory["content"])):
+                    choices[statement["id"]] = "keep"
+                    continue
+                choice = confirm(self, "Linked summary", "Also update the linked summary?", three=True)
                 if choice is None:
                     return
                 choices[statement["id"]] = "update" if choice else "keep"
@@ -677,7 +711,7 @@ class Review(Panel):
             self.app.report(exc, self)
 
     def delete_memory(self, memory):
-        if confirm(self, "Delete memory", "Permanently delete this memory?\n\n" + memory["content"]):
+        if confirm(self, "Delete memory", "Delete this memory? Linked summary text will also be removed. Are you sure?"):
             try:
                 if memory["state"] == "approved":
                     self.store.delete_memory(memory["id"])
@@ -686,67 +720,3 @@ class Review(Panel):
                 self.changed()
             except (ValueError, KeyError, sqlite3.Error) as exc:
                 self.app.report(exc, self)
-
-    def reopen(self, memory):
-        try:
-            self.store.reopen_proposal(memory["id"])
-            self.changed()
-        except (ValueError, KeyError, sqlite3.Error) as exc:
-            self.app.report(exc, self)
-
-    def sources(self):
-        sentence = self.selected_sentence()
-        if not sentence:
-            return
-        sequences = {r[0] for r in self.store._connection.execute("SELECT sequence FROM summary_evidence WHERE statement_id=?", (sentence["id"],))}
-        text = "\n\n".join(f"{turn.timestamp} · {turn.speaker_name}: {turn.content}" for turn in self.store.record_turns(self.record_id) if turn.display_order in sequences)
-        def valid():
-            current = self.store._connection.execute("SELECT * FROM summary_statements WHERE id=?", (sentence["id"],)).fetchone()
-            return current is not None and dict(current) == sentence
-        text_panel(self, "Exact source", text or "Source unavailable", valid)
-
-    def more_action(self, index):
-        self.more.setCurrentIndex(0)
-        try:
-            if index == 1:
-                if confirm(self, "Generate / continue", "Generate with Terra low? Existing versions are retained. This uses your API account."):
-                    self.app.start_review_job(self.record_id, UsageLedger.product())
-                    self.reload()
-            elif index == 2:
-                versions = self.store._connection.execute("SELECT * FROM summary_versions WHERE record_id=? ORDER BY created_at DESC,rowid DESC", (self.record_id,)).fetchall()
-                content = []
-                for version in versions:
-                    content.append(f"{version['created_at']} · {version['state']}\n" + "\n".join(s["content"] for s in self.store.summary_statements(version["id"])))
-                text_panel(self, "Summary versions", "\n\n".join(content))
-            elif index == 3:
-                turns = self.store.record_turns(self.record_id)
-                text_panel(self, "Transcript", "\n\n".join(f"{t.timestamp} · {t.speaker_name}: {t.content}" for t in turns),
-                           lambda: self.store.record_turns(self.record_id) == turns)
-            elif index == 4 and confirm(self, "Delete summary", "Delete all summary versions? Transcript and independently approved memories remain."):
-                self.store.delete_summary(self.record_id)
-                self.changed()
-            elif index == 5:
-                self.legacy_sources()
-        except (ValueError, KeyError, sqlite3.Error) as exc:
-            self.app.report(exc, self)
-
-    def legacy_sources(self):
-        record = self.store._connection.execute("SELECT * FROM conversation_records WHERE id=?", (self.record_id,)).fetchone()
-        if not record:
-            return
-        turns = self.store.record_turns(self.record_id)
-        panel = text_panel(self, "Review legacy sources", "Select only turns containing no previously deleted facts.\n\n" + "\n\n".join(f"Turn {t.display_order} · {t.content}" for t in turns))
-        field = QLineEdit()
-        field.setPlaceholderText("Reviewed safe turn numbers, separated by commas")
-        panel.body.addWidget(field)
-        def allow():
-            try:
-                sequences = {int(value.strip()) for value in field.text().split(",")}
-                if not confirm(panel, "Confirm source review", "I reviewed these exact turns and confirm they contain no previously deleted facts."):
-                    return
-                self.store.review_legacy_summary_turns(self.record_id, sequences, expected_generation=record["generation"])
-                panel.close()
-                self.reload()
-            except (ValueError, sqlite3.Error) as exc:
-                self.app.report(exc, panel)
-        panel.body.addWidget(button("Allow reviewed turns", allow, "primary"))

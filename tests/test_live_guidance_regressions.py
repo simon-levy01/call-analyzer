@@ -30,9 +30,9 @@ def test_recent_reply_ideas_survive_speech_but_not_changed_topic_or_expiry():
     assert display.visible('replies')
     display.tick(23.9)
     assert display.visible('replies')
-    display.tick(24)
+    display.tick(48)
     assert not display.visible('replies')
-    display.offer(update.model_copy(update={'snapshot_id':2}), 30)
+    display.offer(update.model_copy(update={'snapshot_id':2}), 50)
     display.on_speech(said)
     assert not display.visible('replies')
 

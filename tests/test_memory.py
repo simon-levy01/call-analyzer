@@ -100,6 +100,7 @@ def test_current_database_open_runs_one_integrity_scan(tmp_path, monkeypatch):
 
 
 def drop_f06_schema(db):
+    db.execute("DROP TABLE declined_memories")
     db.execute("DROP TRIGGER summary_record_invalidate")
     for table in ("review_chunks", "review_jobs", "summary_dependencies", "summary_evidence", "summary_statements", "summary_versions", "summary_exclusions", "summary_search"):
         db.execute(f"DROP TABLE {table}")
@@ -156,6 +157,19 @@ def test_version_two_migrates_existing_proposals_with_generic_flag_defaulted(tmp
         assert proposal["content"] == "Alex prefers mint tea"
         assert proposal["likely_generic"] == 0
         assert list(proposal.keys())[-1] == "likely_generic"
+
+
+def test_version_four_migration_preserves_existing_data(tmp_path):
+    path = tmp_path / "v4.sqlite3"
+    with MemoryStore(path) as store:
+        contact = store.create_contact("Migration test")
+        store._connection.execute("DROP TABLE declined_memories")
+        store._connection.execute("PRAGMA user_version=4")
+        store._connection.commit()
+    with MemoryStore(path) as store:
+        assert store.get_contact(contact.id).display_name == "Migration test"
+        assert not store._connection.execute("SELECT * FROM declined_memories").fetchall()
+        assert store.integrity_ok()
 
 
 def test_generic_proposals_are_persisted_and_grouped_first_for_review(tmp_path):
@@ -699,7 +713,7 @@ def test_extraction_chunks_and_cost_use_the_same_token_bound():
     assert count == len(chunks) > 1 and maximum > 0
     assert maximum == sum(
         conservative_request_cost(
-                "gpt-5.6-terra",
+                "gpt-6-sol",
             extraction_reservation_tokens(chunk),
             max_output_tokens=2_400,
         )
