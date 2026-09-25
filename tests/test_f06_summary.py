@@ -52,8 +52,73 @@ def test_review_accepts_six_discussed_statements_without_retry(tmp_path):
         oversized = output.model_copy(deep=True)
         for statement in oversized.statements:
             statement.content = "word " * 90
-        with pytest.raises(ValueError, match="500 words"):
-            store.create_summary_draft(record, oversized, expected_generation=1)
+        longer = store.create_summary_draft(record, oversized, expected_generation=1)
+        assert sum(len(s['content'].split()) for s in store.summary_statements(longer)) == 540
+
+
+def test_summary_has_no_overall_word_or_statement_limit(tmp_path):
+    with MemoryStore(tmp_path / 'long-summary.sqlite3') as store:
+        _, record = setup_record(store)
+        output = SummaryOutput(statements=[SummaryStatementInput(section='discussed',
+            content=('A substantial topic was discussed. ' * 15).strip(), kind='fact', confidence='high', evidence_turns=[1])
+            for _ in range(25)])
+        sid = store.create_summary_draft(record, output, expected_generation=1)
+        assert sum(len(s['content'].split()) for s in store.summary_statements(sid)) == 1875
+        assert len(store.summary_statements(sid)) == 25
+        assert store.summary_statements(sid)[0]['content'] == output.statements[0].content
+
+
+def test_old_generation_user_edit_does_not_block_new_review(tmp_path):
+    with MemoryStore(tmp_path/'generation.sqlite3') as store:
+        _,record=setup_record(store)
+        sid=draft(store,record)
+        statement=store.summary_statements(sid)[0]
+        edited=store.edit_review_summary(sid,'Dentist at 4 PM.',expected_statements={statement['id']:(statement['content'],0)})
+        store.approve_summary(edited)
+        with store.transaction() as db:
+            db.execute('UPDATE conversation_records SET generation=generation+1 WHERE id=?',(record,))
+        assert store.summary_for_review(record) is None
+        client=SimpleNamespace(responses=SimpleNamespace(parse=lambda **_:SimpleNamespace(output_parsed=SummaryOutput(),
+            usage=SimpleNamespace(input_tokens=100,output_tokens=10))))
+        fresh=process_review(store,record,ledger=UsageLedger.product(),client=client,extractor=FakeMemoryExtractor([ExtractionOutput()]))
+        assert fresh!=edited and store.summary_for_review(record)['record_generation']==2
+
+
+@pytest.mark.parametrize('fail', [False, True])
+def test_version_five_summary_migration_preserves_links_and_rolls_back(tmp_path, fail):
+    from conversation_copilot.memory import _SUMMARY_SCHEMA, SCHEMA_VERSION
+    path = tmp_path/'legacy.sqlite3'
+    db = sqlite3.connect(path)
+    for sql in (*_SCHEMA, *_SUMMARY_SCHEMA):
+        db.execute(sql.replace('CHECK(length(content) >= 1)', 'CHECK(length(content) BETWEEN 1 AND 280)'))
+    db.execute('CREATE TABLE declined_memories (record_id TEXT NOT NULL REFERENCES conversation_records(id) ON DELETE CASCADE, digest TEXT NOT NULL, PRIMARY KEY(record_id,digest))')
+    db.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
+    db.commit()
+    db.close()
+    with MemoryStore(path) as store:
+        contact,rid = setup_record(store)
+        sid = draft(store,rid)
+        store.create_memory(contact,'Dentist Tuesday',record_id=rid,evidence_turns=[1])
+        store.approve_summary(sid)
+        tables=('summary_versions','summary_statements','summary_evidence','summary_dependencies','summary_search')
+        saved={t:[tuple(r) for r in store._connection.execute(f'SELECT * FROM {t}')] for t in tables}
+        store._connection.execute('PRAGMA user_version=5')
+    def failure(_):
+        raise RuntimeError('migration failure')
+    if fail:
+        with pytest.raises(MemoryStoreUnavailable):
+            MemoryStore(path,migration_hook=failure)
+        with sqlite3.connect(path) as db:
+            assert db.execute('PRAGMA user_version').fetchone()[0]==5
+            assert {t:db.execute(f'SELECT * FROM {t}').fetchall() for t in tables}==saved
+    with MemoryStore(path) as store:
+        assert {t:[tuple(r) for r in store._connection.execute(f'SELECT * FROM {t}')] for t in tables}==saved
+        assert store._connection.execute('PRAGMA foreign_keys').fetchone()[0]==1
+        statement=store.summary_statements(sid)[0]
+        longer='Substantive summary detail. '*150
+        store.edit_summary_statement(statement['id'],longer)
+        assert store.summary_statements(sid)[0]['content']==longer.strip()
+        assert store.integrity_ok()
 
 
 @pytest.mark.parametrize("changed", [False, True])
@@ -223,11 +288,11 @@ def test_joint_approval_rolls_back_all_memories_on_failure(tmp_path, monkeypatch
         summary = draft(store, record)
         approve = store._approve_proposal
         calls = []
-        def fail_second(db, proposal_id, edited_content=None):
+        def fail_second(db, proposal_id, edited_content=None, **kwargs):
             calls.append(proposal_id)
             if len(calls) == 2:
                 raise ValueError("fixture source changed")
-            return approve(db, proposal_id, edited_content)
+            return approve(db, proposal_id, edited_content, **kwargs)
         monkeypatch.setattr(store, "_approve_proposal", fail_second)
         with pytest.raises(ValueError, match="fixture source changed"):
             store.approve_summary(summary)
@@ -274,6 +339,10 @@ def test_post_call_pauses_between_chunks_and_resumes_checkpoint(tmp_path, monkey
             process_review(store, record, ledger=UsageLedger(), client=client, extractor=extractor, can_run=lambda: not paused[0])
         assert store._connection.execute("SELECT count(*) FROM review_chunks").fetchone()[0] == 1
         assert store._connection.execute("SELECT state FROM review_jobs").fetchone()[0] == "pending"
+        assert store.summary_for_review(record) is None
+        checkpoint = store._connection.execute('SELECT summary_id FROM review_chunks').fetchone()[0]
+        with pytest.raises(ValueError, match='unfinished'):
+            store.approve_summary(checkpoint)
         extraction_calls = len(extractor.calls)
         monkeypatch.setattr(store, "create_summary_draft", save)
         process_review(store, record, ledger=UsageLedger(), client=client, extractor=extractor)
@@ -439,7 +508,7 @@ def test_post_call_failure_resume_and_regeneration_do_not_repeat_extraction(tmp_
                 raise TimeoutError("fictional uncertain billing")
             return SimpleNamespace(output_parsed=output, usage=SimpleNamespace(input_tokens=100, output_tokens=40))
         client = SimpleNamespace(responses=SimpleNamespace(parse=parse))
-        ledger = UsageLedger()
+        ledger = UsageLedger.product()  # Mocked transport; this test checks resume, not the evaluation cap.
         with pytest.raises(TimeoutError):
             process_review(store, record, ledger=ledger, client=client, extractor=extractor)
         assert len(extractor.calls) == 1 and ledger.total_dollars > 0
@@ -487,7 +556,7 @@ def test_long_review_reuses_chunks_and_persists_usage(tmp_path, monkeypatch):
                 kind="fact", confidence="high", evidence_turns=ids[:1])], partial=True)
             return SimpleNamespace(output_parsed=output, usage=SimpleNamespace(input_tokens=100, output_tokens=50))
         client = SimpleNamespace(responses=SimpleNamespace(parse=parse))
-        ledger = UsageLedger()
+        ledger = UsageLedger.product()  # Mocked transport; retain uncertain charges while testing resume.
         with pytest.raises(TimeoutError):
             process_review(store, record, ledger=ledger, extractor=extractor, client=client)
         summary = process_review(store, record, ledger=ledger, extractor=extractor, client=client)

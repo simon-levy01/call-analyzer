@@ -16,21 +16,21 @@ from .interpretation import (
     _calibrate_high_confidence, _restrict_evidence_to_present_modalities,
     f06_structured_request, prepare_interpretation_request,
     estimate_english_tokens, REQUEST_PROTOCOL_OVERHEAD_TOKENS, EvidenceModality,
-    _cautious_policy, _ground_interpretation, LUNA_MODEL, LIVE_ASK_MODELS,
+    _cautious_policy, _ground_interpretation, _cue_anchor_turn_id, LUNA_MODEL, LIVE_ASK_MODELS,
     LIVE_ASK_REASONING, LIVE_CATEGORY_LIMIT, visual_row_has_evidence,
 )
 
 CATEGORIES = ("replies", "remember", "follow_up")
 LIVE_CATEGORIES = ("tones", "social_cues", *CATEGORIES)
-GUIDANCE_RETAIN_SECONDS = 48.0
+GUIDANCE_RETAIN_SECONDS = 90.0
 GUIDANCE_INPUT_LIMIT = 5_000  # Four-category-item schema plus explicit roles and source citations.
 
 GUIDANCE_INSTRUCTIONS = """
-Return optional replies, remember and follow_up candidates; empty lists are valid. Replies are alternatives for the USER, never automatic messages.
+Replies, remember and follow_up are optional; empty lists are valid. Replies are alternatives for the USER, never automatic messages.
 Never invent user feelings, reactions, knowledge, agreement or commitments. No placeholders, unprovided facts or filler. Return at most four useful items in each category.
 Corrections are not acceptance: 'Got it—four PM', not 'Four PM works for me'. Use the user's voice, not assistant jargon.
 Never answer the user's question as the contact; avoid questions already asked and statements already made.
-Never infer call duration from this rolling context window. Replies are optional user speech, not answers addressed to the user. First-person factual claims need explicit user evidence; offering to show or clarify something now is an optional action, not a claim about feelings or availability.
+Never infer call duration from rolling context window. First-person facts require user evidence; offering to show or clarify now is optional, not a claim about feelings or availability.
 reply_to_turn_id is the latest contact turn. Replies/follow_up must cite latest_turn_id and account for the user's words.
 user_spoke_last is NOT a rule to wait; acknowledgments don't close a topic. Prefer concrete optional words for the next pause: clarification, support or a next step.
 Wait only for the CONTACT to finish or answer an existing question. No duplicate waiting advice. If the USER is mid-sentence, don't tell the contact to finish it or invent its continuation.
@@ -41,12 +41,13 @@ Offer natural support without naming unconfirmed people/events or asking 'Is thi
 No diagnosis, certain emotion, invented agreement or invented preference. Use only current evidence.
 turn_ids maps each t row to its source turn ID. m row first field is its memory revision ID.
 
+Evaluate tones first, then social cues, independently of replies. Obvious but grounded descriptions are useful: include matter-of-fact/neutral wording when speech is plainly explanatory, practical or corrective; positive/warm for clear praise or appreciation; negative or sad only for explicit difficult/downbeat wording. Two different supported tone facets may coexist; do not produce paraphrases or invent an emotion for a second item. Also include up to two clear cues, using other for acknowledgment, disclosure, clarification, correction, explaining a reason or inviting a reply. Cite cue_anchor_turn_id for language evidence; null means no eligible contact speech. Describe observable wording, never hidden feelings. Do not interpret ASR noise. A reply does not replace a supported tone or cue.
 Current tone/cues concern the latest substantive contact contribution in the current topic. Past/negated feelings, user app commentary and filler are not present contact affect. A topic change is not withdrawal; a preference is not engagement.
 Refusing to speak to a THIRD party is not withdrawal from THIS conversation.
 When discriminating factual clues support a useful connection across the ongoing topic, return a Remember candidate; do not silently omit it. Copy its supplied ID exactly. Generic stress, sadness, relief or excitement alone cannot select an event; retrieval alone is not relevance. Match meanings without requiring names or shared keywords: a selected short and screening may connect to a film award. Prefer event clues over recency; use dates to distinguish plausible events. Begin 'Possibly related:' unless identity is established. Never recreate transcript facts as memories without supplied memory IDs.
 An explicit refusal to discuss an event overrides relevance: omit its reminders/questions until the contact reopens it. After a topic switch, drop old-topic reminders and emotions.
 Check each supplied memory against the current factual clues independently. If two facts are both relevant, retain both; if they are competing referents, present low-confidence alternatives or clarify. Do not silently choose, and do not add an irrelevant alternative.
-Avoid repeating questions, answers or stated dependencies in meaning. An unfinished contact phrase calls for listening. Apparent greetings, names or other garbled fragments inconsistent with the surrounding topic are uncertain transcription, not a reason to reset the conversation. Never assume 'you must be thrilled'. Prefer one or two concise reply alternatives and at most one distinct follow_up; omit duplicate or unhelpful questions.
+No repeated questions, answers or dependencies. Listen to unfinished contact phrases. Off-topic greetings/names/fragments may be ASR errors: do not interpret them or reset the topic. Never assume 'you must be thrilled'. Prefer 1-2 concise replies and one distinct useful follow_up.
 """
 
 
@@ -157,6 +158,7 @@ def interpret_guidance(snapshot, *, ledger, client=None, model=LUNA_MODEL, reaso
     payload["reply_to_turn_id"] = reply_to
     payload["latest_turn_id"] = latest.display_order
     payload["user_spoke_last"] = latest.speaker_role.value == "user"
+    payload["cue_anchor_turn_id"] = _cue_anchor_turn_id(snapshot, payload["turn_ids"])
     instructions = prepared.instructions + GUIDANCE_INSTRUCTIONS
     overhead = sum(estimate_english_tokens(text) for text in (
         instructions, json.dumps(GuidanceOutput.model_json_schema(), separators=(",", ":")))) + REQUEST_PROTOCOL_OVERHEAD_TOKENS
@@ -244,15 +246,17 @@ def interpret_guidance(snapshot, *, ledger, client=None, model=LUNA_MODEL, reaso
     # word-supported replies. Abstention about tone does not forbid a factual question.
     interpretation = policy or _calibrate_high_confidence(_restrict_evidence_to_present_modalities(
         _ground_interpretation(_canonical_interpretation(parsed.interpretation), snapshot, payload["turn_ids"]), modalities), snapshot)
-    if policy is not None and policy.status.value == "updated" and len(policy.tones) == 1:
-        # Keep abstention/conflict gates authoritative; a positive rule match need
-        # not hide a second supported model hypothesis.
+    if policy is not None and policy.status.value == "updated":
+        # Keep abstention/conflict gates authoritative; a positive rule match must
+        # not hide other grounded tones or cues.
         additional = _calibrate_high_confidence(_restrict_evidence_to_present_modalities(
             _ground_interpretation(_canonical_interpretation(parsed.interpretation), snapshot, payload["turn_ids"]), modalities), snapshot)
-        room = LIVE_CATEGORY_LIMIT - len(policy.tones)
-        extra = [tone for tone in additional.tones if tone.kind not in {t.kind for t in policy.tones}][:room]
-        if extra:
-            interpretation = policy.model_copy(update={"tones": [*policy.tones, *extra]})
+        merged = {}
+        for category in ("tones", "social_cues"):
+            existing = getattr(policy, category)
+            extra = [item for item in getattr(additional, category) if item.kind not in {old.kind for old in existing}]
+            merged[category] = [*existing, *extra][:LIVE_CATEGORY_LIMIT]
+        interpretation = policy.model_copy(update=merged)
     return GuidedInterpretation(**interpretation.model_dump(), snapshot_id=snapshot.snapshot_id,
         generation=snapshot.generation, manual=snapshot.manual, analyzed_order=latest.display_order,
         context_at=snapshot.created_at, **{key: getattr(parsed, key) for key in CATEGORIES})
@@ -332,6 +336,14 @@ class GuidanceDisplay:
                 self.dismissed.add(self.fingerprint(category, item))
             return
         item = self.all_items(category)[index]
+        if category in {'replies', 'follow_up'}:
+            fingerprint = self.fingerprint('replies', item.candidate)
+            for key in ('replies', 'follow_up'):
+                self.items[key] = [other for other in self.items[key]
+                    if self.fingerprint('replies', other.candidate) != fingerprint]
+                if len(self.dismissed) < 256:
+                    self.dismissed.add(self.fingerprint(key, item.candidate))
+            return
         if item in self.local_remember:
             self.local_remember.remove(item)
         else:
@@ -348,6 +360,21 @@ class GuidanceDisplay:
 
     def visible(self, category):
         return self.all_items(category)[:LIVE_CATEGORY_LIMIT]
+
+    def response_items(self):
+        entries = [(key, index, item) for key in ('replies', 'follow_up')
+                   for index, item in enumerate(self.items[key])]
+        # Equal-age replies/questions alternate; newest support always wins.
+        entries.sort(key=lambda entry: (-entry[2].supported_at, entry[1], entry[0] == 'follow_up'))
+        result, seen = [], set()
+        for entry in entries:
+            fingerprint = self.fingerprint('replies', entry[2].candidate)
+            if fingerprint not in seen:
+                result.append(entry)
+                seen.add(fingerprint)
+            if len(result) == LIVE_CATEGORY_LIMIT:
+                break
+        return result
 
     def all_items(self, category):
         return (sorted(self.local_remember + self.items[category], key=lambda item: item.supported_at, reverse=True)[:LIVE_CATEGORY_LIMIT]
@@ -460,3 +487,6 @@ class GuidanceDisplay:
             self.pending_categories.discard(category)
         if not self.pending_categories:
             self.pending = None
+        retained_responses = {id(item) for _, _, item in self.response_items()}
+        for category in ('replies', 'follow_up'):
+            self.items[category] = [item for item in self.items[category] if id(item) in retained_responses]

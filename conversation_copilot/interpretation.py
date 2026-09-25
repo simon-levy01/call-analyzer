@@ -232,7 +232,8 @@ def _canonical_interpretation(parsed: Any) -> InterpretationUpdate:
             seen = {False: set(), True: set()}
             counts = {False: 0, True: 0}
             for is_cue, item in items:
-                key = is_cue, str(item["kind"])
+                # Distinct observable conversational moves share the catch-all kind.
+                key = (str(item["kind"]), re.sub(r"\W+", " ", item["hypothesis"].casefold()).strip()) if is_cue and str(item["kind"]) == "other" else str(item["kind"])
                 if key not in seen[is_cue] and counts[is_cue] < LIVE_CATEGORY_LIMIT:
                     selected.append((is_cue, item))
                     seen[is_cue].add(key)
@@ -290,19 +291,28 @@ def _calibrate_high_confidence(
     return update
 
 
+def _recent_cue_turns(snapshot, supplied_orders):
+    supplied = set(supplied_orders)
+    return [turn for turn in snapshot.turns if turn.display_order in supplied
+        and turn.speaker_role == SpeakerRole.SELECTED_CONTACT
+        and (snapshot.created_at - turn.timestamp).total_seconds() < 24
+        and not re.fullmatch(r"[\s.,!?]*(?:yes|yeah|yep|okay|ok|and|which|uh|um|cool)(?:[\s.,!?]+(?:yes|yeah|okay|ok|cool))*[\s.,!?]*", turn.content, re.I)]
+def _cue_anchor_turn_id(snapshot, supplied_orders):
+    recent = _recent_cue_turns(snapshot, supplied_orders)
+    anchor = recent[-1].display_order if recent else None
+    from .memory import _TOPIC_BOUNDARY
+    if anchor is not None and any(t.display_order > anchor and _TOPIC_BOUNDARY.search(t.content) for t in snapshot.turns):
+        anchor = None
+    return anchor
+
+
 def _ground_interpretation(update, snapshot, supplied_orders):
     """Current contact evidence must survive attribution and freshness checks."""
     if update.status != InterpretationStatus.UPDATED:
         return update
     supplied = set(supplied_orders)
-    recent = [turn for turn in snapshot.turns if turn.display_order in supplied
-        and turn.speaker_role == SpeakerRole.SELECTED_CONTACT
-        and (snapshot.created_at - turn.timestamp).total_seconds() < 24
-        and not re.fullmatch(r"[\s.,!?]*(?:yes|yeah|yep|okay|ok|and|which|uh|um|cool)(?:[\s.,!?]+(?:yes|yeah|okay|ok|cool))*[\s.,!?]*", turn.content, re.I)]
-    anchor = recent[-1].display_order if recent else None
-    from .memory import _TOPIC_BOUNDARY
-    if anchor is not None and any(t.display_order > anchor and _TOPIC_BOUNDARY.search(t.content) for t in snapshot.turns):
-        anchor = None
+    recent = _recent_cue_turns(snapshot, supplied_orders)
+    anchor = _cue_anchor_turn_id(snapshot, supplied_orders)
     def supported(item):
         ids = set(item.evidence.turn_ids)
         memory_ids = set(item.evidence.memory_ids)

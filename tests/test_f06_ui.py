@@ -71,6 +71,51 @@ def ready(app):
     app.update_readiness()
 
 
+def test_import_detect_select_edit_and_save(window, monkeypatch):
+    from conversation_copilot import import_transcript as imp
+    from PySide6.QtWidgets import QComboBox
+    monkeypatch.setattr(imp,'f06_structured_request',lambda *a,**k:(imp.Participants(names=['Me','Alex'],suggested_contact='Alex'),None))
+    generated=[]
+    monkeypatch.setattr(window,'open_review',lambda rid: None)
+    monkeypatch.setattr(window,'start_review_job',lambda rid,ledger: generated.append(rid))
+    panel=desktop_data.import_chat(window)
+    editor=panel.findChild(QPlainTextEdit)
+    selector=panel.findChild(QComboBox)
+    save=next(b for b in panel.findChildren(QPushButton) if b.text()=='Import and generate')
+    editor.setPlainText('Me: Hello\nAlex: I start work tomorrow.')
+    click(panel,'Detect participants')
+    wait_for(lambda: selector.isEnabled())
+    assert selector.count()==2 and selector.currentText()=='Alex' and save.isEnabled()
+    selector.setCurrentText('Alex')
+    assert save.isEnabled()
+    editor.appendPlainText('Me: Good luck!')
+    assert not save.isEnabled() and selector.count()==0
+    click(panel,'Detect participants')
+    wait_for(lambda: selector.isEnabled())
+    selector.setCurrentText('Alex')
+    click(panel,'Import and generate')
+    assert len(generated)==1
+    turns=window.memory_store.record_turns(generated[0])
+    assert [t.speaker_role for t in turns]==['user','selected_contact','user']
+
+
+def test_import_failure_and_close_ignore_late_result(window, monkeypatch):
+    from PySide6.QtWidgets import QComboBox
+    pending=[]
+    monkeypatch.setattr(window,'run_job',lambda work,done: pending.append((work,done)))
+    panel=desktop_data.import_chat(window)
+    editor=panel.findChild(QPlainTextEdit)
+    editor.setPlainText('Me: Hello\nAlex: Hi')
+    click(panel,'Detect participants')
+    assert editor.isReadOnly()
+    pending.pop()[1](None,RuntimeError('Unavailable'))
+    assert not editor.isReadOnly() and not panel.findChild(QComboBox).isEnabled()
+    click(panel,'Detect participants')
+    panel.close()
+    QApplication.processEvents()
+    pending.pop()[1](None,RuntimeError('Late result'))  # No deleted-widget access.
+
+
 def test_home_readiness_theme_and_modal_controls(window, monkeypatch):
     assert window.start_button.property("role") == "start"
     assert not window.start_button.isEnabled()
@@ -163,6 +208,45 @@ def test_memories_ask_edit_delete_and_large_editor(window, monkeypatch):
     assert measured == [True]
 
 
+def test_contact_information_history_and_summary_quotes(window, monkeypatch):
+    from conversation_copilot.ask_memory import AskResult, summary_source
+    from PySide6.QtWidgets import QLabel
+    rid = seed_review(window)
+    sid = window.memory_store.summary_for_review(rid)['id']
+    window.memory_store.approve_summary(sid)
+    statement = window.memory_store.summary_statements(sid)[0]
+    source = summary_source(window.memory_store, statement['id'], window.selected_contact_id)
+    monkeypatch.setattr(desktop_data, 'cloud_answer', lambda *_a, **_k: AskResult('answered', 'They discussed the book.', (source,)))
+    assert not any(b.text() == 'History' for b in window.findChildren(QPushButton))
+    click(window, 'Contact information')
+    panel = window.findChild(desktop_data.Memories)
+    assert panel.windowTitle() == 'Contact information'
+    panel.question.setText('What was discussed?')
+    QTest.keyClick(panel.question, Qt.Key_Return)
+    wait_for(lambda: not panel.running)
+    assert any(w.text() == f'“{source.content}”' for w in panel.findChildren(QLabel))
+    click(panel, 'Conversation history')
+    history = panel.findChild(desktop_data.History)
+    assert history.isVisible() and history.parent() is panel
+    history.close()
+    window.memory_store.delete_summary(rid)
+    panel.validate_answer()
+    assert panel.result is None and panel.summary_evidence.count() == 0
+
+
+def test_review_does_not_present_an_intermediate_chunk_as_full_summary(window):
+    rid = seed_review(window)
+    store = window.memory_store
+    sid = store.summary_for_review(rid)['id']
+    with store.transaction() as db:
+        db.execute("INSERT INTO review_jobs(record_id,generation,state,created_at) VALUES (?,1,'pending','fixture')", (rid,))
+        db.execute('INSERT INTO review_chunks VALUES (?,0,?,0)', (rid,sid))
+    panel = desktop_data.Review(window,rid)
+    assert panel.version is None and not panel.narrative.toPlainText()
+    assert 'unfinished' in panel.status.text()
+    assert not next(b for b in panel.findChildren(QPushButton) if b.text() == 'Approve summary').isEnabled()
+
+
 def seed_review(window):
     store = window.memory_store
     record = store.create_record(source_kind="call", source_label="UI fixture", timezone_name="UTC", contact_id=window.selected_contact_id,
@@ -223,6 +307,7 @@ def test_review_rejection_shared_sources_and_generation_guards(window, monkeypat
     panel = window.review_dialogs[record]
     original_summary = panel.narrative.toPlainText()
     panel.review_memories(False, one=next(m for m in panel.memories if m["id"] == original["id"]))
+    wait_for(lambda: not panel.saving)
     assert panel.narrative.toPlainText() == original_summary
     survivor = store.record_pending_proposals(record)[0]
     store.review_record_proposals(record, [survivor["id"]], approve=True, expected_pending={survivor["id"]: survivor["content"]})
@@ -256,7 +341,7 @@ def test_empty_call_has_no_generation_or_retry(window):
     assert panel.retry_button.isHidden()
 
 
-def test_oversized_source_fails_before_inference_without_retry_loop(window, monkeypatch):
+def test_oversized_source_reaches_chunked_review_without_retry_loop(window, monkeypatch):
     from conversation_copilot import post_call
     called = []
     monkeypatch.setattr(post_call, "process_review", lambda *_a, **_k: called.append(True))
@@ -265,8 +350,8 @@ def test_oversized_source_fails_before_inference_without_retry_loop(window, monk
     window.start_review_job(record, desktop.UsageLedger.product())
     wait_for(lambda: not window.review_running)
     panel = window.review_dialogs[record]
-    assert not called and "too long" in panel.status.text()
-    assert panel.retry_button.isHidden()
+    assert called == [True] and "too long" not in panel.status.text()
+    assert not panel.retry_button.isHidden()
 
 
 def test_whole_summary_edit_noop_regenerate_retry_and_delete(window, monkeypatch):
@@ -312,6 +397,7 @@ def test_whole_summary_edit_noop_regenerate_retry_and_delete(window, monkeypatch
     confirmations = []
     monkeypatch.setattr(desktop_data, "confirm", lambda _p, _t, message, **_k: confirmations.append(message) or True)
     panel.review_memories(False, all_items=True)
+    wait_for(lambda: not panel.saving)
     assert confirmations == ["Are you sure?"]
     assert not store.record_pending_proposals(record)
     assert not store._connection.execute("SELECT 1 FROM memory_proposals WHERE id=?", (pending[0]["id"],)).fetchone()
@@ -367,8 +453,10 @@ def test_review_history_checks_and_approval(window, monkeypatch):
     QTest.mouseClick(check, Qt.LeftButton, pos=QPoint(15, check.height() // 2))
     assert panel.checks[pending["id"]].isChecked()
     click(panel, "Approve selected")
+    wait_for(lambda: not panel.saving)
     assert not window.memory_store.record_pending_proposals(record)
     click(panel, "Approve summary")
+    wait_for(lambda: not panel.saving)
     assert panel.version["state"] == "approved"
     monkeypatch.setattr(window, "start_review_job", lambda *_: True)
     monkeypatch.setattr(desktop_data, "edit_text", lambda *_a, **_k: "They planned to meet Saturday.")
@@ -398,6 +486,55 @@ def test_worker_keeps_event_loop_responsive(window):
     release.set()
     wait_for(lambda: bool(completed))
     timer.stop()
+
+
+def test_review_approval_runs_off_ui_thread_and_blocks_duplicate_clicks(window, monkeypatch):
+    record = seed_review(window)
+    panel = desktop_data.Review(window, record)
+    panel.show()
+    panel.select_all()
+    release = threading.Event()
+    calls, ticks = [], []
+    original = memory.MemoryStore.review_record_proposals
+    main_thread = threading.get_ident()
+    def slow(store, *args, **kwargs):
+        calls.append(threading.get_ident())
+        assert release.wait(2), 'Approval blocked the Qt caller'
+        return original(store, *args, **kwargs)
+    monkeypatch.setattr(memory.MemoryStore, 'review_record_proposals', slow)
+    timer = QTimer(panel)
+    timer.timeout.connect(lambda: ticks.append(1))
+    timer.start(10)
+    try:
+        panel.review_memories(True)
+        wait_for(lambda: bool(calls))
+        panel.review_memories(True)
+        panel.reject()
+        panel.close()
+        QTest.qWait(80)
+        assert ticks and panel.isVisible() and panel.saving
+        assert calls == [calls[0]] and calls[0] != main_thread
+    finally:
+        release.set()
+    wait_for(lambda: not window.pending_jobs)
+    assert not panel.saving and not window.memory_store.record_pending_proposals(record)
+
+
+def test_review_worker_failure_restores_selection_and_controls(window, monkeypatch):
+    panel = desktop_data.Review(window, seed_review(window))
+    panel.show()
+    panel.select_all()
+    errors = []
+    monkeypatch.setattr(window, 'report', lambda error, *_: errors.append(str(error)))
+    def fail(*_a, **_kw):
+        raise ValueError('save failed')
+    monkeypatch.setattr(memory.MemoryStore, 'review_record_proposals', fail)
+    panel.review_memories(True)
+    wait_for(lambda: not panel.saving)
+    assert errors == ['save failed']
+    assert all(c.isChecked() and c.isEnabled() for c in panel.checks.values())
+    assert next(b for b in panel.findChildren(QPushButton) if b.text() == 'Approve selected').isEnabled()
+    assert window.memory_store.record_pending_proposals(panel.record_id)
 
 
 def test_fake_call_start_stop_flush_and_preview(window, monkeypatch):
@@ -537,6 +674,8 @@ def test_delayed_device_discovery_and_combobox_keyboard(window, monkeypatch):
 
 
 def test_import_preview_and_contact_aliases_export(window, monkeypatch, tmp_path):
+    from conversation_copilot import import_transcript as imp
+    monkeypatch.setattr(imp,'f06_structured_request',lambda *a,**k:(imp.Participants(names=['Me','Alex']),None))
     generated = []
     monkeypatch.setattr(window, "start_review_job", lambda record, ledger: generated.append(record))
     desktop_data.import_chat(window)
@@ -544,10 +683,11 @@ def test_import_preview_and_contact_aliases_export(window, monkeypatch, tmp_path
     panel = QApplication.activeModalWidget()
     text = panel.findChild(QPlainTextEdit)
     text.setPlainText("9/1/26, 10:00 - Me: Hello\n9/1/26, 10:01 - Alex: Let us meet Friday.\n")
-    click(panel, "Preview")
+    click(panel, "Detect participants")
     selector = panel.findChild(desktop.QComboBox)
+    wait_for(lambda: selector.isEnabled())
     assert selector.count() == 2
-    selector.setCurrentText("Me")
+    selector.setCurrentText("Alex")
     click(panel, "Import and generate")
     assert len(generated) == 1
     assert window.memory_store.record_turns(generated[0])[1].speaker_role == SpeakerRole.SELECTED_CONTACT
@@ -580,6 +720,7 @@ def test_review_reject_deletes_bulk_and_stale_edit(window, monkeypatch):
     panel.show()
     pending = next(m for m in panel.memories if m["state"] == "pending")
     panel.review_memories(False, all_items=True)
+    wait_for(lambda: not panel.saving)
     assert not any(m["id"] == pending["id"] for m in panel.memories)
     assert window.memory_store._connection.execute("SELECT 1 FROM memory_proposals WHERE id=?", (pending["id"],)).fetchone() is None
     assert not window.memory_store.record_pending_proposals(panel.record_id)
@@ -693,14 +834,39 @@ def test_silent_poll_expires_actual_cue_labels(window, monkeypatch):
     def visible():
         return any('They are comparing delivery options.' in label.text() for label in window.findChildren(QLabel))
     assert visible()
-    clock[0]+=timedelta(seconds=48)
-    window.poll_interpretation(48)
+    clock[0]+=timedelta(seconds=75)
+    window.poll_interpretation(75)
+    assert visible()
+    clock[0]+=timedelta(seconds=15)
+    window.poll_interpretation(90)
     QApplication.sendPostedEvents(None, 0)
     # Removed widgets await deferred destruction, so inspect the current layout.
     layout=window.guidance_rows['social_cues']
     assert not any('They are comparing delivery options.' in label.text()
         for i in range(1,layout.count()) if (widget:=layout.itemAt(i).widget())
         for label in widget.findChildren(QLabel))
+
+
+def test_responses_include_followups_newest_first_with_correct_controls(window):
+    from conversation_copilot.guidance import GuidanceCandidate, DisplayedGuidance
+    assert set(window.guidance_rows)=={'tones','social_cues','replies','remember'}
+    display=window.guidance_display
+    display.items['replies']=[DisplayedGuidance(GuidanceCandidate(text=f'Reply {n}',confidence='medium'),n,n,n) for n in (3,2,1)]
+    display.items['follow_up']=[DisplayedGuidance(GuidanceCandidate(text='New question?',confidence='medium'),5,5,5)]
+    display.last_snapshot=5
+    window.render_guidance()
+    layout=window.guidance_rows['replies']
+    def texts():
+        return [w.text() for i in range(1,layout.count()) for w in layout.itemAt(i).widget().findChildren(desktop.GuidanceLabel)]
+    assert texts()==['New question?','Earlier: Reply 3','Earlier: Reply 2','Earlier: Reply 1']
+    first=layout.itemAt(1).widget()
+    click(first,'↗')
+    popup=next(p for p in window.findChildren(QDialog) if p.isVisible())
+    assert 'New question?' in [l.text() for l in popup.findChildren(desktop.QLabel)]
+    popup.close()
+    click(first,'×')
+    assert not display.visible('follow_up')
+    assert texts()==['Earlier: Reply 3','Earlier: Reply 2','Earlier: Reply 1']
 
 
 def test_live_ambiguous_memories_are_uncertain_candidates_not_direct_labels(window, monkeypatch):

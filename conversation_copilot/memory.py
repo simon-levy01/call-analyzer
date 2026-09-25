@@ -7,7 +7,6 @@ import re
 import shutil
 import sqlite3
 import time
-import textwrap
 import unicodedata
 import uuid
 from contextlib import contextmanager
@@ -23,7 +22,7 @@ from .models import ConversationTurn, SpeakerRole
 from . import test_log
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 EXPORT_VERSION = 2
 MEMORY_TYPES = (
     "person",
@@ -77,7 +76,7 @@ class SummaryStatementInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     section: Literal["discussed", "plans", "questions", "follow_ups"]
-    content: _ShortText
+    content: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     kind: Literal["fact", "advice"]
     confidence: Literal["low", "medium", "high"]
     evidence_turns: list[int] = Field(min_length=1, max_length=20)
@@ -87,7 +86,7 @@ class SummaryStatementInput(BaseModel):
 class SummaryOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    statements: list[SummaryStatementInput] = Field(default_factory=list, max_length=16)
+    statements: list[SummaryStatementInput] = Field(default_factory=list)
     partial: bool = False
 
 
@@ -455,7 +454,7 @@ _SUMMARY_SCHEMA = (
         id TEXT PRIMARY KEY,
         summary_id TEXT NOT NULL REFERENCES summary_versions(id) ON DELETE CASCADE,
         section TEXT NOT NULL CHECK(section IN ('discussed','plans','questions','follow_ups')),
-        content TEXT NOT NULL CHECK(length(content) BETWEEN 1 AND 280),
+        content TEXT NOT NULL CHECK(length(content) >= 1),
         kind TEXT NOT NULL CHECK(kind IN ('fact','advice','historical')),
         confidence TEXT NOT NULL CHECK(confidence IN ('low','medium','high')),
         origin TEXT NOT NULL CHECK(origin IN ('model','user_corrected')),
@@ -557,6 +556,8 @@ class MemoryStore:
                     finally:
                         backup.close()
                 try:
+                    if 4 <= version < 6:
+                        connection.execute("PRAGMA foreign_keys=OFF")
                     connection.execute("BEGIN IMMEDIATE")
                     if version == 0:
                         for statement in _SCHEMA:
@@ -579,7 +580,24 @@ class MemoryStore:
                     if version < 4:
                         for statement in _SUMMARY_SCHEMA:
                             connection.execute(statement)
-                    connection.execute("CREATE TABLE declined_memories (record_id TEXT NOT NULL REFERENCES conversation_records(id) ON DELETE CASCADE, digest TEXT NOT NULL, PRIMARY KEY(record_id,digest))")
+                    if version < 5:
+                        connection.execute("CREATE TABLE declined_memories (record_id TEXT NOT NULL REFERENCES conversation_records(id) ON DELETE CASCADE, digest TEXT NOT NULL, PRIMARY KEY(record_id,digest))")
+                    if 4 <= version < 6:
+                        # SQLite requires rebuilding a table to relax its CHECK constraint.
+                        # Preserve IDs, row order, dependencies, evidence and the search index.
+                        triggers = [sql for sql in _SUMMARY_SCHEMA if sql.startswith('CREATE TRIGGER')]
+                        for sql in triggers:
+                            connection.execute('DROP TRIGGER ' + sql.split()[2])
+                        table = next(sql for sql in _SUMMARY_SCHEMA if sql.startswith('CREATE TABLE summary_statements'))
+                        connection.execute(table.replace('summary_statements', 'summary_statements_new', 1))
+                        columns = 'rowid,id,summary_id,section,content,kind,confidence,origin,sensitivity,cloud_allowed,excluded,corrected_at'
+                        connection.execute(f'INSERT INTO summary_statements_new({columns}) SELECT {columns} FROM summary_statements')
+                        connection.execute('DROP TABLE summary_statements')
+                        connection.execute('ALTER TABLE summary_statements_new RENAME TO summary_statements')
+                        for sql in triggers:
+                            connection.execute(sql)
+                        if connection.execute('PRAGMA foreign_key_check').fetchone():
+                            raise ValueError('summary migration would invalidate references')
                     if 0 < version < 4:
                         # F05 tombstones lack turn provenance. Quarantine retained records.
                         connection.execute(
@@ -592,6 +610,7 @@ class MemoryStore:
                         migration_hook(connection)
                     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
                     connection.commit()
+                    connection.execute("PRAGMA foreign_keys=ON")
                     self._verify_database(connection)
                     self._smoke_write(connection)
                 except Exception:
@@ -915,8 +934,6 @@ class MemoryStore:
         participants = tuple(dict.fromkeys(turn.speaker_name for turn in turns))
         if len(participants) != 2:
             raise ValueError("F05 imports require exactly two participants")
-        if any(turn.timestamp is None for turn in turns):
-            raise ValueError("imported turns require timestamps")
         return ImportPreview(participants, tuple(turns), timezone_name, (len(turns) + chunk_turns - 1) // chunk_turns)
 
     def confirm_import(
@@ -1056,7 +1073,7 @@ class MemoryStore:
                AND b.prompt_version NOT LIKE 'summary-edit/%'
                ORDER BY b.created_at DESC LIMIT 1""", (record_id,)
         ).fetchone()
-        if row and row[1].startswith("f06-context-v2/"):
+        if row and row[1].startswith(("f06-context-v2/", "f06-fragments-v3/")):
             try:
                 extraction_chunks(self.record_turns(record_id), prompt_version=row[1])
             except (ValueError, TypeError, KeyError):
@@ -1240,7 +1257,7 @@ class MemoryStore:
             raise ValueError("choose at least one pending proposal")
         with self.transaction() as db:
             if approve:
-                return tuple(self._approve_proposal(db, proposal_id) for proposal_id in proposal_ids)
+                return self._approve_proposals(db, proposal_ids)
             for proposal_id in proposal_ids:
                 if not db.execute(
                     "UPDATE memory_proposals SET state='rejected',reviewed_at=? WHERE id=? AND state='pending'",
@@ -1284,7 +1301,7 @@ class MemoryStore:
             if (selected_ids is not None and len(chosen) != len(selected_ids)) or actual != expected_pending:
                 raise ValueError("pending memories changed; review the selection again")
             if approve:
-                return tuple(self._approve_proposal(db, row["id"]) for row in chosen)
+                return self._approve_proposals(db, [row["id"] for row in chosen])
             for row in chosen:
                 # Reject the suggestion, not unrelated facts sharing its transcript turns.
                 # ponytail: digest suppresses exact normalized repeats, not semantic paraphrases.
@@ -1293,8 +1310,20 @@ class MemoryStore:
             self._reindex_summaries(db)
         return ()
 
+    def _approve_proposals(self, db: sqlite3.Connection, proposal_ids: Sequence[str], *, reindex: bool = True) -> tuple[str, ...]:
+        # All callers hold a write transaction: source eligibility cannot change mid-batch.
+        turn_cache, records = {}, set()
+        result = tuple(self._approve_proposal(db, pid, turn_cache=turn_cache, deferred_records=records)
+                       for pid in proposal_ids)
+        for record_id in records:
+            self._refresh_record_summary_links(db, record_id)
+        if records and reindex:
+            self._reindex_summaries(db)
+        return result
+
     def _approve_proposal(
-        self, db: sqlite3.Connection, proposal_id: str, edited_content: str | None = None
+        self, db: sqlite3.Connection, proposal_id: str, edited_content: str | None = None,
+        *, turn_cache: dict | None = None, deferred_records: set | None = None,
     ) -> str:
         proposal = db.execute(
             """SELECT p.*,b.record_id,b.status batch_status,b.record_generation,r.generation,r.contact_id
@@ -1309,14 +1338,21 @@ class MemoryStore:
             or proposal["record_generation"] != proposal["generation"]
         ):
             raise ValueError("only a current pending assigned proposal can be approved")
-        if not set(json.loads(proposal["evidence_turns"])) <= {t.display_order for t in self.summary_turns(proposal["record_id"])}:
+        cache = turn_cache if turn_cache is not None else {}
+        record_id = proposal["record_id"]
+        if record_id not in cache:
+            cache[record_id] = {t.display_order for t in self.summary_turns(record_id)}
+        if not set(json.loads(proposal["evidence_turns"])) <= cache[record_id]:
             raise ValueError("proposal sources were deleted or excluded")
         memory_id = self._create_memory_revision(
             db, str(proposal["contact_id"]), edited_content or proposal["content"], proposal["memory_type"],
             proposal["confidence"], proposal["sensitivity"], "user_corrected" if edited_content is not None or proposal["reviewed_at"] else "model_approved", record_id=proposal["record_id"],
             evidence_turns=json.loads(proposal["evidence_turns"]), original_date_text=proposal["original_date_text"],
             normalized_date_start=proposal["normalized_date_start"], normalized_date_end=proposal["normalized_date_end"],
+            refresh_summaries=deferred_records is None,
         )[0]
+        if deferred_records is not None:
+            deferred_records.add(record_id)
         db.execute(
             "UPDATE memory_proposals SET state='approved',approved_memory_id=?,reviewed_at=? WHERE id=?",
             (memory_id, _now(), proposal_id),
@@ -1374,6 +1410,7 @@ class MemoryStore:
         original_date_text: str | None = None,
         normalized_date_start: str | None = None,
         normalized_date_end: str | None = None,
+        refresh_summaries: bool = True,
     ) -> tuple[str, str]:
         content = content.strip()
         if not content:
@@ -1411,11 +1448,15 @@ class MemoryStore:
                 "INSERT INTO memory_sources VALUES (?,?,?,?,?,?,?)",
                 (_id(), revision_id, record_id, json.dumps(list(evidence_turns)), record["source_kind"], record["approximate_date"], None),
             )
-            for statement in db.execute("SELECT DISTINCT statement_id FROM summary_evidence WHERE record_id=?", (record_id,)).fetchall():
-                sequences = {row[0] for row in db.execute("SELECT sequence FROM summary_evidence WHERE statement_id=?", (statement[0],))}
-                self._link_summary_statement(db, statement[0], record_id, sequences)
-            self._reindex_summaries(db)
+            if refresh_summaries:
+                self._refresh_record_summary_links(db, record_id)
+                self._reindex_summaries(db)
         return memory_id, revision_id
+
+    def _refresh_record_summary_links(self, db: sqlite3.Connection, record_id: str) -> None:
+        for statement in db.execute("SELECT DISTINCT statement_id FROM summary_evidence WHERE record_id=?", (record_id,)).fetchall():
+            sequences = {row[0] for row in db.execute("SELECT sequence FROM summary_evidence WHERE statement_id=?", (statement[0],))}
+            self._link_summary_statement(db, statement[0], record_id, sequences)
 
     def current_revision(self, memory_id: str) -> sqlite3.Row:
         row = self._connection.execute(
@@ -2245,8 +2286,6 @@ class MemoryStore:
         for_cloud: bool = False, review_checkpoint: tuple[str, int, int] | None = None,
     ) -> str:
         output = SummaryOutput.model_validate(output)
-        if sum(len(item.content.split()) for item in output.statements) > 500:
-            raise ValueError("summary exceeds 500 words")
         with self.transaction() as db:
             record = db.execute("SELECT * FROM conversation_records WHERE id=?", (record_id,)).fetchone()
             if record is None or record["generation"] != expected_generation:
@@ -2324,7 +2363,20 @@ class MemoryStore:
     def summary_statements(self, summary_id: str) -> list[sqlite3.Row]:
         return self._connection.execute("SELECT * FROM summary_statements WHERE summary_id=? ORDER BY rowid", (summary_id,)).fetchall()
 
-    def _summary_eligible(self, statement_id: str, *, for_cloud: bool = False, require_approved: bool = True, turn_cache: dict | None = None,
+    def summary_unfinished(self, summary_id: str) -> bool:
+        return self._connection.execute(
+            """SELECT 1 FROM review_chunks c JOIN review_jobs j ON j.record_id=c.record_id
+               WHERE c.summary_id=? AND j.state!='complete'""", (summary_id,)).fetchone() is not None
+
+    def summary_for_review(self, record_id: str) -> sqlite3.Row | None:
+        return self._connection.execute(
+            """SELECT v.* FROM summary_versions v JOIN conversation_records r ON r.id=v.record_id
+               WHERE v.record_id=? AND v.record_generation=r.generation
+               AND NOT EXISTS (SELECT 1 FROM review_chunks c JOIN review_jobs j ON j.record_id=c.record_id
+                               WHERE c.summary_id=v.id AND j.state!='complete')
+               ORDER BY v.created_at DESC,v.rowid DESC LIMIT 1""", (record_id,)).fetchone()
+
+    def _summary_eligible(self, statement_id: str, *, for_cloud: bool = False, require_approved: bool = True, include_advice: bool = False, turn_cache: dict | None = None,
                           review_token: str | None = None) -> bool:
         db = self._connection
         row = db.execute(
@@ -2334,7 +2386,9 @@ class MemoryStore:
         ).fetchone()
         if row is None or row["excluded"] or row["contact_id"] is None or row["record_generation"] != row["generation"]:
             return False
-        if require_approved and (row["state"] != "approved" or row["kind"] == "advice"):
+        if require_approved and (row["state"] != "approved" or (row["kind"] == "advice" and not include_advice)):
+            return False
+        if require_approved and self.summary_unfinished(row["summary_id"]):
             return False
         evidence = db.execute("SELECT * FROM summary_evidence WHERE statement_id=?", (statement_id,)).fetchall()
         cache = turn_cache if turn_cache is not None else {}
@@ -2360,15 +2414,17 @@ class MemoryStore:
         turn_cache = {}
         db.execute("DELETE FROM summary_search")
         for row in db.execute(
-            "SELECT s.id,s.content FROM summary_statements s JOIN summary_versions v ON v.id=s.summary_id WHERE v.state='approved' AND s.excluded=0 AND s.kind!='advice'"
+            "SELECT s.id,s.content FROM summary_statements s JOIN summary_versions v ON v.id=s.summary_id WHERE v.state='approved' AND s.excluded=0"
         ).fetchall():
-            if self._summary_eligible(row["id"], turn_cache=turn_cache):
+            if self._summary_eligible(row["id"], turn_cache=turn_cache, include_advice=True):
                 db.execute("INSERT INTO summary_search VALUES (?,?)", (row["id"], row["content"]))
 
     def approve_summary(self, summary_id: str, *, expected_pending: dict[str, str] | None = None,
                         expected_statements: dict[str, tuple[str, int]] | None = None,
                         approve_all_pending: bool = False) -> None:
         with self.transaction() as db:
+            if self.summary_unfinished(summary_id):
+                raise ValueError("summary is unfinished; resume generation before approving")
             if db.execute("SELECT 1 FROM review_jobs j JOIN summary_versions v ON v.record_id=j.record_id WHERE v.id=? AND j.state='running'", (summary_id,)).fetchone():
                 raise ValueError("wait for generation to finish before approval")
             version = db.execute("SELECT * FROM summary_versions WHERE id=?", (summary_id,)).fetchone()
@@ -2378,8 +2434,9 @@ class MemoryStore:
                 raise ValueError("wait for the bounded review job before approving")
             if expected_statements is not None and expected_statements != {s["id"]: (s["content"], s["excluded"]) for s in self.summary_statements(summary_id)}:
                 raise ValueError("summary changed; review the approval again")
+            turn_cache = {}
             for row in self.summary_statements(summary_id):
-                if not row["excluded"] and not self._summary_eligible(row["id"], require_approved=False):
+                if not row["excluded"] and not self._summary_eligible(row["id"], require_approved=False, turn_cache=turn_cache):
                     raise ValueError("summary evidence changed; review its sources")
             pending = (self.record_pending_proposals(version["record_id"])
                 if approve_all_pending else db.execute(
@@ -2388,8 +2445,7 @@ class MemoryStore:
                        WHERE s.summary_id=? AND s.excluded=0 AND p.state='pending'""", (summary_id,)).fetchall())
             if expected_pending is not None and expected_pending != {p["id"]: p["content"] for p in pending}:
                 raise ValueError("linked memories changed; review the approval again")
-            for proposal in pending:
-                self._approve_proposal(db, proposal["id"])
+            self._approve_proposals(db, [proposal["id"] for proposal in pending], reindex=False)
             db.execute("UPDATE summary_versions SET state='replaced' WHERE record_id=? AND state='approved'", (version["record_id"],))
             db.execute("UPDATE summary_versions SET state='approved',approved_at=? WHERE id=?", (_now(), summary_id))
             self._reindex_summaries(db)
@@ -2411,10 +2467,12 @@ class MemoryStore:
     def edit_review_summary(self, summary_id: str, content: str, *, expected_statements: dict[str, tuple[str, int]]) -> str | None:
         """Save a whole-text correction; unchanged text never schedules extraction."""
         content = content.strip()
-        if not content or len(content.split()) > 500 or len(content) > 16000:
-            raise ValueError("summary must contain 1–500 words (at most 16,000 characters)")
+        if not content:
+            raise ValueError("summary text is required")
         with self.transaction() as db:
             version = db.execute("SELECT v.*,r.generation,r.status FROM summary_versions v JOIN conversation_records r ON r.id=v.record_id WHERE v.id=?", (summary_id,)).fetchone()
+            if self.summary_unfinished(summary_id):
+                raise ValueError("summary is unfinished; resume generation before editing")
             if version is None or version["record_generation"] != version["generation"] or version["status"] == "active":
                 raise ValueError("summary source changed; reopen the review")
             record_id = version["record_id"]
@@ -2439,17 +2497,21 @@ class MemoryStore:
             # Old proposal review decisions must not silently hide an explicit correction.
             db.execute("DELETE FROM memory_proposals WHERE state='pending' AND batch_id IN (SELECT id FROM proposal_batches WHERE record_id=?)", (record_id,))
             db.execute("UPDATE proposal_batches SET status='invalidated' WHERE record_id=?", (record_id,))
-            # Keep the existing bounded storage fields; the editor presents the whole text.
+            # Preserve complete edited paragraphs and their source associations.
             for paragraph in content.split("\n\n"):
                 matched = next((s for s in visible if s["content"].strip() == paragraph.strip()), None)
                 paragraph_sequences = ({r[0] for r in db.execute("SELECT sequence FROM summary_evidence WHERE statement_id=?", (matched["id"],))}
                                        if matched else sequences)
-                for part in textwrap.wrap(paragraph, width=280):
-                    identifier = _id()
-                    db.execute("INSERT INTO summary_statements VALUES (?,?, 'discussed',?,'fact','medium','user_corrected',?,0,0,?)",
-                               (identifier, new_id, part, sensitivity, _now()))
-                    db.executemany("INSERT INTO summary_evidence VALUES (?,?,?)", [(identifier, record_id, seq) for seq in paragraph_sequences])
-                    self._link_summary_statement(db, identifier, record_id, paragraph_sequences)
+                if not paragraph.strip():
+                    continue
+                identifier = _id()
+                section = matched['section'] if matched else 'discussed'
+                kind = 'advice' if matched and matched['kind']=='advice' else 'fact'
+                confidence = matched['confidence'] if matched else 'medium'
+                db.execute("INSERT INTO summary_statements VALUES (?,?,?,?,?,?,'user_corrected',?,0,0,?)",
+                           (identifier, new_id, section, paragraph.strip(), kind, confidence, sensitivity, _now()))
+                db.executemany("INSERT INTO summary_evidence VALUES (?,?,?)", [(identifier, record_id, seq) for seq in paragraph_sequences])
+                self._link_summary_statement(db, identifier, record_id, paragraph_sequences)
             # Approved memories survive; obsolete pending proposals do not remain actionable.
             db.execute("DELETE FROM review_chunks WHERE record_id=?", (record_id,))
             db.execute("INSERT INTO review_jobs(record_id,generation,state,created_at) VALUES (?,?,'pending',?) ON CONFLICT(record_id) DO UPDATE SET generation=excluded.generation,state='pending',created_at=excluded.created_at",
@@ -2499,12 +2561,14 @@ class MemoryStore:
 
     def edit_summary_statement(self, statement_id: str, content: str, *, excluded: bool | None = None) -> None:
         content = content.strip()
-        if not 1 <= len(content) <= 280:
-            raise ValueError("summary statement must contain 1–280 characters")
+        if not content:
+            raise ValueError("summary statement text is required")
         with self.transaction() as db:
             current = db.execute("SELECT * FROM summary_statements WHERE id=?", (statement_id,)).fetchone()
             if current is None:
                 raise KeyError(statement_id)
+            if self.summary_unfinished(current['summary_id']):
+                raise ValueError("summary is unfinished; resume generation before editing")
             if db.execute("SELECT 1 FROM review_jobs j JOIN summary_versions v ON v.record_id=j.record_id WHERE v.id=? AND j.state='running'",
                           (current["summary_id"],)).fetchone():
                 raise ValueError("finish the bounded review before editing its summary")
@@ -2520,9 +2584,6 @@ class MemoryStore:
                  _now() if content != current["content"] else current["corrected_at"],
                  current["excluded"] if excluded is None else int(excluded), statement_id),
             )
-            rows = self.summary_statements(current["summary_id"])
-            if sum(len(row["content"].split()) for row in rows) > 500:
-                raise ValueError("summary exceeds 500 words")
             if not (excluded is True) and not self._summary_eligible(statement_id, require_approved=False):
                 raise ValueError("summary source unavailable; deleted information cannot be restored")
             self._reindex_summaries(db)
@@ -2699,10 +2760,39 @@ def extraction_reservation_tokens(turns: Sequence[ConversationTurn], *, legacy: 
     )
 
 
+def review_turn_fragments(turns):
+    """Bound individual messages without changing saved text or source citation IDs."""
+    result = []
+    for turn in turns:
+        # Keep all previously valid chunk boundaries stable for saved review retries.
+        if extraction_reservation_tokens([turn], legacy=True) <= 6000 and extraction_reservation_tokens([turn]) <= MAX_EXTRACTION_RESERVATION_TOKENS:
+            result.append(turn)
+            continue
+        start = 0
+        # 1,000 characters also bounds four-byte Unicode under the legacy ceiling.
+        while len(turn.content) - start > 1000:
+            end = max(turn.content.rfind('\n', start+500, start+1000),
+                      turn.content.rfind(' ', start+500, start+1000))
+            end = end+1 if end >= 0 else start+1000
+            result.append(turn.model_copy(update={'content': turn.content[start:end]}))
+            start = end
+        result.append(turn if start == 0 else turn.model_copy(update={'content': turn.content[start:]}))
+    return result
+
+
 def extraction_chunks(
     turns: Sequence[ConversationTurn], *, max_turns: int = MAX_EXTRACTION_TURNS, legacy: bool = False,
     prompt_version: str | None = None,
 ) -> list[list[ConversationTurn]]:
+    if prompt_version and prompt_version.startswith('f06-fragments-v3/'):
+        turns = review_turn_fragments(turns)
+        frozen = json.loads(prompt_version.split('/', 1)[1])['chunks']
+        if (not isinstance(frozen, list) or not frozen or any(not isinstance(ids, list)
+            or not 1 <= len(ids) <= MAX_EXTRACTION_TURNS or any(type(i) is not int or not 0 <= i < len(turns) for i in ids)
+            or ids != sorted(set(ids)) for ids in frozen)
+            or {i for ids in frozen for i in ids} != set(range(len(turns)))):
+            raise ValueError('extraction checkpoint fragment boundaries changed')
+        return [[turns[i] for i in ids] for ids in frozen]
     if prompt_version and prompt_version.startswith("f06-context-v2/"):
         frozen = json.loads(prompt_version.split("/", 1)[1])["chunks"]
         by_id = {turn.display_order: turn for turn in turns}
@@ -2713,6 +2803,8 @@ def extraction_chunks(
             raise ValueError("extraction checkpoint source boundaries changed")
         return [[by_id[order] for order in ids] for ids in frozen]
     previous = bool(prompt_version and prompt_version.startswith("f06-context-v1/"))
+    if not prompt_version:
+        turns = review_turn_fragments(turns)
     if previous:
         max_turns = int(prompt_version.split("/")[1])
     elif prompt_version:
@@ -2901,21 +2993,25 @@ def analyze_record(
             batch_id = None
     # Persist the chunking version so interrupted older jobs retain their original boundaries.
     version = store._connection.execute("SELECT prompt_version FROM proposal_batches WHERE id=?", (batch_id,)).fetchone() if batch_id else None
+    prepared_turns = review_turn_fragments(turns) if not version or version[0].startswith('f06-fragments-v3/') else turns
     try:
-        chunks = extraction_chunks(turns, max_turns=chunk_turns, prompt_version=version[0] if version else None)
+        chunks = extraction_chunks(prepared_turns, max_turns=chunk_turns, prompt_version=version[0] if version else None)
     except (ValueError, TypeError, KeyError):
-        if not version or not version[0].startswith("f06-context-v2/"):
+        if not version or not version[0].startswith(("f06-context-v2/", 'f06-fragments-v3/')):
             raise
         with store.transaction() as db:
             changed = db.execute("UPDATE proposal_batches SET status='invalidated' WHERE id=? AND record_id=? AND status IN ('running','failed')", (batch_id,record_id)).rowcount
         if not changed:
             raise
         batch_id = None
-        chunks = extraction_chunks(turns, max_turns=chunk_turns)
+        prepared_turns = review_turn_fragments(turns)
+        chunks = extraction_chunks(prepared_turns, max_turns=chunk_turns)
+    positions = {id(turn): index for index, turn in enumerate(prepared_turns)}
+    fragmented = len(prepared_turns) != len(turns)
     batch_id = batch_id or store.create_batch(
         record_id, model=model, reasoning=reasoning, chunks_total=len(chunks),
-        prompt_version="f06-context-v2/" + json.dumps({"ceiling": MAX_EXTRACTION_RESERVATION_TOKENS,
-            "chunks": [[turn.display_order for turn in chunk] for chunk in chunks]}, separators=(",", ":"))
+        prompt_version=("f06-fragments-v3/" if fragmented else "f06-context-v2/") + json.dumps({"ceiling": MAX_EXTRACTION_RESERVATION_TOKENS,
+            "chunks": [[positions[id(turn)] if fragmented else turn.display_order for turn in chunk] for chunk in chunks]}, separators=(",", ":"))
     )
     completed, total, status = store.batch_progress(batch_id)
     if total != len(chunks) or status not in {"running", "failed"}:

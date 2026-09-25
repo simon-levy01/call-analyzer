@@ -18,6 +18,47 @@ def test_luna_routing_prices_and_first_analysis():
     assert ip.MODEL_PRICES[ip.LUNA_MODEL].output_per_million==1.20
     assert ip.FIRST_ANALYSIS_DELAY_SECONDS==6
 
+
+def test_balanced_cue_prompt_and_anchor():
+    assert 'Obvious but grounded descriptions are useful' in g.GUIDANCE_INSTRUCTIONS
+    assert 'do not produce paraphrases or invent an emotion' in g.GUIDANCE_INSTRUCTIONS
+    now=datetime.now(timezone.utc)
+    turns=[ConversationTurn(speaker_name='Contact',speaker_role='selected_contact',source='test',
+        display_order=i,timestamp=now,content=text) for i,text in enumerate(('Money is tight.','Yeah.'),1)]
+    snapshot=ip.build_snapshot(turns,snapshot_id=1,generation=1,created_at=now)
+    assert ip._cue_anchor_turn_id(snapshot,[1,2])==1
+    assert ip._cue_anchor_turn_id(snapshot,[2]) is None
+    assert ip._cue_anchor_turn_id(snapshot.model_copy(update={'created_at':now+timedelta(seconds=24)}),[1,2]) is None
+
+
+def test_distinct_other_cues_survive_but_exact_repeats_and_overflow_do_not():
+    def cue(text):
+        return ip.SocialCue(kind='other', confidence='medium', hypothesis=text,
+            evidence=ip.Evidence(explanation=text, modalities=['language'], turn_ids=[2])).model_dump(mode='json')
+    raw={'status':'updated','tones':[],'social_cues':[cue(t) for t in
+        ['They ask for the date.', 'They ask for the date!', 'They correct the time.',
+         'They invite a reply.', 'They acknowledge the answer.', 'They set a boundary.']]}
+    result=ip._canonical_interpretation(raw)
+    assert [c.hypothesis for c in result.social_cues]==['They ask for the date.',
+        'They correct the time.', 'They invite a reply.', 'They acknowledge the answer.']
+
+
+def test_positive_local_rules_keep_grounded_model_cues_but_abstention_still_wins(monkeypatch):
+    from conversation_copilot.f04_evaluation import EvaluationScenario
+    cue=ip.SocialCue(kind='other',confidence='medium',hypothesis='They ask for more detail.',
+        evidence=ip.Evidence(explanation='A direct question.',modalities=['language'],turn_ids=[2]))
+    raw=g.GuidanceOutput(interpretation=ip._InterpretationWireUpdate(status='updated',social_cues=[cue]))
+    monkeypatch.setattr(g,'f06_structured_request',lambda *a,**k:(raw.model_copy(deep=True),None))
+    for contact,expected in [('I am excited. What happens next?',True),
+        ('I was joking. What happens next?',True),('Oh great, exactly what I needed.',False)]:
+        snapshot=EvaluationScenario('coverage','live','Tell me more.',contact).snapshot('transcript')
+        result=g.interpret_guidance(snapshot,ledger=ip.UsageLedger.product())
+        assert any(c.kind.value=='other' for c in result.social_cues)==expected
+    # Wrong-speaker evidence is still rejected even when a direct tone is present.
+    raw.interpretation.social_cues[0].evidence.turn_ids=[1]
+    snapshot=EvaluationScenario('coverage','live','Tell me more.','I am excited. What happens next?').snapshot('transcript')
+    assert not g.interpret_guidance(snapshot,ledger=ip.UsageLedger.product()).social_cues
+
 def test_newest_first_fill_four_and_expire_without_renewing_old_evidence():
     display=g.GuidanceDisplay()
     for n in range(1,6):display.offer(output(n,f'Choice {n}?'),n)
@@ -26,9 +67,11 @@ def test_newest_first_fill_four_and_expire_without_renewing_old_evidence():
         assert [x.snapshot_id for x in display.visible(category)]==[5,4,3,2]
     display.offer(output(6,'Choice 5?').model_copy(update={'replies':[],'social_cues':[]}),30)
     assert len(display.visible('social_cues'))==4
-    display.tick(51)
+    display.tick(75)
+    assert len(display.visible('social_cues'))==4
+    display.tick(93)
     assert [x.snapshot_id for x in display.visible('social_cues')]==[5,4]
-    display.tick(53)
+    display.tick(95)
     assert not display.visible('social_cues') and not display.visible('replies')
 
 def test_retained_cue_dismissal_reset_and_source_invalidation():
@@ -119,6 +162,28 @@ def test_same_memory_reworded_does_not_take_two_slots():
         display.offer(update,n)
     assert len(display.visible('remember'))==1
     assert display.visible('remember')[0].snapshot_id==2
+
+
+def test_combined_responses_ties_dedup_dismissal_overflow_and_retention():
+    display=g.GuidanceDisplay()
+    update=output(1,'Reply zero')
+    update.replies=[g.GuidanceCandidate(text=f'Reply {n}',confidence='medium',turn_ids=[1]) for n in range(4)]
+    update.follow_up=[g.GuidanceCandidate(text='New question?',confidence='medium',turn_ids=[1])]
+    display.offer(update,0)
+    assert [item.candidate.text for _,_,item in display.response_items()]==['Reply 0','New question?','Reply 1','Reply 2']
+    display.dismiss('replies',0)
+    assert len(display.response_items())==3 # Overflow reply does not reappear.
+    display.tick(75)
+    assert len(display.response_items())==3
+    display.tick(90)
+    assert not display.response_items()
+    update=output(2,'Explain the refund?')
+    update.follow_up=[g.GuidanceCandidate(text='Could you explain the refund?',confidence='medium',turn_ids=[2])]
+    display.offer(update,100)
+    assert len(display.response_items())==1
+    display.dismiss('replies',0)
+    display.offer(update.model_copy(update={'snapshot_id':3}),105)
+    assert not display.response_items()
 
 
 def test_reendorsed_visual_only_cue_is_fresh_not_an_omission():

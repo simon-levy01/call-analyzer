@@ -195,7 +195,7 @@ def test_summary_compaction_keeps_speaker_changes_and_recording_dates():
 
 
 @pytest.mark.parametrize('verbose', [False, True])
-def test_oversized_merge_finishes_with_verbatim_partial_drafts(tmp_path,monkeypatch,verbose):
+def test_oversized_merge_finishes_with_bounded_draft_consolidation(tmp_path,monkeypatch,verbose):
     monkeypatch.setattr(post_call,'_whole_summary_fits',lambda turns:False)
     with MemoryStore(tmp_path/'large.sqlite3') as store:
         contact=store.create_contact('Alex')
@@ -206,9 +206,9 @@ def test_oversized_merge_finishes_with_verbatim_partial_drafts(tmp_path,monkeypa
         def fake(schema,payload,instructions,**kwargs):
             if 'draft_statements' in payload:
                 from conversation_copilot.interpretation import estimate_english_tokens, REQUEST_PROTOCOL_OVERHEAD_TOKENS
-                assert payload['source']['turns']
+                assert payload.get('source',{}).get('turns') or payload.get('source_mode')=='previously_source_cited_drafts'
                 assert sum(estimate_english_tokens(value) for value in (json.dumps(payload,ensure_ascii=False,separators=(',',':')),
-                    instructions,json.dumps(schema.model_json_schema(),separators=(',',':'))))+REQUEST_PROTOCOL_OVERHEAD_TOKENS<=6000
+                    instructions,json.dumps(schema.model_json_schema(),separators=(',',':'))))+REQUEST_PROTOCOL_OVERHEAD_TOKENS<=kwargs['input_limit']
                 return SummaryOutput(statements=[SummaryStatementInput(**item) for item in payload['draft_statements'][:8]],
                     partial=len(payload['draft_statements'])>8),None
             ids=[r['id'] for r in payload['turns']]

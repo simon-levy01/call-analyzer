@@ -187,6 +187,7 @@ class Desktop(QWidget):
         self.capture_clock_origin = datetime.now(timezone.utc) - timedelta(seconds=time.perf_counter())
         self.usage_ledger = None
         self.outside_ask_ledger = UsageLedger.product()
+        self.import_ledger = UsageLedger.product()
         self.stable_interpretation = StableInterpretationCard()
         self.guidance_display = GuidanceDisplay()
         self.interpretation_coordinator = None
@@ -258,7 +259,7 @@ class Desktop(QWidget):
         actions = row()
         for text, callback, role in (
             ("Create", self.create_contact, "tone"), ("Edit", self.open_memories, "social"),
-            ("Memories", self.open_memories, "memory"), ("History", self.open_history, "replies"),
+            ("Contact information", self.open_memories, "memory"),
             ("Import text", self.import_chat, "follow_up"),
         ):
             actions.addWidget(button(text, callback, role), 1)
@@ -358,19 +359,18 @@ class Desktop(QWidget):
         for index, (category, title, role) in enumerate((
             ("tones", "Possible tones", "tone"), ("social_cues", "Social cues", "social"),
             ("replies", "Potential responses", "replies"), ("remember", "Related memories", "memory"),
-            ("follow_up", "Follow-up questions", "follow_up"),
         )):
             group, content = card(title, role)
             group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
             content.setAlignment(Qt.AlignTop)
             self.guidance_rows[category] = content
-            self.guidance_grid.addWidget(group, index // 2, index % 2, 1, 2 if index == 4 else 1)
+            self.guidance_grid.addWidget(group, index // 2, index % 2)
         layout.addWidget(scroll(body), 1)
         layout.addWidget(self.memory_status_label)
         self.memory_status_label.show()
         self.switch_button = button("Switch face", self.switch, "social")
         layout.addLayout(row(button("Transcript", self.open_transcript),
-                             button("Memories", self.open_memories, "memory"), self.switch_button))
+                             button("Contact information", self.open_memories, "memory"), self.switch_button))
         self.pages.addWidget(self.live)
 
     def apply_theme(self):
@@ -745,7 +745,9 @@ class Desktop(QWidget):
         self.run_job(work, done)
 
     def render_guidance(self):
-        displayed = {category: self.guidance_display.visible(category) for category in self.guidance_rows}
+        displayed = {category: [(category, index, item) for index, item in
+                     enumerate(self.guidance_display.visible(category))] for category in self.guidance_rows}
+        displayed['replies'] = self.guidance_display.response_items()
         signature = repr((displayed, self.guidance_display.last_snapshot))
         if signature == self.last_guidance:
             return
@@ -758,7 +760,7 @@ class Desktop(QWidget):
                     item.widget().deleteLater()
             if not displayed[category]:
                 layout.addWidget(label("Nothing useful to show yet."))
-            for index, wrapped in enumerate(displayed[category]):
+            for source_category, index, wrapped in displayed[category]:
                 candidate = wrapped.candidate
                 content = candidate.hypothesis if hasattr(candidate, "hypothesis") else candidate.text
                 if (candidate.confidence == 'low' and getattr(getattr(candidate, 'evidence', candidate), 'memory_ids', [])
@@ -776,10 +778,10 @@ class Desktop(QWidget):
                 wording.setWordWrap(True)
                 wording.setTextFormat(Qt.PlainText)
                 item_layout.addWidget(wording, 1)
-                def dismiss(c=category, i=index):
+                def dismiss(c=source_category, i=index):
                     self.guidance_display.dismiss(c, i)
                     self.render_guidance()
-                for caption, accessible, callback in (("↗", "Pop out", lambda c=category, x=candidate, t=content: self.pop_out(c, x, t)), ("×", "Dismiss", dismiss)):
+                for caption, accessible, callback in (("↗", "Pop out", lambda c=source_category, x=candidate, t=content: self.pop_out(c, x, t)), ("×", "Dismiss", dismiss)):
                     action = button(caption, callback)
                     action.setAccessibleName(accessible)
                     action.setToolTip(accessible)
@@ -789,7 +791,8 @@ class Desktop(QWidget):
                 layout.addWidget(item)
 
     def pop_out(self, category, candidate, content):
-        panel = Panel(self, category.replace("_", " ").title(), (440, 260), modal=False)
+        title = 'Potential responses' if category in {'replies', 'follow_up'} else category.replace("_", " ").title()
+        panel = Panel(self, title, (440, 260), modal=False)
         wording = label(content, heading=True)
         panel.body.addWidget(wording, 1)
         panel.body.addWidget(label(f"Captured suggestion · {self.selected_contact_label} · {datetime.now().astimezone():%H:%M:%S}"))

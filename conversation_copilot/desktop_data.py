@@ -48,7 +48,7 @@ def text_panel(parent, title, text, valid=None):
 
 class Memories(Panel):
     def __init__(self, app, contact_id):
-        super().__init__(app, "Memories", (920, 680))
+        super().__init__(app, "Contact information", (920, 680))
         self.app, self.store, self.contact_id = app, app.memory_store, contact_id
         self.contact = self.store.get_contact(contact_id)
         self.state = AskSession(contact_id)
@@ -57,7 +57,8 @@ class Memories(Panel):
         self.running = False
         self.alive = True
         self.finished.connect(self.cleanup)
-        self.body.addWidget(label(f"Ask about {self.contact.label}, or tidy up your saved memories."))
+        self.body.addWidget(label(f"Search {self.contact.label}'s memories and approved conversation summaries."))
+        self.body.addWidget(button("Conversation history", self.history, "replies"))
         controls = row()
         for title, callback, role in (("Edit aliases", self.aliases, "tone"), ("Merge contact", self.merge, "social"),
                                       ("Export data", self.export, "replies"), ("Delete contact", self.delete_contact, "danger")):
@@ -78,8 +79,13 @@ class Memories(Panel):
         self.answer = label()
         self.answer.setTextInteractionFlags(Qt.TextSelectableByMouse)
         answer_layout.addWidget(self.answer)
-        self.body.addWidget(self.answer_card)
+        self.summary_evidence = QVBoxLayout()
+        answer_layout.addLayout(self.summary_evidence)
+        self.answer_scroll = scroll(self.answer_card)
+        self.answer_scroll.setMaximumHeight(340)
+        self.body.addWidget(self.answer_scroll)
         self.answer_card.hide()
+        self.answer_scroll.hide()
         contents = QWidget()
         self.items = QVBoxLayout(contents)
         self.items.setContentsMargins(0, 0, 0, 0)
@@ -93,12 +99,30 @@ class Memories(Panel):
         self.alive = False
         self.state.close()
 
+    def history(self):
+        panel = History(self.app, self.contact_id, parent=self)
+        def refresh(*_):
+            self.reset_answer()
+            self.reload()
+        panel.finished.connect(refresh)
+        panel.show()
+
+    def show_summary_evidence(self):
+        clear(self.summary_evidence)
+        for source in self.result.sources if self.result else ():
+            if source.revision_id is None:
+                self.summary_evidence.addWidget(label(f"{source.kind} · {source.source_date[:10] or 'Date unavailable'}"))
+                self.summary_evidence.addWidget(label(f'“{source.content}”'))
+                self.summary_evidence.addWidget(button("View conversation", lambda _checked=False, rid=source.record_id: self.app.open_review(rid)))
+
     def reset_answer(self):
         self.state.new_question()
         self.result = None
         self.related.clear()
         self.answer.clear()
+        clear(self.summary_evidence)
         self.answer_card.hide()
+        self.answer_scroll.hide()
         self.status.setText("Saved information changed. Ask again for a current answer.")
 
     def validate_answer(self):
@@ -107,12 +131,15 @@ class Memories(Panel):
                 valid = validate_sources(self.store, self.result.sources)
             except sqlite3.Error:
                 self.answer.setText("Memory store busy; answer temporarily hidden until its sources can be checked.")
+                clear(self.summary_evidence)
                 return
             if not valid:
                 self.reset_answer()
                 self.reload()
             else:
                 self.answer.setText(self.result.answer)
+                if not self.summary_evidence.count():
+                    self.show_summary_evidence()
 
     def ask(self):
         question = self.question.text().strip()
@@ -155,8 +182,11 @@ class Memories(Panel):
                         self.related.update(r[0] for r in self.store._connection.execute(
                             "SELECT memory_id FROM summary_dependencies WHERE statement_id=? AND memory_id IS NOT NULL", (source.id,)))
                 self.answer.setText(result.answer)
+                self.show_summary_evidence()
                 self.answer_card.show()
-                self.status.setText(f"{len(self.related)} associated saved memories")
+                self.answer_scroll.show()
+                summaries = sum(s.revision_id is None for s in result.sources)
+                self.status.setText(f"{len(self.related)} associated memories · {summaries} summary excerpts")
                 self.reload()
             except (sqlite3.Error, ValueError, KeyError) as exc:
                 self.status.setText(f"Answer validation unavailable: {exc}")
@@ -325,8 +355,8 @@ class Memories(Panel):
 
 
 class History(Panel):
-    def __init__(self, app, contact_id):
-        super().__init__(app, "Conversation history", (800, 560))
+    def __init__(self, app, contact_id, *, parent=None):
+        super().__init__(parent or app, "Conversation history", (800, 560))
         self.app, self.store, self.contact_id = app, app.memory_store, contact_id
         self.records = []
         self.status = label()
@@ -423,18 +453,39 @@ class History(Panel):
 
 
 def import_chat(app):
-    from .parser import parse_whatsapp_transcript
+    from .import_transcript import detect_import, participant_sample
     panel = Panel(app, "Import text", (820, 660))
     text = QPlainTextEdit()
-    text.setPlaceholderText("Paste exported WhatsApp text, or open a text file.")
+    text.setPlaceholderText("Paste a two-person transcript using Name: message on each speaker change, or a WhatsApp export.")
+    text.setAccessibleName("Transcript to import")
     panel.body.addWidget(text, 1)
-    status = label("Preview the text and map the participants before saving.")
+    status = label("Detect participants sends up to 20 shortened lines and this contact's names to Luna low. Confirm the suggested contact before importing.")
     selector = combo()
+    selector.setAccessibleName("Which participant is the contact?")
+    selector.setEnabled(False)
     panel.body.addWidget(status)
-    panel.body.addLayout(row(label("Which participant is you?"), selector))
+    panel.body.addLayout(row(label("Which participant is the contact?"), selector))
     preview = [None]
-    source_name = ["Pasted WhatsApp text"]
+    source_name = ["Pasted transcript"]
     contact_id = app.selected_contact_id
+    contact_name = app.memory_store.get_contact(contact_id).display_name
+    contact_names = [contact_name, *(r['spelling'] for r in app.memory_store.list_aliases(contact_id))]
+    ledger = app.import_ledger
+    closed = [False]
+    panel.finished.connect(lambda *_: closed.__setitem__(0, True))
+    def invalidate(*, edited=False):
+        preview[0] = None
+        if edited:
+            source_name[0] = "Pasted transcript"
+        selector.clear()
+        selector.setEnabled(False)
+        save_button.setEnabled(False)
+    def selected():
+        ready = preview[0] is not None and selector.currentIndex() >= 0
+        save_button.setEnabled(ready)
+        if ready:
+            other = next(n for n in preview[0].participants if n != selector.currentText())
+            status.setText(f"Suggested contact: {selector.currentText()} → {contact_name} · You: {other}. Confirm this mapping with Import and generate, or change the contact selection.")
     def load():
         source, _ = QFileDialog.getOpenFileName(panel, "Open text", "", "Text (*.txt)", options=QFileDialog.DontUseNativeDialog)
         if source:
@@ -445,34 +496,66 @@ def import_chat(app):
                 app.report(exc, panel)
     def inspect():
         try:
-            preview[0] = app.memory_store.import_preview(parse_whatsapp_transcript(text.toPlainText(), source="whatsapp_import"),
-                timezone_name=str(datetime.now().astimezone().tzinfo))
-            selector.clear()
-            selector.addItems(preview[0].participants)
-            selector.setCurrentIndex(-1)
-            status.setText(f"{len(preview[0].turns)} turns · month/day dates · assumed timezone {preview[0].timezone_name}. Select yourself to confirm attribution.")
-            text.setReadOnly(True)
-        except (ValueError, KeyError) as exc:
+            frozen = text.toPlainText()
+            participant_sample(frozen)
+        except ValueError as exc:
             status.setText(str(exc))
+            return
+        invalidate()
+        text.setReadOnly(True)
+        detect_button.setEnabled(False)
+        load_button.setEnabled(False)
+        status.setText("Detecting participants with Luna low…")
+        def done(result, error):
+            if closed[0]:
+                return
+            text.setReadOnly(False)
+            detect_button.setEnabled(True)
+            load_button.setEnabled(True)
+            if error:
+                status.setText(f"Participant detection failed: {error}. Check speaker labels and your API key, then try again.")
+                return
+            try:
+                turns, suggestion = result
+                preview[0] = app.memory_store.import_preview(turns, timezone_name=str(datetime.now().astimezone().tzinfo))
+                selector.addItems(preview[0].participants)
+                selector.setCurrentIndex(selector.findText(suggestion) if suggestion else -1)
+                selector.setEnabled(True)
+                if suggestion:
+                    selected()
+                else:
+                    status.setText(f"{len(turns)} turns found. No confident contact match: select {contact_name}'s speaker; the other will be you. WhatsApp dates use month/day; undated text stays undated.")
+            except (ValueError, KeyError) as exc:
+                status.setText(str(exc))
+        app.run_job(lambda: detect_import(frozen, ledger=ledger, contact_names=contact_names, is_current=lambda: not closed[0]), done)
     def save():
         if preview[0] is None or selector.currentIndex() < 0:
-            status.setText("Preview the text and choose your participant first.")
+            status.setText("Detect participants and select the contact first.")
             return
         try:
-            record = app.memory_store.confirm_import(preview[0], user_name=selector.currentText(), contact_id=contact_id, source_label=source_name[0])
+            user_name = next(n for n in preview[0].participants if n != selector.currentText())
+            record = app.memory_store.confirm_import(preview[0], user_name=user_name, contact_id=contact_id, source_label=source_name[0])
             panel.close()
             app.open_review(record)
-            app.start_review_job(record, UsageLedger.product())
+            app.start_review_job(record, ledger)
         except (ValueError, KeyError, sqlite3.Error) as exc:
             app.report(exc, panel)
-    panel.body.addLayout(row(button("Open file", load), button("Preview", inspect), button("Import and generate", save, "primary")))
+    load_button = button("Open file", load)
+    detect_button = button("Detect participants", inspect)
+    save_button = button("Import and generate", save, "primary")
+    save_button.setEnabled(False)
+    text.textChanged.connect(lambda: invalidate(edited=True))
+    selector.currentIndexChanged.connect(selected)
+    panel.body.addLayout(row(load_button, detect_button, save_button))
     panel.show()
+    return panel
 
 
 class Review(Panel):
     def __init__(self, app, record_id):
         super().__init__(app, "Summary and memories", (1080, 740))
         self.app, self.store, self.record_id = app, app.memory_store, record_id
+        self.saving = False
         self.version = None
         self.statements = []
         self.memories = []
@@ -520,11 +603,13 @@ class Review(Panel):
 
     @store_errors
     def reload(self):
+        if self.saving:
+            return
         db = self.store._connection
-        version = db.execute("SELECT * FROM summary_versions WHERE record_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1", (self.record_id,)).fetchone()
+        version = self.store.summary_for_review(self.record_id)
         self.version = dict(version) if version else None
         self.statements = [dict(s) for s in self.store.summary_statements(version["id"])] if version else []
-        self.narrative.setPlainText("\n\n".join(s["content"] for s in self.statements if not s["excluded"]))
+        self.narrative.setPlainText("\n\n".join(s['content'] for s in self.statements if not s['excluded']))
         self.narrative.setPlaceholderText("No saved summary text. Generation may have returned no content, or its text was removed during review.")
         self.edit_button.setEnabled(bool(self.narrative.toPlainText()) and self.record_id not in self.app.review_running)
         record = db.execute("SELECT * FROM conversation_records WHERE id=?", (self.record_id,)).fetchone()
@@ -566,6 +651,7 @@ class Review(Panel):
             self.memory_layout.addWidget(item)
         self.memory_layout.addStretch()
         job = db.execute("SELECT state FROM review_jobs WHERE record_id=?", (self.record_id,)).fetchone()
+        unfinished = bool(job and job[0] != "complete" and db.execute("SELECT 1 FROM review_chunks WHERE record_id=?", (self.record_id,)).fetchone())
         running = self.record_id in self.app.review_running or bool(job and job[0] == "running")
         empty = not self.store.record_turns(self.record_id)
         eligible = bool(self.store.summary_turns(self.record_id, for_cloud=True))
@@ -582,6 +668,10 @@ class Review(Panel):
         self.retry_button.setVisible(self.record_id not in self.app.review_running and
             eligible and not oversized and (self.record_id in self.app.review_errors or bool(job and job[0] == "pending") or not self.narrative.toPlainText()))
         state = self.version["state"] if self.version else "No summary yet"
+        if unfinished:
+            state = "Summary unfinished. Saved sections are retained; Retry generation resumes them."
+            if not self.version:
+                self.narrative.setPlaceholderText("The full-conversation summary is not finished. Intermediate sections are saved, but are not shown as a complete summary.")
         if self.record_id in self.app.review_running:
             state = f"Generating with {MODEL_LABELS[REVIEW_MODEL]}… Your transcript is saved."
         elif self.record_id in self.app.review_errors:
@@ -623,20 +713,53 @@ class Review(Panel):
         self.app.schedule_semantic_backfill()
         self.reload()
 
+    def closeEvent(self, event):
+        if self.saving:
+            event.ignore()
+        else:
+            super().closeEvent(event)
+
+    def reject(self):
+        if not self.saving:
+            super().reject()
+
+    def save_review(self, operation, *args, **kwargs):
+        if self.saving:
+            return
+        if self.app.audio_session or self.app.starting or self.app.stopping or self.app.review_running:
+            self.app.report(ValueError("Finish the call or generation before saving this review."), self)
+            return
+        self.saving = True
+        self.status.setText("Saving review… Please wait. No generation is needed.")
+        for widget in self.findChildren(QPushButton) + self.findChildren(QCheckBox):
+            widget.setEnabled(False)
+        path = self.store.path
+        def work():
+            with MemoryStore(path, verify=False) as store:
+                # Worker only: tolerate a short competing write without stalling Qt.
+                store._connection.execute("PRAGMA busy_timeout=5000")
+                return getattr(store, operation)(*args, **kwargs)
+        def done(result, error):
+            self.saving = False
+            if error:
+                self.reload()
+                self.app.report(error, self)
+            else:
+                self.changed()
+        self.app.run_job(work, done)
+
     def review_memories(self, approve, *, all_items=False, one=None):
+        if self.saving:
+            return
         selected = [one] if one else [m for m in self.memories if m["state"] == "pending" and (all_items or self.checks[m["id"]].isChecked())]
         if not selected or not confirm(self, "Approve memories" if approve else "Reject memories",
                                        "Are you sure?" if not approve else f"Approve {len(selected)} memories? Are you sure?"):
             return
-        try:
-            self.store.review_record_proposals(self.record_id, None if all_items else [m["id"] for m in selected],
-                approve=approve, expected_pending={m["id"]: m["content"] for m in selected})
-            self.changed()
-        except (ValueError, KeyError, sqlite3.Error) as exc:
-            self.app.report(exc, self)
+        self.save_review("review_record_proposals", self.record_id, None if all_items else [m["id"] for m in selected],
+            approve=approve, expected_pending={m["id"]: m["content"] for m in selected})
 
     def approve_summary(self, *, combined=False):
-        if not self.version:
+        if self.saving or not self.version:
             return
         pending = [m for m in self.memories if m["state"] == "pending"]
         if not combined:
@@ -646,13 +769,9 @@ class Review(Panel):
         text = "Approve this summary and all pending memories?" if combined else "Approve this summary and its linked pending memories?"
         if not confirm(self, "Approve summary", text):
             return
-        try:
-            operation = self.store.approve_all_memories_and_summary if combined else self.store.approve_summary
-            operation(self.version["id"], expected_pending={r["id"]: r["content"] for r in pending},
-                      expected_statements={s["id"]: (s["content"], s["excluded"]) for s in self.statements})
-            self.changed()
-        except (ValueError, KeyError, sqlite3.Error) as exc:
-            self.app.report(exc, self)
+        operation = "approve_all_memories_and_summary" if combined else "approve_summary"
+        self.save_review(operation, self.version["id"], expected_pending={r["id"]: r["content"] for r in pending},
+                         expected_statements={s["id"]: (s["content"], s["excluded"]) for s in self.statements})
 
     def edit_summary(self):
         if not self.version or self.record_id in self.app.review_running:

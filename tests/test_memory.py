@@ -54,6 +54,54 @@ def record(store: MemoryStore, contact_id: str | None, count: int = 2) -> str:
     )
 
 
+def test_bulk_approval_relinks_and_reads_transcript_once(monkeypatch):
+    from conversation_copilot.memory import SummaryOutput, SummaryStatementInput
+    with MemoryStore(':memory:') as store:
+        contact = store.create_contact('Alex')
+        rid = record(store, contact.id)
+        output = ExtractionOutput(proposals=[MemoryProposalInput(content=f'Fact {i}', memory_type='other',
+            confidence='medium', evidence_turns=[2]) for i in range(5)])
+        analyze_record(store, rid, FakeMemoryExtractor([output]))
+        store.create_summary_draft(rid, SummaryOutput(statements=[SummaryStatementInput(section='discussed',
+            content='Facts discussed.', kind='fact', confidence='medium', evidence_turns=[2])]), expected_generation=1)
+        calls = []
+        reads = []
+        original = store._link_summary_statement
+        read = store.summary_turns
+        monkeypatch.setattr(store, 'summary_turns', lambda *a, **kw: (reads.append(1), read(*a, **kw))[1])
+        monkeypatch.setattr(store, '_link_summary_statement', lambda *a: (calls.append(a[1]), original(*a))[1])
+        pending = store.record_pending_proposals(rid)
+        store.review_record_proposals(rid, None, approve=True, expected_pending={p['id']: p['content'] for p in pending})
+        assert len(store.list_current_memories(contact.id)) == 5
+        assert len(calls) == 1, 'Bulk approval repeats the entire summary-link rebuild per memory'
+        assert len(reads) == 1
+        deps = store._connection.execute('SELECT memory_id,revision_id FROM summary_dependencies').fetchall()
+        assert len(deps) == 5
+        assert all(store.current_revision(d['memory_id'])['id'] == d['revision_id'] for d in deps)
+
+
+def test_bulk_approval_failure_rolls_back_every_memory(monkeypatch):
+    with MemoryStore(':memory:') as store:
+        contact = store.create_contact('Alex')
+        rid = record(store, contact.id)
+        analyze_record(store, rid, FakeMemoryExtractor([ExtractionOutput(proposals=[
+            MemoryProposalInput(content=f'Fact {i}', memory_type='other', confidence='medium', evidence_turns=[2])
+            for i in range(2)])]))
+        pending = store.record_pending_proposals(rid)
+        approve = store._approve_proposal
+        calls = []
+        def fail_second(*a, **kw):
+            calls.append(1)
+            if len(calls) == 2:
+                raise ValueError('simulated save failure')
+            return approve(*a, **kw)
+        monkeypatch.setattr(store, '_approve_proposal', fail_second)
+        with pytest.raises(ValueError, match='simulated'):
+            store.review_record_proposals(rid, None, approve=True, expected_pending={p['id']: p['content'] for p in pending})
+        assert not store.list_current_memories(contact.id)
+        assert len(store.record_pending_proposals(rid)) == 2
+
+
 def test_schema_reopen_foreign_keys_rollback_and_corruption(tmp_path):
     path = tmp_path / "memory.sqlite3"
     with MemoryStore(path) as store:
@@ -720,8 +768,7 @@ def test_extraction_chunks_and_cost_use_the_same_token_bound():
         for chunk in chunks
     )
     oversized = [turn(1, SpeakerRole.SELECTED_CONTACT, "x" * 20_000)]
-    with pytest.raises(ValueError, match="exceeds"):
-        extraction_chunks(oversized)
+    assert all(extraction_reservation_tokens(chunk) <= 9200 for chunk in extraction_chunks(oversized))
 
 
 def test_openai_memory_extractor_is_stateless_bounded_and_validates_output():

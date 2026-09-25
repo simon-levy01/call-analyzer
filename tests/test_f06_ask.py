@@ -5,6 +5,35 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 
+def test_approved_summary_offer_is_searchable_without_becoming_an_agreement(tmp_path):
+    from conversation_copilot.ask_memory import cloud_sources, summary_source
+    from conversation_copilot.memory import SummaryOutput, SummaryStatementInput
+    from conversation_copilot.models import ConversationTurn
+    with MemoryStore(tmp_path / 'offers.sqlite3') as store:
+        contact = store.create_contact('Alex')
+        rid = store.create_record(source_kind='call', source_label='Offers', timezone_name='UTC',
+            contact_id=contact.id, status='stopped', turns=[ConversationTurn(speaker_name='Alex',
+                speaker_role='selected_contact', source='fixture', display_order=1, content='You can call me during the event.')])
+        sid = store.create_summary_draft(rid, SummaryOutput(statements=[SummaryStatementInput(section='follow_ups',
+            content='Alex offered a call during the event.', kind='advice', confidence='high', evidence_turns=[1])]), expected_generation=1)
+        store.approve_summary(sid)
+        statement = store.summary_statements(sid)[0]['id']
+        sources, complete = cloud_sources(store,contact.id,'Could I call Alex during the event?')
+        assert complete and len(sources)==1 and sources[0].id==statement
+        assert 'not an agreement' in sources[0].kind
+        assert not store._summary_eligible(statement)  # General factual eligibility stays conservative.
+        assert store._connection.execute('SELECT 1 FROM summary_search WHERE statement_id=?',(statement,)).fetchone()
+        store.edit_summary_statement(statement,'Alex offered to talk during the event.')
+        assert 'not an agreement' in summary_source(store,statement,contact.id).kind
+        current=store.summary_statements(sid)[0]
+        edited=store.edit_review_summary(sid,current['content']+'\n\nThe offer was discussed.',
+            expected_statements={statement:(current['content'],0)})
+        unchanged=store.summary_statements(edited)[0]
+        assert unchanged['kind']=='advice' and unchanged['section']=='follow_ups' and unchanged['confidence']=='high'
+        store.delete_summary(rid)
+        assert summary_source(store,statement,contact.id) is None
+
+
 def test_cloud_history_has_dated_sources_and_automatic_sensitive_eligibility_and_freshness(tmp_path, monkeypatch):
     from conversation_copilot.ask_memory import cloud_sources, cloud_answer, CloudAskOutput
     from conversation_copilot.f06_evaluation import seed_history
