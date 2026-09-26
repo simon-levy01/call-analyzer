@@ -69,9 +69,9 @@ def test_newest_first_fill_four_and_expire_without_renewing_old_evidence():
     assert len(display.visible('social_cues'))==4
     display.tick(75)
     assert len(display.visible('social_cues'))==4
-    display.tick(93)
+    display.tick(183)
     assert [x.snapshot_id for x in display.visible('social_cues')]==[5,4]
-    display.tick(95)
+    display.tick(185)
     assert not display.visible('social_cues') and not display.visible('replies')
 
 def test_retained_cue_dismissal_reset_and_source_invalidation():
@@ -175,7 +175,9 @@ def test_combined_responses_ties_dedup_dismissal_overflow_and_retention():
     assert len(display.response_items())==3 # Overflow reply does not reappear.
     display.tick(75)
     assert len(display.response_items())==3
-    display.tick(90)
+    display.tick(179)
+    assert len(display.response_items())==3
+    display.tick(180)
     assert not display.response_items()
     update=output(2,'Explain the refund?')
     update.follow_up=[g.GuidanceCandidate(text='Could you explain the refund?',confidence='medium',turn_ids=[2])]

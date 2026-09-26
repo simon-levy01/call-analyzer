@@ -175,7 +175,7 @@ def test_guidance_stability_dismissal_expiry_and_hidden_candidates():
     assert all(item.candidate.text != "Could you clarify?" for item in display.visible("replies"))
     display.offer(update(4, "A fresh question?", 3), 14, manual=True)
     assert display.visible("replies")
-    display.tick(104)
+    display.tick(194)
     assert not display.visible("replies")
     many = update(5)
     many.replies *= 4

@@ -635,7 +635,7 @@ def test_popup_nonmodal_survives_expiry_but_not_source_deletion(window):
     window.pop_out("remember", SimpleNamespace(memory_ids=[source["revision_id"]], preference_ids=[]), "Captured appointment")
     QApplication.processEvents()
     assert QApplication.activeModalWidget() is None
-    popup = next(p for p in window.findChildren(desktop.Panel) if p.windowTitle() == "Remember")
+    popup = next(p for p in window.findChildren(desktop.Panel) if p.windowTitle() == "Related memories")
     window.invalidate_memory_context()
     assert any(l.text() == "Captured appointment" for l in popup.findChildren(desktop.QLabel))
     window.memory_store.delete_memory(source["memory_id"])
@@ -837,8 +837,8 @@ def test_silent_poll_expires_actual_cue_labels(window, monkeypatch):
     clock[0]+=timedelta(seconds=75)
     window.poll_interpretation(75)
     assert visible()
-    clock[0]+=timedelta(seconds=15)
-    window.poll_interpretation(90)
+    clock[0]+=timedelta(seconds=105)
+    window.poll_interpretation(180)
     QApplication.sendPostedEvents(None, 0)
     # Removed widgets await deferred destruction, so inspect the current layout.
     layout=window.guidance_rows['social_cues']
@@ -888,6 +888,50 @@ def test_live_ambiguous_memories_are_uncertain_candidates_not_direct_labels(wind
     assert 'uncertain' in window.memory_status_label.text()
 
 
+def test_tone_context_views_and_popup_keep_original_description(window):
+    from conversation_copilot.guidance import GuidedInterpretation
+    from PySide6.QtWidgets import QLabel
+    update=GuidedInterpretation.model_validate({'snapshot_id':1,'generation':1,'status':'updated',
+        'tones':[{'kind':'tense_negative','confidence':'medium','hypothesis':'They describe a difficult week.',
+        'evidence':{'explanation':'Explicit difficult wording.','modalities':['language'],'turn_ids':[2]}}]})
+    window.guidance_display.offer(update,0);window.render_guidance()
+    tone=window.guidance_rows['tones'].itemAt(1).widget()
+    assert tone.findChild(QLabel).text()=='Negative / tense'
+    context=window.guidance_rows['social_cues'].itemAt(1).widget()
+    assert context.findChild(QLabel).text()=='Context: They describe a difficult week.'
+    QTest.mouseClick(next(b for b in tone.findChildren(QPushButton) if b.accessibleName()=='Pop out'),Qt.LeftButton)
+    popup=next(p for p in window.findChildren(desktop.Panel) if p.windowTitle()=='Possible tones')
+    assert any('Negative / tense\n\nThey describe a difficult week.'==x.text() for x in popup.findChildren(QLabel))
+    assert not popup.isModal();popup.close()
+    QTest.mouseClick(next(b for b in context.findChildren(QPushButton) if b.accessibleName()=='Dismiss'),Qt.LeftButton)
+    assert not window.guidance_display.tone_items() and not window.guidance_display.context_items()
+    assert update.tones[0].hypothesis=='They describe a difficult week.'
+
+
+@pytest.mark.parametrize('kind,expected', [
+    ('positive_warm','Positive / warm'),('neutral_calm','Neutral / factual'),
+    ('sad_low_energy','Downbeat / sad'),('tense_negative','Negative / tense'),
+    ('energetic_high_energy','Energetic'),('emotionally_intense','Strongly expressed'),
+    ('humor','Playful / humorous'),('sarcasm','Possibly sarcastic')])
+def test_all_tone_labels_render_pop_out_and_dismiss(window,kind,expected):
+    from conversation_copilot.guidance import GuidedInterpretation
+    from PySide6.QtWidgets import QLabel
+    category='social_cues' if kind in {'humor','sarcasm'} else 'tones'
+    update=GuidedInterpretation.model_validate({'snapshot_id':1,'generation':1,'status':'updated',
+        category:[{'kind':kind,'confidence':'medium','hypothesis':'Original observation.',
+                   'evidence':{'explanation':'Explicit evidence.','modalities':['language'],'turn_ids':[2]}}]})
+    window.guidance_display.offer(update,0);window.render_guidance()
+    tone=window.guidance_rows['tones'].itemAt(1).widget()
+    assert tone.findChild(QLabel).text()==expected
+    QTest.mouseClick(next(b for b in tone.findChildren(QPushButton) if b.accessibleName()=='Pop out'),Qt.LeftButton)
+    popup=next(p for p in window.findChildren(desktop.Panel) if p.windowTitle()=='Possible tones')
+    assert any(x.text()==expected+'\n\nOriginal observation.' for x in popup.findChildren(QLabel))
+    assert not popup.isModal();popup.close()
+    QTest.mouseClick(next(b for b in tone.findChildren(QPushButton) if b.accessibleName()=='Dismiss'),Qt.LeftButton)
+    assert not window.guidance_display.tone_items() and not window.guidance_display.context_items()
+    assert getattr(update,category)[0].hypothesis=='Original observation.'
+
+
 def test_retained_cue_buttons_target_visible_item(window):
     from conversation_copilot.guidance import GuidedInterpretation
     from PySide6.QtWidgets import QLabel
@@ -899,7 +943,7 @@ def test_retained_cue_buttons_target_visible_item(window):
         window.guidance_display.offer(update,n)
     window.render_guidance();layout=window.guidance_rows['social_cues']
     assert 'Compare option 2.' in layout.itemAt(1).widget().findChild(QLabel).text()
-    older=layout.itemAt(2).widget();assert older.findChild(QLabel).text()=='Earlier: Compare option 1.'
+    older=layout.itemAt(2).widget();assert older.findChild(QLabel).text()=='Earlier: Cue: Compare option 1.'
     QTest.mouseClick(next(b for b in older.findChildren(QPushButton) if b.accessibleName()=='Dismiss'),Qt.LeftButton)
     assert [x.candidate.hypothesis for x in window.guidance_display.visible('social_cues')]==['Compare option 2.']
 

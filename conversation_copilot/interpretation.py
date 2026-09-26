@@ -1322,12 +1322,13 @@ def prepare_interpretation_request(
             else 0
         )
 
+    if preserve_transcript:
+        # Live guidance shares one total allowance across all supplied evidence.
+        # Its caller trims optional rows only when that shared ceiling is exceeded.
+        return prepared()
     while memories and memory_tokens() > MEMORY_CONTEXT_BUDGET_TOKENS:
         memories.pop()
     result = prepared()
-    if preserve_transcript:
-        # F06 budgets instructions separately; its caller bounds optional observations and total input.
-        return result
     target = target_tokens()
     while result.estimated_input_tokens > target and visual:
         visual.pop(0)

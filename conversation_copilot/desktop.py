@@ -357,8 +357,8 @@ class Desktop(QWidget):
         self.guidance_grid.setContentsMargins(0, 0, 0, 0)
         self.guidance_rows = {}
         for index, (category, title, role) in enumerate((
-            ("tones", "Possible tones", "tone"), ("social_cues", "Social cues", "social"),
-            ("replies", "Potential responses", "replies"), ("remember", "Related memories", "memory"),
+            ("tones", "Possible tones", "tone"), ("social_cues", "Cues & context", "social"),
+            ("replies", "Possible responses", "replies"), ("remember", "Related memories", "memory"),
         )):
             group, content = card(title, role)
             group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
@@ -748,6 +748,8 @@ class Desktop(QWidget):
         displayed = {category: [(category, index, item) for index, item in
                      enumerate(self.guidance_display.visible(category))] for category in self.guidance_rows}
         displayed['replies'] = self.guidance_display.response_items()
+        displayed['tones'] = self.guidance_display.tone_items()
+        displayed['social_cues'] = self.guidance_display.context_items()
         signature = repr((displayed, self.guidance_display.last_snapshot))
         if signature == self.last_guidance:
             return
@@ -763,11 +765,17 @@ class Desktop(QWidget):
             for source_category, index, wrapped in displayed[category]:
                 candidate = wrapped.candidate
                 content = candidate.hypothesis if hasattr(candidate, "hypothesis") else candidate.text
+                if category == 'tones':
+                    from .guidance import tone_label
+                    content = tone_label(candidate)
+                elif category == 'social_cues':
+                    content = ('Context: ' if source_category == 'tones' else 'Cue: ') + content
                 if (candidate.confidence == 'low' and getattr(getattr(candidate, 'evidence', candidate), 'memory_ids', [])
                         and not content.casefold().startswith(('possibly related:', 'possible connection:'))):
                     content = 'Possible connection: ' + content
                 if wrapped.snapshot_id < self.guidance_display.last_snapshot:
                     content = 'Earlier: ' + content
+                popup_content = content + ('\n\n' + candidate.hypothesis if category == 'tones' else '')
                 item = QWidget()
                 item.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
                 item.setProperty("plain", True)
@@ -778,10 +786,13 @@ class Desktop(QWidget):
                 wording.setWordWrap(True)
                 wording.setTextFormat(Qt.PlainText)
                 item_layout.addWidget(wording, 1)
-                def dismiss(c=source_category, i=index):
-                    self.guidance_display.dismiss(c, i)
+                def dismiss(c=source_category, i=index, view=category):
+                    if view == 'tones':
+                        self.guidance_display.dismiss_tone(i, c)
+                    else:
+                        self.guidance_display.dismiss(c, i)
                     self.render_guidance()
-                for caption, accessible, callback in (("↗", "Pop out", lambda c=source_category, x=candidate, t=content: self.pop_out(c, x, t)), ("×", "Dismiss", dismiss)):
+                for caption, accessible, callback in (("↗", "Pop out", lambda c=category, x=candidate, t=popup_content: self.pop_out(c, x, t)), ("×", "Dismiss", dismiss)):
                     action = button(caption, callback)
                     action.setAccessibleName(accessible)
                     action.setToolTip(accessible)
@@ -791,7 +802,9 @@ class Desktop(QWidget):
                 layout.addWidget(item)
 
     def pop_out(self, category, candidate, content):
-        title = 'Potential responses' if category in {'replies', 'follow_up'} else category.replace("_", " ").title()
+        title = {'replies': 'Possible responses', 'follow_up': 'Possible responses',
+                 'tones': 'Possible tones', 'social_cues': 'Cues & context',
+                 'remember': 'Related memories'}.get(category, category.replace('_', ' ').title())
         panel = Panel(self, title, (440, 260), modal=False)
         wording = label(content, heading=True)
         panel.body.addWidget(wording, 1)

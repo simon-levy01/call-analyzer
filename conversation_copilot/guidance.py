@@ -22,8 +22,19 @@ from .interpretation import (
 
 CATEGORIES = ("replies", "remember", "follow_up")
 LIVE_CATEGORIES = ("tones", "social_cues", *CATEGORIES)
-GUIDANCE_RETAIN_SECONDS = 90.0
-GUIDANCE_INPUT_LIMIT = 5_000  # Four-category-item schema plus explicit roles and source citations.
+GUIDANCE_RETAIN_SECONDS = 180.0
+GUIDANCE_INPUT_LIMIT = 6_000  # User-approved shared input allowance, including schema and instructions.
+
+TONE_LABELS = {
+    'positive_warm': 'Positive / warm', 'neutral_calm': 'Neutral / factual',
+    'sad_low_energy': 'Downbeat / sad', 'tense_negative': 'Negative / tense',
+    'energetic_high_energy': 'Energetic', 'emotionally_intense': 'Strongly expressed',
+    'humor': 'Playful / humorous', 'sarcasm': 'Possibly sarcastic',
+}
+
+
+def tone_label(candidate):
+    return TONE_LABELS.get(candidate.kind.value, 'Possible tone')
 
 GUIDANCE_INSTRUCTIONS = """
 Replies, remember and follow_up are optional; empty lists are valid. Replies are alternatives for the USER, never automatic messages.
@@ -372,6 +383,42 @@ class GuidanceDisplay:
             if fingerprint not in seen:
                 result.append(entry)
                 seen.add(fingerprint)
+            if len(result) == LIVE_CATEGORY_LIMIT:
+                break
+        return result
+
+    def tone_items(self):
+        entries = [(key, index, item) for key in ('tones', 'social_cues')
+                   for index, item in enumerate(self.items[key])
+                   if key == 'tones' or item.candidate.kind.value in {'humor', 'sarcasm'}]
+        entries.sort(key=lambda entry: (-entry[2].supported_at, entry[0] != 'tones', entry[1]))
+        result, seen = [], set()
+        for entry in entries:
+            label = tone_label(entry[2].candidate)
+            if label not in seen:
+                result.append(entry)
+                seen.add(label)
+        return result[:LIVE_CATEGORY_LIMIT]
+
+    def dismiss_tone(self, index, category='tones'):
+        label = tone_label(self.items[category][index].candidate)
+        # One visible label represents all currently retained observations of it.
+        for position in range(len(self.items[category]) - 1, -1, -1):
+            if tone_label(self.items[category][position].candidate) == label:
+                self.dismiss(category, position)
+
+    def context_items(self):
+        # These retain their original type/evidence; tone descriptions are context,
+        # not newly validated SocialCue objects. Existing cues win equal-age ties.
+        entries = [(key, index, item) for key in ('social_cues', 'tones')
+                   for index, item in enumerate(self.items[key])]
+        entries.sort(key=lambda entry: (-entry[2].supported_at, entry[0] == 'tones', entry[1]))
+        result, seen = [], set()
+        for entry in entries:
+            meaning = self.fingerprint('social_cues', entry[2].candidate)
+            if meaning not in seen:
+                result.append(entry)
+                seen.add(meaning)
             if len(result) == LIVE_CATEGORY_LIMIT:
                 break
         return result

@@ -57,6 +57,19 @@ def test_legacy_turn_review_preserves_deleted_turns_and_partial_summary(tmp_path
         assert [t.display_order for t in store.summary_turns(record)] == [2,3]
 
 
+def test_live_guidance_shares_memory_allowance(monkeypatch):
+    from conversation_copilot import interpretation
+    snapshot = EvaluationScenario('shared','f06','Tell me more.','The appointment is Tuesday.').snapshot('all')
+    memory = RetrievedMemoryContext(memory_id='m', revision_id='r', excerpt='Appointment on Tuesday.',
+        memory_type='event_date', confidence='high', sensitivity_safe=True, rank=1, relevance='lexical')
+    snapshot = snapshot.model_copy(update={'memories': [memory]})
+    monkeypatch.setattr(interpretation, 'MEMORY_CONTEXT_BUDGET_TOKENS', 1)
+    live = interpretation.prepare_interpretation_request(snapshot, preserve_transcript=True)
+    legacy = interpretation.prepare_interpretation_request(snapshot)
+    assert len(json.loads(live.input_text)['m']) == 1
+    assert not json.loads(legacy.input_text).get('m')
+
+
 def test_guidance_boundary_candidate_filter_and_distinct_dismissals(monkeypatch):
     from conversation_copilot import guidance
     snapshot = EvaluationScenario('boundary','f06','Could we review the appointment plan? '*12,'The appointment is on Tuesday at three. '*12).snapshot('all')
