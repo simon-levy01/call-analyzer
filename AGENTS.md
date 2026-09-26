@@ -1,5 +1,17 @@
 # Project session instructions
 
+## Final prompt selection and closeout — 26 September2026
+
+User explicitly chose the FIRST/current prompt after the70-turn comparison and authorized commit/push, considering this step done. It is already active in conversation_copilot/guidance.py; keep experimental second-tone helper evaluation-only. No production rewrite needed. Publish the comparison reports and closeout on main; private build logs/ledgers and unrelated PDFs remain local. Same evaluation spend$0.16251744/$0.30, no further inference. User will run personal demos in the next step; this does not claim those demos, broader F10 acceptance or Mac support are complete. Earlier pending-adoption/no-publication entries describe historical states.
+
+## Fresh paired70-turn comparison — 26 September2026
+
+User extended40 to70 turns; frozen current vs second-tone/ASR candidate, fresh Luna5.6low24 pairs/48 answers. First30 preserved,18 appended, no retries/pending. New$0.05645636; same build/tone-coverage-20260926-v4/ledger.json now **$0.16251744/$0.30**,126 successes. Raw tones25→23, UI two-tone time33.98→65.72%; matched-arrival37.54→56.63%. Both100% nonempty after startup; more retained warmth, not more generation. Candidate reply partial-or-better52.6% versus73.7%. Every54/40 wording reviewed, budget/input/Qt/assessment audits pass. Candidate NOT promoted; product/main unchanged, no commit/push or automatic repeat. See docs/TONE-PAIR70-20260926.md.
+
+## User-requested frozen prompt transfer — 26 September 2026
+
+User liked experiment and requested another log before deciding on adoption. Unchanged candidate tested full88 turns/31 Luna5.6low replies, **$0.04088409 new**, same build/tone-coverage-20260926-v4/ledger.json now **$0.10606108/$0.30**, prior47 rows intact, no pending/retries; old31 baseline outputs rerendered/reused. Tone/cue/response nonempty82.6/82.6/88.7%; job reminder27.0s before keyword58.7s. ASR island humor still misread; meta-instruction response and stale guidance remain.61 wordings15 useful/29 partial/17 bad versus baseline72/23/35/14. Raw tones31→23, two-tone requests5→1. Candidate NOT promoted; wait for explicit adoption. See docs/TONE-TRANSFER-20260926.md.15 targeted tests and provenance/budget/UI audit pass. Previous closeout pushed main/experiment branch3ef7d2c, verified remote; this follow-up not published. No automatic repeat/reset.
+
 ## User closeout — 26 September 2026
 
 User explicitly considers the tone-label/coverage work done and authorizes commit/push. Keep working product prompt from0ea3584; rejected second-tone/ASR candidate is saved only in evaluation tooling, not promoted. Preserve experiment branch and publish checkpoint/results on main. This accepts this iteration with its documented quality limitations, not all F10, Mac support or unrelated release gates. No more inference/retries or budget resets. Private build/evaluation-history evidence remains local and ignored; unrelated CV PDFs excluded. Prior no-publication entries are historical.

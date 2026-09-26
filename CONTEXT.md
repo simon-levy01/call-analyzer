@@ -1,5 +1,11 @@
 # Conversation Copilot
 
+**September26 final selection:** User selected the first/current prompt and considers this step done, authorizing commit/push. Verified already active; experimental second prompt stays evaluation-only. Personal demos are the user's next step, not a completed acceptance test. [Final comparison](docs/TONE-PAIR70-20260926.md). No new API spend; cumulative$0.16251744/$0.30 preserved.
+
+**September26 fresh70-turn paired comparison:**48/48 Luna5.6low answers, preserved first40 and appended only remaining checkpoints. Raw tones25→23 but actual Qt two-tone occupancy33.98→65.72%, matched timing37.54→56.63%; both always nonempty after startup. More older warmth, weaker candidate replies. Same cumulative$0.16251744/$0.30; no pending/retry or adoption. [Report](docs/TONE-PAIR70-20260926.md). Product unchanged; no further automatic inference/publication.
+
+**September26 requested second-log transfer:** User reopened evaluation, not adoption. Frozen candidate31/31 answers on88-turn log,$0.04088409 new; same cumulative$0.10606108/$0.30. Early job memory preserved; ASR-humor error persists, raw tones fall31→23 and response useful share falls. Candidate remains isolated, product/main unchanged. [Transfer report](docs/TONE-TRANSFER-20260926.md). Prior closeout main and branch3ef7d2c successfully pushed; no further automatic inference.
+
 **September26 user closeout:** Tone-label/coverage iteration accepted as done; commit/push explicitly authorized. Keep working prompt and humor/sarcasm display, preserve rejected candidate as evaluation-only evidence. No additional inference or unrelated feature acceptance. Private logs stay local; next feature requires a separate request.
 
 **September26 second-tone experiment:** Working version saved to local main0ea3584; isolated experiment branch.47 fresh Luna5.6low requests,$0.06517699/new$0.30 cap, no retries/pending. More retained tone slots but fewer raw tones and an unsupported new intensity label; **keep main prompt**, candidate not promoted. Tones/cues/responses nonempty93%; first-display usefulness remains mixed.446 tests and Opus5.5high design review. [Full report](docs/TONE-COVERAGE-20260926.md). Extra experimental prompt tokens must not reduce baseline input allowance; billing/cap still apply. No push or further inference authorized.
