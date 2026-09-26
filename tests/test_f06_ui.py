@@ -90,6 +90,7 @@ def test_import_detect_select_edit_and_save(window, monkeypatch):
     assert save.isEnabled()
     editor.appendPlainText('Me: Good luck!')
     assert not save.isEnabled() and selector.count()==0
+    assert not any('Suggested contact:' in item.text() for item in panel.findChildren(desktop.QLabel))
     click(panel,'Detect participants')
     wait_for(lambda: selector.isEnabled())
     selector.setCurrentText('Alex')
@@ -209,14 +210,18 @@ def test_memories_ask_edit_delete_and_large_editor(window, monkeypatch):
 
 
 def test_contact_information_history_and_summary_quotes(window, monkeypatch):
-    from conversation_copilot.ask_memory import AskResult, summary_source
+    from conversation_copilot.ask_memory import CloudAskOutput, summary_source
+    from conversation_copilot import interpretation
     from PySide6.QtWidgets import QLabel
     rid = seed_review(window)
     sid = window.memory_store.summary_for_review(rid)['id']
     window.memory_store.approve_summary(sid)
     statement = window.memory_store.summary_statements(sid)[0]
     source = summary_source(window.memory_store, statement['id'], window.selected_contact_id)
-    monkeypatch.setattr(desktop_data, 'cloud_answer', lambda *_a, **_k: AskResult('answered', 'They discussed the book.', (source,)))
+    def request(schema, payload, instructions, **kwargs):
+        assert source.id in {item['id'] for item in payload['evidence']}
+        return CloudAskOutput(status='answered', answer='They discussed the book.', source_ids=[source.id]), SimpleNamespace(dollars=0)
+    monkeypatch.setattr(interpretation, 'f06_structured_request', request)
     assert not any(b.text() == 'History' for b in window.findChildren(QPushButton))
     click(window, 'Contact information')
     panel = window.findChild(desktop_data.Memories)
@@ -225,6 +230,10 @@ def test_contact_information_history_and_summary_quotes(window, monkeypatch):
     QTest.keyClick(panel.question, Qt.Key_Return)
     wait_for(lambda: not panel.running)
     assert any(w.text() == f'“{source.content}”' for w in panel.findChildren(QLabel))
+    click(panel, 'View conversation')
+    assert window.review_dialogs[rid].isVisible() and not window.review_running
+    window.review_dialogs[rid].close()
+    QApplication.processEvents()
     click(panel, 'Conversation history')
     history = panel.findChild(desktop_data.History)
     assert history.isVisible() and history.parent() is panel
@@ -398,7 +407,7 @@ def test_whole_summary_edit_noop_regenerate_retry_and_delete(window, monkeypatch
     monkeypatch.setattr(desktop_data, "confirm", lambda _p, _t, message, **_k: confirmations.append(message) or True)
     panel.review_memories(False, all_items=True)
     wait_for(lambda: not panel.saving)
-    assert confirmations == ["Are you sure?"]
+    assert confirmations == ["Remove 1 pending memory? Approved memories will remain."]
     assert not store.record_pending_proposals(record)
     assert not store._connection.execute("SELECT 1 FROM memory_proposals WHERE id=?", (pending[0]["id"],)).fetchone()
     assert store.summary_turns(record)  # Rejecting a suggestion is not transcript deletion.
@@ -587,6 +596,7 @@ def test_fake_call_start_stop_flush_and_preview(window, monkeypatch):
     assert generated == [record]
     assert window.memory_store.record_turns(record)[-1].content == "Final words survive shutdown."
     assert window.pages.currentWidget() is window.home
+    assert 'stopped' in window.face_preview.text().lower()
 
     # A finalization failure must still return Home and retain a recovery path.
     import sqlite3
@@ -1014,3 +1024,233 @@ def test_older_analysis_cannot_use_newer_snapshot_memory_confidence(window, monk
     assert not window.stable_interpretation.memory_possibilities
     assert 'uncertain' in window.memory_status_label.text()
     window.interpretation_coordinator=None
+
+
+def test_f08_editor_keeps_blank_input_and_unchanged_save_is_noop(window):
+    observed = []
+    def blank_then_valid():
+        dialog = QApplication.activeModalWidget()
+        field = dialog.findChild(QPlainTextEdit)
+        field.setPlainText('   ')
+        click(dialog, 'Save')
+        observed.append(dialog.isVisible())
+        observed.append(any('Enter text' in x.text() for x in dialog.findChildren(desktop.QLabel)))
+        field.setPlainText('A corrected memory.')
+        click(dialog, 'Save')
+    QTimer.singleShot(0, blank_then_valid)
+    assert desktop.edit_text(window, 'Edit memory', 'Original memory.') == 'A corrected memory.'
+    assert observed == [True, True]
+    QTimer.singleShot(0, lambda: click(QApplication.activeModalWidget(), 'Save'))
+    assert desktop.edit_text(window, 'Edit memory', 'Unchanged memory.') is None
+    QTimer.singleShot(0, lambda: click(QApplication.activeModalWidget(), 'Save'))
+    assert desktop.edit_text(window, 'Edit memory', 'Keep\u00a0nonbreaking\u2028text.') is None
+
+
+def test_f08_import_disclosure_and_shutdown_cancel(window, monkeypatch):
+    panel = desktop_data.import_chat(window)
+    panel.findChild(QPlainTextEdit).setPlainText('Me: Hello\nAlex: Keep this unsaved import.')
+    assert any('20 shortened lines' in x.text() for x in panel.findChildren(desktop.QLabel))
+    monkeypatch.setattr(desktop_data, 'confirm', lambda *_a, **_k: False)
+    assert not window.close()
+    assert window.isVisible() and panel.isVisible() and window.timer.isActive()
+    assert not window.closed and not window.closing
+    assert window.memory_store.get_contact(window.selected_contact_id)
+    monkeypatch.setattr(desktop_data, 'confirm', lambda *_a, **_k: True)
+    panel.close()
+
+
+def test_f08_long_combo_keeps_popup_and_list_width_together(window):
+    selector = desktop.combo(['Long contact name ' * 30])
+    selector.show()
+    try:
+        for width in (300, 900):
+            selector.resize(width, 40)
+            selector.showPopup()
+            QApplication.processEvents()
+            popup = selector.view().window()
+            assert popup.width() <= min(selector.screen().availableGeometry().width(), max(width, 640))
+            assert selector.view().width() >= popup.width() - 20
+            selector.hidePopup()
+    finally:
+        selector.close()
+
+
+def test_f08_undated_transcript_and_local_time(window):
+    record = window.memory_store.create_record(source_kind='import', source_label='Undated fixture',
+        timezone_name='UTC', contact_id=window.selected_contact_id, status='imported',
+        turns=[ConversationTurn(speaker_name='Alex', speaker_role=SpeakerRole.SELECTED_CONTACT,
+               timestamp=None, source='text_import', content='Keep the original words.', display_order=1)])
+    panel = desktop_data.Review(window, record)
+    panel.show()
+    panel.view_transcript()
+    transcript = QApplication.activeModalWidget().findChild(QPlainTextEdit).toPlainText()
+    assert 'Date unavailable · Alex: Keep the original words.' == transcript
+    stamp = datetime(2026, 9, 26, 14, 13, 24, 123456, tzinfo=timezone.utc)
+    rendered = desktop.display_time(stamp)
+    assert rendered == stamp.astimezone().isoformat(sep=' ', timespec='seconds')
+    assert '123456' not in rendered
+
+
+def test_f08_history_refreshes_after_review_without_losing_selection(window):
+    record = seed_review(window)
+    with window.memory_store.transaction() as db:
+        db.execute("UPDATE conversation_records SET analysis_state='pending' WHERE id=?", (record,))
+    history = desktop_data.History(window, window.selected_contact_id)
+    history.show()
+    history.listing.setCurrentRow(next(i for i, r in enumerate(history.records) if r['id'] == record))
+    assert 'Summary: draft' in history.listing.currentItem().text()
+    history.review()
+    panel = window.review_dialogs[record]
+    panel.approve_summary(combined=True)
+    wait_for(lambda: not panel.saving)
+    panel.close()
+    QApplication.processEvents()
+    assert history.selected()['id'] == record
+    assert 'Summary: approved' in history.listing.currentItem().text()
+
+
+def test_f08_import_opens_real_review(window, monkeypatch):
+    from conversation_copilot import import_transcript as imp
+    monkeypatch.setattr(imp, 'f06_structured_request', lambda *a, **k:
+        (imp.Participants(names=['Me', 'Alex'], suggested_contact='Alex'), None))
+    generated = []
+    monkeypatch.setattr(window, 'start_review_job', lambda rid, ledger: generated.append(rid))
+    panel = desktop_data.import_chat(window)
+    panel.findChild(QPlainTextEdit).setPlainText('Me: Hello\nAlex: Bring the notebook.')
+    click(panel, 'Detect participants')
+    wait_for(lambda: panel.findChild(desktop.QComboBox).isEnabled())
+    click(panel, 'Import and generate')
+    assert len(generated) == 1
+    assert window.review_dialogs[generated[0]].isVisible()
+    assert not any(p.windowTitle() == 'Import text' for p in window.findChildren(QDialog))
+
+
+def test_f08_import_discard_can_be_cancelled(window, monkeypatch):
+    panel = desktop_data.import_chat(window)
+    panel.findChild(QPlainTextEdit).setPlainText('Me: Hello\nAlex: Unsaved text.')
+    monkeypatch.setattr(desktop_data, 'confirm', lambda *_a, **_k: False)
+    panel.close()
+    assert panel.isVisible() and 'Unsaved text.' in panel.findChild(QPlainTextEdit).toPlainText()
+    monkeypatch.setattr(desktop_data, 'confirm', lambda *_a, **_k: True)
+    panel.close()
+
+
+def test_f08_validation_error_does_not_expose_input_or_internal_link(window, monkeypatch):
+    from conversation_copilot import import_transcript as imp
+    import json
+    exported = json.dumps(window.memory_store.export_json(contact_id=window.selected_contact_id, all_data=False))
+    requests = []
+    def malformed_response(schema, payload, *args, **kwargs):
+        requests.append(payload)
+        return schema(names=['private fixture text'] * 9), None
+    monkeypatch.setattr(imp, 'f06_structured_request', malformed_response)
+    panel = desktop_data.import_chat(window)
+    editor = panel.findChild(QPlainTextEdit)
+    editor.setPlainText(exported)
+    click(panel, 'Detect participants')
+    wait_for(lambda: not editor.isReadOnly())
+    assert requests and requests[0]['lines'] == imp.participant_sample(exported)
+    text = ' '.join(x.text() for x in panel.findChildren(desktop.QLabel))
+    assert 'could not be validated' in text
+    assert 'private fixture text' not in text and 'pydantic' not in text and 'again..' not in text
+    assert not next(b for b in panel.findChildren(QPushButton) if b.text() == 'Import and generate').isEnabled()
+
+
+def test_f08_transferred_memory_is_labelled_and_not_retrievable(window):
+    other = window.memory_store.create_contact('F08 other')
+    identifier = window.memory_store.create_memory(other.id, 'F08 other likes sailing.')
+    window.memory_store.merge_contacts(window.selected_contact_id, other.id)
+    panel = desktop_data.Memories(window, window.selected_contact_id)
+    assert any('Transferred memory' in x.text() for x in panel.findChildren(desktop.QLabel))
+    assert identifier not in [r.memory_id for r in window.memory_store.retrieve(window.selected_contact_id, 'sailing').matches]
+
+
+def test_f08_duplicate_contact_requires_disambiguation(window, monkeypatch):
+    errors = []
+    monkeypatch.setattr(window, 'report', lambda error, *_: errors.append(str(error)))
+    contact = window.memory_store.get_contact(window.selected_contact_id)
+    before = len(window.memory_store.list_contacts())
+    window.create_contact()
+    panel = QApplication.activeModalWidget()
+    fields = panel.findChildren(QLineEdit)
+    fields[0].setText(contact.display_name.upper())
+    fields[1].setText(contact.disambiguator or '')
+    click(panel, 'Create')
+    assert errors and 'already exists' in errors[-1]
+    assert len(window.memory_store.list_contacts()) == before and panel.isVisible()
+    fields[1].setText('Another person')
+    click(panel, 'Create')
+    assert len(window.memory_store.list_contacts()) == before + 1
+
+
+def test_f08_alias_duplicate_and_shared_alias_confirmation(window, monkeypatch):
+    errors = []
+    monkeypatch.setattr(window, 'report', lambda error, *_: errors.append(str(error)))
+    panel = desktop_data.Memories(window, window.selected_contact_id)
+    panel.show()
+    panel.aliases()
+    aliases = QApplication.activeModalWidget()
+    name = window.memory_store.get_contact(window.selected_contact_id).display_name
+    monkeypatch.setattr(desktop_data, 'edit_text', lambda *_a, **_k: name.upper())
+    click(aliases, 'Add')
+    assert errors and 'already belongs' in errors[-1]
+    other = window.memory_store.create_contact('Shared F08 name')
+    monkeypatch.setattr(desktop_data, 'edit_text', lambda *_a, **_k: other.display_name)
+    monkeypatch.setattr(desktop_data, 'confirm', lambda *_a, **_k: False)
+    click(aliases, 'Add')
+    assert not any(r['spelling'] == other.display_name for r in window.memory_store.list_aliases(window.selected_contact_id))
+    monkeypatch.setattr(desktop_data, 'confirm', lambda *_a, **_k: True)
+    click(aliases, 'Add')
+    with pytest.raises(memory.AmbiguousContact):
+        window.memory_store.resolve_contact(other.display_name)
+
+
+def test_f08_guidance_rebuild_does_not_focus_end_call(window):
+    from conversation_copilot.guidance import GuidedInterpretation
+    window.pages.setCurrentWidget(window.live)
+    update = GuidedInterpretation.model_validate({'snapshot_id':1, 'generation':1, 'status':'updated',
+        'tones':[{'kind':'neutral_calm', 'confidence':'medium', 'hypothesis':'A factual plan.',
+                  'evidence':{'explanation':'A stated plan.', 'modalities':['language'], 'turn_ids':[1]}}]})
+    window.guidance_display.offer(update, 0)
+    window.render_guidance()
+    action = next(b for b in window.guidance_rows['tones'].itemAt(1).widget().findChildren(QPushButton)
+                  if b.accessibleName() == 'Dismiss')
+    window.activateWindow()
+    action.setFocus()
+    ended = []
+    window.stop_button.clicked.connect(lambda: ended.append(True))
+    QTest.mouseClick(action, Qt.LeftButton)
+    QApplication.processEvents()
+    assert QApplication.focusWidget() is not window.stop_button
+    QTest.keyClick(QApplication.focusWidget(), Qt.Key_Space)
+    assert not ended
+    assert not window.guidance_display.tone_items() and not window.guidance_display.context_items()
+
+
+def test_f08_retained_memory_status_matches_visible_guidance(window):
+    from conversation_copilot.interpretation import RetrievedMemoryContext
+    context = RetrievedMemoryContext(memory_id='fixture-memory', revision_id='fixture-revision',
+        excerpt='A previously approved appointment.', memory_type='other', confidence='high',
+        sensitivity_safe=False, rank=1, relevance='lexical')
+    window.stable_interpretation.offer_memory_possibilities([context], 0)
+    window.guidance_display.offer_local_remember([context], 1, 0)
+    window.poll_interpretation(30)
+    assert window.guidance_display.visible('remember')
+    assert 'Showing 1 retained memory' in window.memory_status_label.text()
+
+
+def test_f08_empty_actions_and_export_cancel_have_current_feedback(window, monkeypatch):
+    ready(window)
+    assert window.audio_status_label.text() == 'Both audio devices selected.'
+    window.microphone_box.setCurrentIndex(-1)
+    assert 'Choose both' in window.audio_status_label.text()
+    panel = desktop_data.Memories(window, window.selected_contact_id)
+    panel.ask()
+    assert panel.status.text() == 'Enter a question first.'
+    panel.status.setText('Exported.')
+    monkeypatch.setattr(desktop_data.QFileDialog, 'getSaveFileName', lambda *_a, **_k: ('', ''))
+    panel.export()
+    assert panel.status.text().startswith('Export cancelled.')
+    review = desktop_data.Review(window, seed_review(window))
+    review.review_memories(True)
+    assert review.status.text() == 'Select pending memories first.'

@@ -9,6 +9,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from pydantic import ValidationError
 
 from PySide6.QtCore import Qt, QTimer, QSettings
 from PySide6.QtGui import QIcon, QImage, QPixmap
@@ -21,7 +22,7 @@ from PySide6.QtWidgets import (
 from . import test_log
 from .models import conversation_turn_from_audio as _conversation_turn_from_audio
 from .models import vocal_observation_from_audio as _vocal_observation_from_audio
-from .memory import MemoryStore, memory_retrieval_inputs, memory_semantic_input
+from .memory import MemoryStore, memory_retrieval_inputs, memory_semantic_input, normalize_alias
 from .models import SpeakerRole
 from .interpretation import (
     CoordinatorEventKind, InterpretationAuthenticationUnavailable, InterpretationConfidence,
@@ -48,6 +49,19 @@ def label(text="", *, heading=False):
     if heading:
         widget.setProperty("heading", True)
     return widget
+
+
+def display_time(value):
+    if not value:
+        return "Date unavailable"
+    stamp = datetime.fromisoformat(value) if isinstance(value, str) else value
+    return stamp.astimezone().isoformat(sep=" ", timespec="seconds")
+
+
+def display_error(error):
+    if isinstance(error, ValidationError):
+        return "The input or response could not be validated. Check the input and try again."
+    return str(error)
 
 
 def button(text, callback, role=""):
@@ -103,8 +117,15 @@ def scroll(widget):
     return area
 
 
+class ComboBox(QComboBox):
+    def showPopup(self):
+        super().showPopup()
+        popup = self.view().window()
+        popup.resize(min(popup.width(), self.screen().availableGeometry().width(), max(self.width(), 640)), popup.height())
+
+
 def combo(items=()):
-    widget = QComboBox()
+    widget = ComboBox()
     widget.addItems(list(items))
     widget.setMinimumHeight(40)
     widget.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
@@ -150,14 +171,24 @@ def edit_text(parent, title, initial="", *, multiline=True, prompt=""):
     if prompt:
         dialog.body.addWidget(label(prompt))
     field = QPlainTextEdit(initial) if multiline else QLineEdit(initial)
+    initial_display = field.toPlainText() if multiline else field.text()
     field.setAccessibleName(title)
     dialog.body.addWidget(field, 1)
-    dialog.body.addLayout(row(1, button("Cancel", dialog.reject), button("Save", dialog.accept, "primary")))
+    status = label()
+    dialog.body.addWidget(status)
+    def save():
+        value = field.toPlainText() if multiline else field.text()
+        if not value.strip():
+            status.setText("Enter text before saving.")
+            field.setFocus()
+            return
+        dialog.accept()
+    dialog.body.addLayout(row(1, button("Cancel", dialog.reject), button("Save", save, "primary")))
     field.setFocus()
     accepted = dialog.exec() == QDialog.Accepted
     value = field.toPlainText() if multiline else field.text()
     dialog.deleteLater()
-    return value if accepted else None
+    return value if accepted and value != initial_display else None
 
 
 class Desktop(QWidget):
@@ -365,7 +396,9 @@ class Desktop(QWidget):
             content.setAlignment(Qt.AlignTop)
             self.guidance_rows[category] = content
             self.guidance_grid.addWidget(group, index // 2, index % 2)
-        layout.addWidget(scroll(body), 1)
+        self.guidance_scroll = scroll(body)
+        self.guidance_scroll.setFocusPolicy(Qt.StrongFocus)
+        layout.addWidget(self.guidance_scroll, 1)
         layout.addWidget(self.memory_status_label)
         self.memory_status_label.show()
         self.switch_button = button("Switch face", self.switch, "social")
@@ -398,13 +431,14 @@ class Desktop(QWidget):
         threading.Thread(target=run, daemon=True, name="desktop-work").start()
 
     def report(self, error, parent=None):
-        QMessageBox.warning(parent or self, "Action unavailable", str(error))
+        QMessageBox.warning(parent or self, "Action unavailable", display_error(error))
 
     def refresh_contacts(self):
         self.contact_box.blockSignals(True)
         self.contact_box.clear()
         for contact in self.memory_store.list_contacts():
             self.contact_box.addItem(contact.label, contact.id)
+            self.contact_box.setItemData(self.contact_box.count() - 1, contact.label, Qt.ToolTipRole)
         self.contact_box.setCurrentIndex(self.contact_box.findData(self.selected_contact_id))
         self.contact_box.blockSignals(False)
 
@@ -430,6 +464,10 @@ class Desktop(QWidget):
         panel.body.addWidget(detail)
         def save():
             try:
+                for saved in self.memory_store._connection.execute("SELECT display_name,disambiguator FROM contacts"):
+                    if (normalize_alias(saved[0]) == normalize_alias(name.text())
+                            and normalize_alias(saved[1] or "") == normalize_alias(detail.text())):
+                        raise ValueError("This contact already exists. Select it, or add a different detail to distinguish another person.")
                 contact = self.memory_store.create_contact(name.text().strip(), detail.text().strip() or None,
                     timezone_name=str(datetime.now().astimezone().tzinfo))
                 self.selected_contact_id, self.selected_contact_label = contact.id, contact.label
@@ -467,6 +505,9 @@ class Desktop(QWidget):
         self.start_button.setEnabled(not missing and not active and not self.discovery_running and not self.preview_loading)
         self.ready_text.setText("Call in progress" if active else "Checking devices…" if self.discovery_running else "Preparing face preview…" if self.preview_loading else
             ("Choose or fix: " + ", ".join(missing) if missing else "✓  Everything is ready for your call"))
+        if not self.discovery_running and self.audio_catalog:
+            chosen = self.microphone_box.currentIndex() >= 0 and self.playback_box.currentIndex() >= 0
+            self.audio_status_label.setText(self.audio_runtime_error or ("Both audio devices selected." if chosen else "Choose both devices explicitly."))
 
     def update_cost_estimate(self, *_):
         amount = ten_minute_call_estimate(self.selected_live_model())
@@ -693,6 +734,7 @@ class Desktop(QWidget):
             if audio:
                 self.drain_audio_results(audio)
             self.audio_session = self.session = None
+            self.face_preview.setText("Preview stopped. Select Preview face to try again.")
             self.stopping = False
             self.contact_box.setEnabled(True)
             self.model_box.setEnabled(True)
@@ -754,6 +796,9 @@ class Desktop(QWidget):
         if signature == self.last_guidance:
             return
         self.last_guidance = signature
+        focused = QApplication.focusWidget()
+        if focused and self.guidance_scroll.isAncestorOf(focused):
+            self.guidance_scroll.setFocus(Qt.OtherFocusReason)
         for category, layout in self.guidance_rows.items():
             while layout.count() > 1:
                 item = layout.takeAt(1)
@@ -830,7 +875,7 @@ class Desktop(QWidget):
             try:
                 if not current_sources():
                     raise ValueError("Source changed or was deleted.")
-                lines = [f"{turn.timestamp} · {turn.speaker_name}: {turn.content}" for turn in captured_turns]
+                lines = [f"{display_time(turn.timestamp)} · {turn.speaker_name}: {turn.content}" for turn in captured_turns]
                 for memory in self.memory_store.list_current_memories(captured_contact):
                     if memory["revision_id"] in revisions:
                         lines.append(memory["content"])
@@ -870,7 +915,7 @@ class Desktop(QWidget):
             bar = box.verticalScrollBar()
             follow = bar.value() >= bar.maximum() - 2
             position = bar.value()
-            box.appendPlainText("\n".join(f"{t.timestamp:%H:%M:%S} · {t.speaker_name}: {t.content}" for t in self.turns[shown[0]:]))
+            box.appendPlainText("\n".join(f"{display_time(t.timestamp)} · {t.speaker_name}: {t.content}" for t in self.turns[shown[0]:]))
             shown[0] = len(self.turns)
             bar.setValue(bar.maximum() if follow else position)
         timer = QTimer(panel)
@@ -926,11 +971,12 @@ class Desktop(QWidget):
         existing = self.review_dialogs.get(record_id)
         if existing:
             existing.raise_()
-            return
+            return existing
         panel = Review(self, record_id)
         self.review_dialogs[record_id] = panel
         panel.destroyed.connect(lambda: self.review_dialogs.pop(record_id, None))
         panel.show()
+        return panel
 
     def start_review_job(self, record_id, ledger):
         if not self.memory_store.summary_turns(record_id, for_cloud=True):
@@ -955,7 +1001,7 @@ class Desktop(QWidget):
         def done(result, error):
             self.review_running.discard(record_id)
             if error:
-                self.review_errors[record_id] = str(error)
+                self.review_errors[record_id] = display_error(error)
             panel = self.review_dialogs.get(record_id)
             if panel:
                 panel.reload()
@@ -1043,11 +1089,15 @@ class Desktop(QWidget):
             self.closing = False
             event.ignore()
             return
+        for panel in self.findChildren(QDialog):
+            panel.close()
+        if any(panel.isVisible() for panel in self.findChildren(QDialog)):
+            self.closed = self.closing = False
+            event.ignore()
+            return
         self.timer.stop()
         for timer in self.findChildren(QTimer):
             timer.stop()
-        for panel in self.findChildren(QDialog):
-            panel.close()
         if self.audio_catalog:
             self.audio_catalog.close()
         self.memory_store.close()
@@ -1254,12 +1304,12 @@ class Desktop(QWidget):
                     self.memory_status_label.setText('Checking possible memory connections — identity is uncertain')
                 elif snapshot.memories:
                     suffix = '' if semantic_available else ' · indirect recall reduced'
-                    shown = len(self.stable_interpretation.memory_possibilities)
+                    shown = len(self.guidance_display.visible('remember'))
                     self.memory_status_label.setText(f'Checking {len(snapshot.memories)} candidate memories for relevance · {shown} displayed{suffix}')
-                elif self.stable_interpretation.memory_possibilities:
-                    self.memory_status_label.setText(f'Showing {len(self.stable_interpretation.memory_possibilities)} approved memory context item(s) · recent match retained briefly')
+                elif self.guidance_display.visible('remember'):
+                    self.memory_status_label.setText(f'Showing {len(self.guidance_display.visible("remember"))} retained memory suggestion(s)')
                 else:
-                    self.memory_status_label.setText('No eligible approved memory matched this snapshot' if semantic_available else 'No lexical match — indirect recall reduced; run --install-memory-model')
+                    self.memory_status_label.setText('No eligible approved memory matched this snapshot' if semantic_available else 'No direct match. Indirect recall is unavailable; check the memory model setup in the README.')
             if preference_notice:
                 self.memory_status_label.setText(self.memory_status_label.text() + ' · ' + preference_notice)
             self.latest_interpretation_snapshot = snapshot
@@ -1296,10 +1346,11 @@ class Desktop(QWidget):
                             if not same_snapshot or uncertain:
                                 self.stable_interpretation.clear_memory_possibilities()
                             self.stable_interpretation.offer_memory_possibilities([item for item in selected if not item.relevance.startswith('uncertain retrieval candidate')], now)
-                            self.memory_status_label.setText('Possible memory connection — uncertain' if uncertain else f'Showing {len(self.stable_interpretation.memory_possibilities)} relevant memory context item(s)')
                         source_age = (datetime.now(timezone.utc) - guidance_update.context_at).total_seconds() if guidance_update.context_at is not None else 0
                         self.guidance_display.offer(guidance_update, now, source_age=source_age)
                         self.render_guidance()
+                        if self.latest_interpretation_snapshot:
+                            self.memory_status_label.setText('Possible memory connection — uncertain' if uncertain else f'Showing {len(self.guidance_display.visible("remember"))} memory suggestion(s)')
                     if self.stable_interpretation.offer(event.update, now) == 'replaced':
                         self.render_interpretation(replaced=True)
                 elif event.kind == CoordinatorEventKind.ERROR:
@@ -1313,8 +1364,8 @@ class Desktop(QWidget):
         if previous_guidance != repr((self.guidance_display.items, self.guidance_display.local_remember)):
             self.render_guidance()
         if memory_expired:
-            if self.stable_interpretation.memory_possibilities:
-                self.memory_status_label.setText(f'Showing {len(self.stable_interpretation.memory_possibilities)} approved memory context item(s) · recent match retained briefly')
+            if self.guidance_display.visible('remember'):
+                self.memory_status_label.setText(f'Showing {len(self.guidance_display.visible("remember"))} retained memory suggestion(s)')
             else:
                 self.memory_status_label.setText('No recent approved memory context is displayed')
         if self.interpretation_coordinator and self.audio_session and (not self.stopping):

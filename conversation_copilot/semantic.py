@@ -20,7 +20,7 @@ def default_cache_dir(database_path: Path) -> Path:
 
 
 def model_ready(cache_dir: Path) -> bool:
-    return (cache_dir / _MARKER).is_file()
+    return embed_texts_if_ready(["offline readiness check"], cache_dir) is not None
 
 
 @lru_cache(maxsize=2)
@@ -36,7 +36,7 @@ def _offline_model(cache_dir: str):
 
 
 def embed_texts_if_ready(texts: Sequence[str], cache_dir: Path) -> np.ndarray | None:
-    if not texts or not model_ready(cache_dir):
+    if not texts or not (cache_dir / _MARKER).is_file():
         return None
     try:
         with _EMBED_LOCK:
@@ -45,10 +45,10 @@ def embed_texts_if_ready(texts: Sequence[str], cache_dir: Path) -> np.ndarray | 
             )
     except Exception:
         return None
-    if vectors.shape != (len(texts), MODEL_DIMENSION):
+    if vectors.shape != (len(texts), MODEL_DIMENSION) or not np.all(np.isfinite(vectors)):
         return None
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
-    if np.any(norms == 0):
+    if np.any(norms == 0) or not np.all(np.isfinite(norms)):
         return None
     return vectors / norms
 

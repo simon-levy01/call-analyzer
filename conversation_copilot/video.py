@@ -184,7 +184,7 @@ class FaceProcessor:
         detector = mp.tasks.vision.FaceDetector.create_from_options(
             mp.tasks.vision.FaceDetectorOptions(
                 base_options=mp.tasks.BaseOptions(
-                    model_asset_path=str(DETECTOR_PATH), delegate=delegate_value
+                    model_asset_buffer=DETECTOR_PATH.read_bytes(), delegate=delegate_value
                 ),
                 min_detection_confidence=0.5,
             )
@@ -193,7 +193,7 @@ class FaceProcessor:
             landmarker = mp.tasks.vision.FaceLandmarker.create_from_options(
                 mp.tasks.vision.FaceLandmarkerOptions(
                     base_options=mp.tasks.BaseOptions(
-                        model_asset_path=str(LANDMARKER_PATH), delegate=delegate_value
+                        model_asset_buffer=LANDMARKER_PATH.read_bytes(), delegate=delegate_value
                     ),
                     running_mode=mp.tasks.vision.RunningMode.VIDEO,
                     num_faces=1,
@@ -327,8 +327,8 @@ class ReplayStep:
 
 
 def replay_steps() -> list[ReplayStep]:
-    portrait_a = cv2.imread(str(PORTRAIT_A_PATH), cv2.IMREAD_COLOR)
-    portrait_b = cv2.imread(str(PORTRAIT_B_PATH), cv2.IMREAD_COLOR)
+    portrait_a = cv2.imdecode(np.frombuffer(PORTRAIT_A_PATH.read_bytes(), dtype=np.uint8), cv2.IMREAD_COLOR)
+    portrait_b = cv2.imdecode(np.frombuffer(PORTRAIT_B_PATH.read_bytes(), dtype=np.uint8), cv2.IMREAD_COLOR)
     if portrait_a is None or portrait_b is None:
         raise ValueError("synthetic portrait fixture is unreadable")
 

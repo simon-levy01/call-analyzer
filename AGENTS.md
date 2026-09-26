@@ -1,5 +1,58 @@
 # Project session instructions
 
+## F08 checkpoint publication authorized — 26 September 2026
+
+After the fixes and API comparison, the user explicitly requested committing and
+pushing the current fixes to main for now. Publish the reviewed UI/readiness/Unicode
+setup corrections, focused tests and scoped documentation as a checkpoint. This
+supersedes earlier no-publication gates for this checkpoint only; it does not close
+F08 or imply omitted user/native/physical/clean-machine checks passed. Keep private
+build evidence, ledgers, real data and unrelated PDFs local. No additional inference
+is authorized. Retain `v1-working` at the earlier commit. The user also waived the
+second-monitor restriction while away; stop native input on Escape as before.
+
+## F08 user-authorized API comparison — 26 September 2026
+
+User requested one logged before/after API run under a NEW $0.30 cap after the
+polish fixes. Completed 35/35 fresh responses: 31 Luna 5.6 low Live checkpoints
+on the 88-turn log, plus Sol low extraction/summary for both frozen pre-F08 and
+current source. Total **$0.07817512/$0.30**, no errors/retries/pending requests;
+private `build/f08-api-20260926/ledger.json`. Never reset/repeat or spend the
+remainder automatically. Exact same-prompt saved Live baseline reused; paired
+post-call requests identical. Saved outputs produce identical before/after Qt
+timelines. No demonstrated model-quality improvement: current memory attribution
+error, ASR-humor and stale/misdirected replies documented. Full responses, summaries,
+proposals and assessment in private `build/f08-api-20260926/REPORT.html`.
+Prompts/models and real data unchanged; prior ledgers preserved. No new native,
+physical, clean-machine or user acceptance, product changes or publication implied.
+
+## F08 execution preference — 26 September 2026
+
+Correction checkpoint: all 20 Claude native findings triaged; confirmed UI/readiness
+issues corrected, fixture artifacts and intended behavior preserved. Exact Opus 5.5
+high code review and correction follow-up completed. Stable offline suite: 461 pass;
+fresh Windows source/venv in a Unicode path initially failed four video checks,
+then 461 pass after bounded MediaPipe/OpenCV byte-loading fixes. Models/settings
+unchanged. This is a development-host environment, not a clean-machine pass.
+See docs/F08-VALIDATION.md and private build/f08-20260926-155722/. Native retests,
+physical checks, clean-environment availability, user outcomes, final review and
+publication remain open. No correction commit/push or new product inference.
+
+After both agents' independent basic native passes, the user requested testing and
+fixing all 20 Claude findings while minimizing Computer Use because of subscription
+usage. Prefer isolated offline/backend/Qt regressions for reproduction and fixes;
+reserve native interaction for material behavior that cannot be verified reliably
+offline. This does not turn omitted native, physical, setup or human checks into
+passes. Preserve the frozen native baseline, independent reports, every ledger and
+the current prompts/models. GitHub recovery tag `v1-working` points to
+`cec4a5b5969f2004ee244111f4cb2c5a1d325412`; it excludes existing uncommitted planning.
+
+## Next stage: polish and portability direction — 26 September 2026
+
+**Mandatory clarification:** Claude Opus 5.5 must perform its own native Computer Use pass, not only review code or Codex evidence. Both agents need actual observation/action/result logs on the Qt app, using isolated fixtures and sequential desktop access. First verify each agent's native tool access with a harmless interaction; browser-only access is insufficient. If unavailable, flag the prerequisite and resolve it with the user rather than substituting another method or claiming completion. This dual-agent polish stage is the immediate next step; see PLAN.md F08. No new paid product inference is authorized by this clarification.
+
+User considers F10 finished and requests a polish-first next stage. F08 is now Polish, QA and reliable Windows setup: current UI/control inventory, Codex native Computer Use, functional/adversarial/recovery tests, independent Claude Opus 5.5 QA/code review, bounded bug fixes, user walkthrough and final reviewed publication. Create its focused plan and permanent feature column before execution; see PLAN.md. Do not claim interactive Claude testing from tool-disabled review, or physical/UI acceptance from offscreen tests. Use isolated stores and fake/saved outputs first; preserve private data and every prior ledger. Fresh inference still needs the existing method/budget authorization. Current prompts remain selected; this is not a prompt tournament. User M5 MacBook and lecturer M1 motivate a shared free Windows/Mac ASR candidate (whisper.cpp first), but no replacement, M1 pass or paid fallback is authorized/established by the research. Record RAM/macOS before selecting a baseline. The required submission video/PDF/source ZIP must not remain indefinitely deferred. Earlier pending F10 status is historical, not proof that omitted tests passed.
+
 ## Final prompt selection and closeout — 26 September2026
 
 User explicitly chose the FIRST/current prompt after the70-turn comparison and authorized commit/push, considering this step done. It is already active in conversation_copilot/guidance.py; keep experimental second-tone helper evaluation-only. No production rewrite needed. Publish the comparison reports and closeout on main; private build logs/ledgers and unrelated PDFs remain local. Same evaluation spend$0.16251744/$0.30, no further inference. User will run personal demos in the next step; this does not claim those demos, broader F10 acceptance or Mac support are complete. Earlier pending-adoption/no-publication entries describe historical states.

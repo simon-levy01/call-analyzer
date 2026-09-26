@@ -32,6 +32,28 @@ import conversation_copilot.semantic as semantic_module
 from conversation_copilot.models import ConversationTurn, SpeakerRole
 
 
+def test_f08_semantic_marker_does_not_hide_broken_runtime(tmp_path, monkeypatch):
+    with MemoryStore(tmp_path / 'broken.sqlite3') as store:
+        contact = store.create_contact('Synthetic Sam')
+        store.create_memory(contact.id, 'Sam lost his job.')
+        cache = store.semantic_cache_dir
+        cache.mkdir(parents=True)
+        marker = cache / 'semantic-ready-v1.json'
+        marker.write_text('{}')
+        def broken(_path):
+            raise RuntimeError('Synthetic broken model')
+        monkeypatch.setattr(semantic_module, '_offline_model', broken)
+        assert not semantic_module.model_ready(cache)
+        assert not store.retrieve(contact.id, 'money-wise', semantic_query='money-wise').semantic_available
+        assert marker.read_text() == '{}'
+        monkeypatch.setattr(semantic_module, '_offline_model', lambda _: SimpleNamespace(
+            embed=lambda texts: [np.ones(384, dtype=np.float32) for _ in texts]))
+        assert semantic_module.model_ready(cache)
+        monkeypatch.setattr(semantic_module, '_offline_model', lambda _: SimpleNamespace(
+            embed=lambda texts: [np.full(384, np.nan, dtype=np.float32) for _ in texts]))
+        assert not semantic_module.model_ready(cache)
+
+
 def turn(order: int, role: SpeakerRole, content: str) -> ConversationTurn:
     return ConversationTurn(
         speaker_name="You" if role is SpeakerRole.USER else "Alex",

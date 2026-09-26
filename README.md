@@ -1,19 +1,37 @@
 # Conversation Copilot
 
-The desktop interface now uses PySide6/Qt. After switching to the UI migration branch, rerun `.venv\Scripts\python.exe -m pip install -e ".[test]"` to install its dependency, then launch with `.venv\Scripts\python.exe -m conversation_copilot`. See [Qt migration notes](docs/F10-QT-MIGRATION.md) for scope and verification limits; native Mac capture remains separate work.
+The desktop interface uses PySide6/Qt. Use the source setup below, then launch with `.venv\Scripts\python.exe -m conversation_copilot`. See [F08 validation](docs/F08-VALIDATION.md) for current results and remaining gates.
 
 For model evaluation choices, historical tests and reusable logs, read [project instructions](AGENTS.md) and the [testing index](docs/TESTING.md).
 
-The current application targets Windows. The September 21 priority is **F10 — UI/UX and accessibility**, then **F08 — easy Windows installation and Claude review**, then **F09 — macOS support**. Feature IDs remain stable despite the new execution order. Use the documented source setup below in the meantime; GitHub does not bundle the runtime or model dependencies. October 1 remains the usable Windows MVP target; dedicated-installation and Mac completion dates are deferred. Final demo preparation does not block these features.
+The current application targets Windows. F10 is accepted; **F08 — Polish, QA and reliable Windows setup** is active, followed by **F09 — macOS support**. GitHub does not bundle the runtime or downloaded models. October 1 remains the Windows MVP/submission target, including the video, PDF and `finalproject.zip`; dedicated-installer and Mac completion dates are deferred.
 The user will run F09 on a Mac for implementation and real-device validation;
 Mac installation and operation are not supported yet. See the [master plan](PLAN.md#f09--macos-support-planned-not-started).
 
 ## Setup (Windows PowerShell)
 
+Use **64-bit Python 3.12**, pinned **Qt 6.8.3**, and a compatible NVIDIA GPU/driver
+for the current CUDA transcription backend. CPU-only Windows is not validated;
+minimum GPU memory has not been established by F08. The metadata's `>=3.12` does
+not establish support for every newer Python. Open PowerShell in the extracted
+source directory containing `pyproject.toml`; quote paths containing spaces.
+No environment activation or execution-policy change is needed.
+
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python -m pip install -e ".[test]"
+.\.venv\Scripts\python -m pip check
+.\.venv\Scripts\python -m conversation_copilot --check
 ```
+
+Installation requires internet and several gigabytes for dependencies/models.
+Pip installs pinned NVIDIA runtime wheels; the GPU driver is a machine prerequisite.
+`--check` validates only the included fictional foundation transcript; it needs no
+downloaded model. Then provision models as described under
+[local transcription](#two-sided-local-transcription) and
+[contact memory](#contact-memory-and-personalization).
+Start never downloads models. A fresh venv on a development PC is not a clean-machine
+or physical-device pass.
 
 ## Run
 
@@ -37,13 +55,13 @@ While an eligible WhatsApp call is present, Chrome/Meet is not offered. If a
 WhatsApp call appears during an active Meet session, both audio sides stop and
 require explicit reselection. The ordinary idle WhatsApp window does not block Meet.
 The largest visible face is selected initially. **Switch face** chooses another
-detected face; after six seconds of loss, **Continue tracking** explicitly resumes.
+detected face; after 18 seconds of loss, **Continue tracking** explicitly resumes.
 Small gallery tiles may be below the detector threshold, so use a layout with a
 sufficiently large remote portrait.
 
 Once two-sided audio is running, a lost or closed visual-capture target stops facial
 signals but does not stop transcription. The status says that transcription is
-continuing; use **Stop** when the call ends. No replacement video window is selected
+continuing; use **End call** when the call ends. No replacement video window is selected
 automatically. When a face thumbnail is unavailable, its empty area collapses so the
 existing final transcript and microphone/playback states remain visible.
 
@@ -82,13 +100,12 @@ selection are currently excluded because their measured accuracy is not reliable
 enough for the project text.
 If microphone opening is blocked, enable **Let desktop apps access your microphone**
 under Windows Settings > Privacy & security > Microphone, then reselect the device.
-A clean **Stop** keeps the same explicit choices for the next **Start** while the
-current device enumeration remains live. **Refresh** or an audio/device fault rebuilds
-that enumeration, clears both choices, and requires reselection. An app restart never
-restores prior choices or indices; its fresh enumeration may suggest the current
-Windows defaults. Temporary indices are never persisted or matched by name.
+A clean **End call** keeps the explicit choices while device enumeration remains
+live. An app restart clears device selections and requires explicit reselection;
+temporary indices are never persisted or matched by name. **Refresh call windows**
+updates the visual-window list, not the audio-device enumeration.
 
-Audio and final transcripts remain in memory for the current session. Raw audio is
+Finalized transcript text is saved locally. Raw audio remains in memory and is
 not written to disk or sent to a cloud service. Start never downloads the model.
 Validate the cached offline path with:
 
@@ -101,24 +118,28 @@ Validate the cached offline path with:
 
 The app sends only bounded English transcript excerpts and compact derived remote
 vocal/visual observations to OpenAI. It never sends raw audio, video frames,
-landmarks, or full blendshape history. Automatic interpretation requests stop at the session
-hard limit; manual **Check with Luna** remains an explicit tone check with a per-request cost
-confirmation. The user-selected live configuration uses Luna with low reasoning, including contact-confirmed guidance. Requests use a 1,300-token budget for complete turns from the
-last three minutes; repeated speaker labels are omitted and old visual rows are
-trimmed before conversation text when the request needs shortening. Automatic
-request starts adapt within 10–15 seconds after the first request at 12 seconds. The compact cloud payload uses
+landmarks, or full blendshape history. Live/Ask select `gpt-5.6-luna` low or
+`gpt-6-sol` low. Summary/memory generation uses Sol low independently. Normal product
+operation has **no dollar cap**; displayed usage is accounting, not a balance.
+Live uses a shared 6,000-token input allowance including instructions/schema and
+1,800-token output limit. First analysis becomes eligible after six seconds once
+speech is available; network/model latency is additional. The compact cloud payload uses
 `u` and `c` for the user and confirmed contact; the visible transcript continues to
 show `You` and the confirmed contact's name.
 
-When an API key is approved, place it in `.env.local` at the project root:
+Save your API key through **Settings**, which writes ignored `.env.local` in the
+editable source directory, or set `OPENAI_API_KEY` in the environment (takes precedence).
+A blank Settings save preserves the existing key. Manual file format:
 
 ```text
 OPENAI_API_KEY=replace-with-the-approved-key
 ```
 
 `.env.local` and `.env` are ignored by Git. Do not commit, paste into source code,
-or include the key in logs. The fixed paid comparison is an explicit command and
-has a shared $1.50 hard limit:
+or include the key in logs/source ZIPs. Start call, End call, Detect participants, Ask, changed
+summary saves and Retry may dispatch cloud requests. Tests need fake/saved providers
+or a newly applicable method/budget authorization. Historical paid commands are
+research tools, **not setup checks**; their old caps do not authorize new runs:
 
 ```powershell
 .\.venv\Scripts\python -m conversation_copilot --evaluate-f04
@@ -126,8 +147,8 @@ has a shared $1.50 hard limit:
 
 ## Contact memory and personalization
 
-Contact memory is local and off until you explicitly confirm a contact. Use the
-Selected Contact control to search, select, create, change, or clear a contact.
+Contact memory is local and unavailable until you select a contact. Use Home to
+select or create a contact; open **Contact information** for saved facts and history.
 Names and aliases are suggestions only; ambiguous aliases show candidates and
 never select automatically. Calls that stop without a confirmed contact remain
 under **Unassigned** and cannot retrieve or extract memory.
@@ -137,10 +158,10 @@ first and labeled **Likely generic — easy to reject**. It never becomes memory
 you approve it. For example, carrying heavy things may be flagged as generic while
 still helping retrieve an approved apartment-move memory. Vague references use only
 the confirmed contact's bounded words after the latest vague cue. Weak matches
-abstain, close matches appear as possibilities, and unscored connected memories are
-not added to this cautious path. A matched possibility stays visible while it keeps
-matching and for 24 seconds after its last match; a contact/lifecycle change or
-unavailable retrieval clears it immediately.
+abstain and close matches appear as possibilities. Live shows **Possible tones**,
+**Cues & context**, **Possible responses** and **Related memories**. Items may remain
+up to 180 seconds, subject to source/topic/supersession checks; labels and their
+underlying context share dismissal.
 
 The app stores normalized attributed text in
 `%LOCALAPPDATA%\ConversationCopilot\memory.sqlite3`. When the optional local model
@@ -148,12 +169,11 @@ is installed, the same database also stores regenerable memory vectors. It never
 stores call audio, PCM, video, frames, landmarks, blendshapes, or face screenshots. After
 an assigned call stops, bounded attributed-text chunks may be sent to OpenAI with
 `store=false` to create proposals for review. Model output is never approved
-automatically. **Manage memory** supports user-created
-approved items with an optional `DD/MM/YYYY` event date, proposal approval/rejection/reopen, immutable correction,
-sensitivity permission, search, merge/delete previews, and contact-scoped JSON
-export. Approved sensitive memory is excluded from later cloud interpretation
-unless cloud use is enabled for that exact current revision; changing or revoking
-it clears affected guidance.
+automatically. **Contact information** provides approved memories, source-based Ask,
+conversation history, correction, aliases, merge/delete and contact-scoped JSON export.
+Transferred memories require review before retrieval. Current product permissions
+allow otherwise eligible sensitive content in cloud requests; contact, source and
+approval boundaries remain enforced.
 
 Deleting a memory scrubs its full revision chain and search data. Deleting a
 conversation previews derived memories with deletion selected by default. Kept
@@ -180,7 +200,8 @@ model. If it is absent, exact/date/FTS5 retrieval remains available and the UI s
 that indirect recall is reduced.
 
 The local gate uses a temporary 100,000-revision database and deletes it after the
-run. The paid comparison has a $2.00 hard cap; normal tests use fake models and
+run. The historical paid comparison has a $2.00 internal ceiling, but still needs
+a newly applicable explicit budget; the old ceiling is not authorization. Normal tests use fake models and
 make no cloud calls. Current evidence and remaining manual validation are recorded
 in `docs/F05-VALIDATION.md`.
 
@@ -228,25 +249,24 @@ corpus from a JSON manifest containing `media`, `reference`, and `language` fiel
 
 ## Tests
 
-F06 adds Reply, Remember and Follow up guidance, a nonmodal Ask Memory panel
-with its own contact selection, and a review window showing a paragraph summary beside its memories.
-Replies and follow-ups target the contact’s latest turn; the user’s words supply context and style.
-Cloud Ask also sends the selected contact’s display label and disambiguator. Post-call cloud requests include the transcript’s supplied speaker display names (the contact name and “You” for call records).
+Current Review supports complete-summary editing, explicit approval/rejection and
+retry of failed generation. A changed summary can regenerate pending memory
+proposals; an unchanged save does not. Approved summaries and memories can support
+Ask answers with exact source excerpts and conversation navigation. Ask uses a
+4,700-token evidence allowance within a 6,300-token input ceiling.
 
-Post-call generation uses Luna low and the complete eligible transcript when it fits the bounded request; longer calls retain resumable chunks. Memory proposals separately extract attributed details from the transcript. Ask cloud evidence has a 4,700-token allowance within a 6,300-token input ceiling. See the [saved-call context test](docs/F06-POST-CALL-CONTEXT-TEST.md).
+Import text sends at most the first 20 shortened lines and contact names on explicit
+Detect participants. Confirm which of the two speakers is the contact before
+Import and generate. Undated imports remain undated; exported app JSON is not a
+transcript import format.
 
-Summary generation shows loading until completion. Click a sentence to edit it and select linked memories
-to synchronize; memory edits can likewise update linked sentences. Pending edits remain pending.
-Approving a summary also approves its linked pending memories in one confirmed transaction; rejected
-and unrelated proposals are unchanged. Summary drafts become searchable only after explicit approval. Local Ask uses
-approved sources; explicit cloud help asks Luna low directly over the selected contact's approved, cloud-permitted history, with a ranked shortlist when it exceeds the token budget. Answers can combine memories and show supporting sources. No preceding local search is required. Try the [fictional three-call search test](docs/F06-ASK-HISTORY-TEST.md). The call ceiling is
-$0.35, preserving $0.08 from live use for review; outside-call Ask is capped at
-$0.13 per app run and $0.04 per answer. See [F06 validation](docs/F06-VALIDATION.md)
-for evidence and pending review/manual gates.
+Run the ordinary disposable/fake-provider tests:
 
 ```powershell
 .\.venv\Scripts\python -m pytest
 ```
+These checks do not establish native usability, physical capture, real API quality
+or clean-machine installation. See [F08 validation](docs/F08-VALIDATION.md) for evidence and limits.
 
 The permanent `conversation_copilot/assets/f04/basic-video-chat` bundle is a
 fictional two-person call used for basic F02-F05 replay. It includes the preview

@@ -38,7 +38,17 @@ def test_tracker_largest_switch_follow_and_eighteen_second_loss():
     assert not tracker.is_lost
 
 
-def test_replay_runs_offline_with_verified_local_assets():
+def test_replay_runs_offline_with_verified_local_assets(tmp_path, monkeypatch):
+    directory = tmp_path / 'Source with spaces בדיקה'
+    directory.mkdir()
+    hashes = {}
+    for name in ('DETECTOR_PATH', 'LANDMARKER_PATH', 'PORTRAIT_A_PATH', 'PORTRAIT_B_PATH'):
+        original = getattr(video, name)
+        target = directory / original.name
+        target.write_bytes(original.read_bytes())
+        hashes[target] = video.ASSET_HASHES[original]
+        monkeypatch.setattr(video, name, target)
+    monkeypatch.setattr(video, 'ASSET_HASHES', hashes)
     verify_assets()
     with patch.object(socket, "socket", side_effect=OSError("network disabled")):
         summary = run_video_check()
@@ -50,8 +60,8 @@ def test_replay_runs_offline_with_verified_local_assets():
 
 def test_quadrant_fallback_detects_small_gallery_faces():
     portraits = [
-        video.cv2.imread(str(video.PORTRAIT_A_PATH)),
-        video.cv2.imread(str(video.PORTRAIT_B_PATH)),
+        video.cv2.imdecode(np.frombuffer(video.PORTRAIT_A_PATH.read_bytes(), dtype=np.uint8), video.cv2.IMREAD_COLOR),
+        video.cv2.imdecode(np.frombuffer(video.PORTRAIT_B_PATH.read_bytes(), dtype=np.uint8), video.cv2.IMREAD_COLOR),
     ]
     frame = np.full((1032, 1920, 3), 30, dtype=np.uint8)
     for index in range(4):

@@ -9,7 +9,7 @@ from functools import wraps
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QPlainTextEdit, QLineEdit, QListWidget, QCheckBox, QFileDialog, QPushButton
-from .desktop import Panel, label, button, row, card, clear, scroll, combo, confirm, edit_text
+from .desktop import Panel, label, button, row, card, clear, scroll, combo, confirm, edit_text, display_time, display_error
 from .memory import MemoryStore, normalize_alias
 from .interpretation import UsageLedger, MODEL_LABELS, REVIEW_MODEL
 from .ask_memory import AskSession, cloud_answer, validate_sources
@@ -22,7 +22,7 @@ def store_errors(method):
         try:
             return method(self, *args, **kwargs)
         except (sqlite3.Error, ValueError, KeyError) as exc:
-            self.status.setText(f"Saved content unavailable: {exc}. Close and reopen to retry.")
+            self.status.setText(f"Saved content unavailable: {display_error(exc).rstrip('.')}. Close and reopen to retry.")
     return guarded
 
 
@@ -143,7 +143,10 @@ class Memories(Panel):
 
     def ask(self):
         question = self.question.text().strip()
-        if self.running or not question:
+        if self.running:
+            return
+        if not question:
+            self.status.setText("Enter a question first.")
             return
         self.running = True
         self.ask_button.setEnabled(False)
@@ -189,7 +192,7 @@ class Memories(Panel):
                 self.status.setText(f"{len(self.related)} associated memories · {summaries} summary excerpts")
                 self.reload()
             except (sqlite3.Error, ValueError, KeyError) as exc:
-                self.status.setText(f"Answer validation unavailable: {exc}")
+                self.status.setText(f"Answer validation unavailable: {display_error(exc)}")
         self.app.run_job(work, done)
 
     @store_errors
@@ -204,6 +207,8 @@ class Memories(Panel):
             for memory in selected:
                 item, content = card(role="replies" if associated else "social")
                 content.addWidget(label(memory["content"]))
+                if memory["needs_review"]:
+                    content.addWidget(label("Transferred memory — review it under Merge contact before it can be used in answers."))
                 content.addLayout(row(label("Saved " + ((memory["approved_at"] or "")[:10] or "date unavailable")), 1,
                     button("Edit", lambda m=memory: self.edit_memory(m)),
                     button("Delete", lambda m=memory: self.delete_memory(m), "danger")))
@@ -257,6 +262,14 @@ class Memories(Panel):
             text = edit_text(panel, "Add alias", multiline=False)
             if text:
                 try:
+                    normalized = normalize_alias(text)
+                    if any(normalize_alias(r['spelling']) == normalized for r in self.store.list_aliases(self.contact_id)):
+                        raise ValueError("This alias already belongs to this contact.")
+                    others = self.store._connection.execute(
+                        "SELECT DISTINCT c.display_name FROM contact_aliases a JOIN contacts c ON c.id=a.contact_id WHERE a.normalized=? AND a.contact_id<>? AND a.removed_at IS NULL",
+                        (normalized, self.contact_id)).fetchall()
+                    if others and not confirm(panel, "Shared alias", f"This name also belongs to {', '.join(r[0] for r in others)}. It will need explicit contact selection. Add it anyway?"):
+                        return
                     self.store.add_alias(self.contact_id, text)
                     reload()
                 except (ValueError, sqlite3.Error) as exc:
@@ -313,7 +326,7 @@ class Memories(Panel):
                 return
             try:
                 preview = self.store.merge_preview(self.contact_id, other)
-                if not confirm(panel, "Confirm merge", "Derived content will require review.\n\n" + "\n".join(f"{k}: {v}" for k, v in preview.items())):
+                if not confirm(panel, "Confirm merge", f"Merge {self.store.get_contact(other).label} into {self.contact.label}? Transferred memories will require review.\n\n" + "\n".join(f"{k.replace('_', ' ').capitalize()}: {v}" for k, v in preview.items())):
                     return
                 self.store.merge_contacts(self.contact_id, other)
                 self.app.refresh_contacts()
@@ -329,8 +342,11 @@ class Memories(Panel):
 
     def export(self):
         if not confirm(self, "Export data", "Exported files remain outside the app and are not removed by later in-app deletion. Continue?"):
+            self.status.setText("Export cancelled. No file was written by this attempt.")
             return
         target, _ = QFileDialog.getSaveFileName(self, "Export contact", "", "JSON (*.json)", options=QFileDialog.DontUseNativeDialog)
+        if not target:
+            self.status.setText("Export cancelled. No file was written by this attempt.")
         if target:
             try:
                 payload = self.store.export_json(contact_id=self.contact_id, all_data=False)
@@ -343,12 +359,14 @@ class Memories(Panel):
     def delete_contact(self):
         try:
             preview = self.store.contact_deletion_preview(self.contact_id)
-            if not confirm(self, "Delete contact", f"Permanently delete {self.contact.label} and local content?\n\n" + "\n".join(f"{k}: {v}" for k, v in preview.items())):
+            if not confirm(self, "Delete contact", f"Permanently delete {self.contact.label} and local content?\n\n" + "\n".join(f"{k.replace('_', ' ').capitalize()}: {v}" for k, v in preview.items())):
                 return
             self.store.delete_contact(self.contact_id)
             self.app.selected_contact_id = self.app.selected_contact_label = None
             self.app.refresh_contacts()
             self.app.invalidate_memory_context()
+            self.app.status_label.setText("Contact deleted.")
+            self.app.update_readiness()
             self.close()
         except (ValueError, KeyError, sqlite3.Error) as exc:
             self.app.report(exc, self)
@@ -369,11 +387,16 @@ class History(Panel):
         self.reload()
 
     @store_errors
-    def reload(self):
+    def reload(self, *_):
+        selected = self.selected()
         self.records = [dict(r) for r in self.store.list_records(self.contact_id)]
         self.listing.clear()
         for record in self.records:
-            self.listing.addItem(f"{record['started_at'] or record['created_at']} · {record['source_label']} · {record['status']} · {record['analysis_state']}")
+            summary = self.store.summary_for_review(record['id'])
+            review_state = f"Summary: {summary['state']}" if summary else "No complete summary"
+            self.listing.addItem(f"{display_time(record['started_at'] or record['created_at'])} · {record['source_label']} · {record['status']} · {review_state}")
+        if selected:
+            self.listing.setCurrentRow(next((i for i, r in enumerate(self.records) if r['id'] == selected['id']), -1))
 
     def selected(self):
         index = self.listing.currentRow()
@@ -382,7 +405,10 @@ class History(Panel):
     def review(self):
         record = self.selected()
         if record:
-            self.app.open_review(record["id"])
+            panel = self.app.open_review(record["id"])
+            panel.finished.connect(self.reload)
+        else:
+            self.status.setText("Select a conversation first.")
 
     @store_errors
     def mutate(self, target=None):
@@ -398,7 +424,8 @@ class History(Panel):
             panel.body.addWidget(check)
             selections.append((item["memory_id"], check))
         def apply():
-            if not confirm(panel, "Confirm source change", "Apply this irreversible source change and the selected memory deletions?"):
+            change = f"Reassign this conversation to {self.store.get_contact(target).label}" if target else "Delete this conversation"
+            if not confirm(panel, "Confirm source change", f"{change} and delete the checked memories? Unchecked memories will be kept."):
                 return
             keep = [identifier for identifier, check in selections if not check.isChecked()]
             try:
@@ -438,8 +465,10 @@ class History(Panel):
         records = list(self.store.list_unassigned())
         listing = QListWidget()
         for record in records:
-            listing.addItem(f"{record['source_label']} · {record['started_at'] or record['created_at']}")
+            listing.addItem(f"{record['source_label']} · {display_time(record['started_at'] or record['created_at'])}")
         panel.body.addWidget(listing)
+        if not records:
+            panel.body.addWidget(label("No unassigned conversations."))
         def assign():
             if listing.currentRow() >= 0:
                 try:
@@ -454,12 +483,27 @@ class History(Panel):
 
 def import_chat(app):
     from .import_transcript import detect_import, participant_sample
-    panel = Panel(app, "Import text", (820, 660))
     text = QPlainTextEdit()
+    class ImportPanel(Panel):
+        closing_allowed = False
+        def may_close(self):
+            if not self.closing_allowed:
+                self.closing_allowed = not text.toPlainText().strip() or confirm(self, "Discard import", "Close without importing this text?")
+            return self.closing_allowed
+        def reject(self):
+            if self.may_close():
+                super().reject()
+        def closeEvent(self, event):
+            if self.may_close():
+                super().closeEvent(event)
+            else:
+                event.ignore()
+    panel = ImportPanel(app, "Import text", (820, 660))
     text.setPlaceholderText("Paste a two-person transcript using Name: message on each speaker change, or a WhatsApp export.")
     text.setAccessibleName("Transcript to import")
     panel.body.addWidget(text, 1)
-    status = label("Detect participants sends up to 20 shortened lines and this contact's names to Luna low. Confirm the suggested contact before importing.")
+    disclosure = "Detect participants sends up to 20 shortened lines and this contact's names to Luna low. Confirm the suggested contact before importing."
+    status = label(disclosure)
     selector = combo()
     selector.setAccessibleName("Which participant is the contact?")
     selector.setEnabled(False)
@@ -474,9 +518,11 @@ def import_chat(app):
     closed = [False]
     panel.finished.connect(lambda *_: closed.__setitem__(0, True))
     def invalidate(*, edited=False):
+        stale = preview[0] is not None
         preview[0] = None
         if edited:
             source_name[0] = "Pasted transcript"
+            status.setText(("Transcript changed. Detect participants again before importing. " if stale else "") + disclosure)
         selector.clear()
         selector.setEnabled(False)
         save_button.setEnabled(False)
@@ -499,7 +545,7 @@ def import_chat(app):
             frozen = text.toPlainText()
             participant_sample(frozen)
         except ValueError as exc:
-            status.setText(str(exc))
+            status.setText(display_error(exc))
             return
         invalidate()
         text.setReadOnly(True)
@@ -513,7 +559,7 @@ def import_chat(app):
             detect_button.setEnabled(True)
             load_button.setEnabled(True)
             if error:
-                status.setText(f"Participant detection failed: {error}. Check speaker labels and your API key, then try again.")
+                status.setText(f"Participant detection failed: {display_error(error).rstrip('.')}. Check speaker labels and your API key, then try again.")
                 return
             try:
                 turns, suggestion = result
@@ -526,7 +572,7 @@ def import_chat(app):
                 else:
                     status.setText(f"{len(turns)} turns found. No confident contact match: select {contact_name}'s speaker; the other will be you. WhatsApp dates use month/day; undated text stays undated.")
             except (ValueError, KeyError) as exc:
-                status.setText(str(exc))
+                status.setText(display_error(exc))
         app.run_job(lambda: detect_import(frozen, ledger=ledger, contact_names=contact_names, is_current=lambda: not closed[0]), done)
     def save():
         if preview[0] is None or selector.currentIndex() < 0:
@@ -535,6 +581,7 @@ def import_chat(app):
         try:
             user_name = next(n for n in preview[0].participants if n != selector.currentText())
             record = app.memory_store.confirm_import(preview[0], user_name=user_name, contact_id=contact_id, source_label=source_name[0])
+            panel.closing_allowed = True
             panel.close()
             app.open_review(record)
             app.start_review_job(record, ledger)
@@ -615,10 +662,10 @@ class Review(Panel):
         record = db.execute("SELECT * FROM conversation_records WHERE id=?", (self.record_id,)).fetchone()
         if record:
             contact = self.store.get_contact(record["contact_id"]) if record["contact_id"] else None
-            model = self.version["model"] if self.version else f"{MODEL_LABELS[REVIEW_MODEL]} when generated"
+            model = MODEL_LABELS.get(self.version["model"], self.version["model"]) if self.version else f"{MODEL_LABELS[REVIEW_MODEL]} when generated"
             usage = db.execute("SELECT usage_json FROM review_jobs WHERE record_id=?", (self.record_id,)).fetchone()
             dollars = sum(item.get("dollars", 0) for item in json.loads(usage[0])) if usage else 0
-            self.provenance.setText(f"{contact.label if contact else 'Unassigned'} · {record['started_at'] or record['created_at']} · {model} · recorded generation usage ${dollars:.4f}")
+            self.provenance.setText(f"{contact.label if contact else 'Unassigned'} · {display_time(record['started_at'] or record['created_at'])} · {model} · recorded generation usage ${dollars:.4f}")
         self.memories = []
         if record and record["contact_id"]:
             for memory in self.store.list_current_memories(record["contact_id"]):
@@ -752,8 +799,12 @@ class Review(Panel):
         if self.saving:
             return
         selected = [one] if one else [m for m in self.memories if m["state"] == "pending" and (all_items or self.checks[m["id"]].isChecked())]
-        if not selected or not confirm(self, "Approve memories" if approve else "Reject memories",
-                                       "Are you sure?" if not approve else f"Approve {len(selected)} memories? Are you sure?"):
+        if not selected:
+            self.status.setText("No pending memories to review." if all_items else "Select pending memories first.")
+            return
+        description = f"{len(selected)} pending {'memory' if len(selected) == 1 else 'memories'}"
+        if not confirm(self, "Approve memories" if approve else "Reject memories",
+                       f"Approve {description}?" if approve else f"Remove {description}? Approved memories will remain."):
             return
         self.save_review("review_record_proposals", self.record_id, None if all_items else [m["id"] for m in selected],
             approve=approve, expected_pending={m["id"]: m["content"] for m in selected})
@@ -793,7 +844,7 @@ class Review(Panel):
     @store_errors
     def view_transcript(self):
         turns = self.store.record_turns(self.record_id)
-        text_panel(self, "Transcript", "\n\n".join(f"{t.timestamp} · {t.speaker_name}: {t.content}" for t in turns),
+        text_panel(self, "Transcript", "\n\n".join(f"{display_time(t.timestamp)} · {t.speaker_name}: {t.content}" for t in turns),
                    lambda: self.store.record_turns(self.record_id) == turns)
 
     @store_errors
