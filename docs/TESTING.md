@@ -1,5 +1,7 @@
 # Evaluation handoff and reusable history
 
+**September 28 F08 closeout:** [Validation](F08-VALIDATION.md). New approval regression in `tests/test_f06_ask.py` checks pending/rejected memories and summaries against local Ask, cloud evidence payload and citation guards, with approved positive controls. Synthetic temporary SQLite and fake provider only; no inference. User accepts the limited checkpoint; unperformed native/physical/clean-machine checks remain deferred.
+
 **September26 final closeout:** User selected the first/current prompt; verified production already uses it and does not import the experimental helper. This step is complete; personal demos remain next. Commit/push authorized for reports and handoff. No new inference or ledger reset; same$0.16251744/$0.30. Tone-label partial-support scores aggregate only two distinct labels per arm, not per-generation or continuous accuracy.
 
 **September26 fresh paired70-turn replay:** [Report](TONE-PAIR70-20260926.md).24 fresh pairs/48 answers,40→70 extension reuses initial30 and appends18. New$0.05645636; same coverage ledger$0.16251744/$0.30,126 successes, no pending/retries. Actual Qt plus equal-arrival control: two-tone occupancy33.98→65.72% measured,37.54→56.63% matched. Raw25→23.54/40 displayed wordings assessed; candidate response usefulness worsens. Input/schema/usage/cap/prior108ledgerrows/UI/assessment audits pass. No product change, automatic repeat or adoption.

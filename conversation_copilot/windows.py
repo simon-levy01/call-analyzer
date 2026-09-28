@@ -34,6 +34,8 @@ _user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
 _user32.GetWindowTextLengthW.restype = ctypes.c_int
 _user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
 _user32.GetWindowTextW.restype = ctypes.c_int
+_user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+_user32.GetClassNameW.restype = ctypes.c_int
 _user32.GetWindowThreadProcessId.argtypes = [
     wintypes.HWND,
     ctypes.POINTER(wintypes.DWORD),
@@ -81,6 +83,7 @@ class _WindowSnapshot:
     minimized: bool
     cloaked: bool
     process_id: int = 0
+    window_class: str = ""
 
 
 def _window_text(hwnd: int) -> str:
@@ -130,6 +133,8 @@ def _snapshot_window(hwnd: int) -> _WindowSnapshot | None:
     )
     if cloaked_result < 0:
         return None
+    window_class = ctypes.create_unicode_buffer(256)
+    _user32.GetClassNameW(hwnd, window_class, len(window_class))
     return _WindowSnapshot(
         hwnd=int(hwnd),
         title=_window_text(hwnd),
@@ -138,6 +143,7 @@ def _snapshot_window(hwnd: int) -> _WindowSnapshot | None:
         minimized=bool(_user32.IsIconic(hwnd)),
         cloaked=bool(cloaked.value),
         process_id=_process_id(hwnd),
+        window_class=window_class.value,
     )
 
 
@@ -157,7 +163,10 @@ def _eligible(snapshot: _WindowSnapshot) -> CallWindow | None:
         and snapshot.title.casefold() == WHATSAPP_CALL_TITLE.casefold()
     ):
         kind = "WhatsApp"
-    elif executable == "zoom.exe":
+    elif executable == "zoom.exe" and (
+        snapshot.window_class == "ConfMultiTabContentWndClass"
+        or (not snapshot.window_class and snapshot.title.casefold() in {"meeting", "zoom meeting", "zoom webinar"})
+    ):
         kind = "Zoom"
     elif (
         executable == "chrome.exe"

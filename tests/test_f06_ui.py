@@ -906,12 +906,12 @@ def test_tone_context_views_and_popup_keep_original_description(window):
         'evidence':{'explanation':'Explicit difficult wording.','modalities':['language'],'turn_ids':[2]}}]})
     window.guidance_display.offer(update,0);window.render_guidance()
     tone=window.guidance_rows['tones'].itemAt(1).widget()
-    assert tone.findChild(QLabel).text()=='Negative / tense'
+    assert tone.findChild(desktop.GuidanceLabel).text()=='Negative / tense\nThey describe a difficult week.'
     context=window.guidance_rows['social_cues'].itemAt(1).widget()
-    assert context.findChild(QLabel).text()=='Context: They describe a difficult week.'
+    assert context.findChild(desktop.GuidanceLabel).text()=='Context: They describe a difficult week.'
     QTest.mouseClick(next(b for b in tone.findChildren(QPushButton) if b.accessibleName()=='Pop out'),Qt.LeftButton)
     popup=next(p for p in window.findChildren(desktop.Panel) if p.windowTitle()=='Possible tones')
-    assert any('Negative / tense\n\nThey describe a difficult week.'==x.text() for x in popup.findChildren(QLabel))
+    assert any('Negative / tense\nThey describe a difficult week.'==x.text() for x in popup.findChildren(QLabel))
     assert not popup.isModal();popup.close()
     QTest.mouseClick(next(b for b in context.findChildren(QPushButton) if b.accessibleName()=='Dismiss'),Qt.LeftButton)
     assert not window.guidance_display.tone_items() and not window.guidance_display.context_items()
@@ -932,14 +932,48 @@ def test_all_tone_labels_render_pop_out_and_dismiss(window,kind,expected):
                    'evidence':{'explanation':'Explicit evidence.','modalities':['language'],'turn_ids':[2]}}]})
     window.guidance_display.offer(update,0);window.render_guidance()
     tone=window.guidance_rows['tones'].itemAt(1).widget()
-    assert tone.findChild(QLabel).text()==expected
+    assert tone.findChild(desktop.GuidanceLabel).text()==expected+'\nOriginal observation.'
     QTest.mouseClick(next(b for b in tone.findChildren(QPushButton) if b.accessibleName()=='Pop out'),Qt.LeftButton)
     popup=next(p for p in window.findChildren(desktop.Panel) if p.windowTitle()=='Possible tones')
-    assert any(x.text()==expected+'\n\nOriginal observation.' for x in popup.findChildren(QLabel))
+    assert any(x.text()==expected+'\nOriginal observation.' for x in popup.findChildren(QLabel))
     assert not popup.isModal();popup.close()
     QTest.mouseClick(next(b for b in tone.findChildren(QPushButton) if b.accessibleName()=='Dismiss'),Qt.LeftButton)
     assert not window.guidance_display.tone_items() and not window.guidance_display.context_items()
     assert getattr(update,category)[0].hypothesis=='Original observation.'
+
+
+def test_section_numbers_highlight_new_items_then_expire_without_relighting(window, monkeypatch):
+    from conversation_copilot.guidance import GuidedInterpretation
+    from PySide6.QtWidgets import QLabel
+    clock = [100.0]
+    monkeypatch.setattr(desktop.time, 'perf_counter', lambda: clock[0])
+    update = GuidedInterpretation.model_validate({'snapshot_id':1,'generation':1,'status':'insufficient_evidence',
+        'explanation':'No affect evidence.',
+        'replies':[{'text':text,'confidence':'medium','turn_ids':[1]}
+                   for text in ('Tell me more.', 'That sounds difficult.')]})
+    window.guidance_display.offer(update,100)
+    window.render_guidance()
+    def badges():
+        layout = window.guidance_rows['replies']
+        return [layout.itemAt(i).widget().findChild(QLabel,'guidance_number') for i in range(1,layout.count())]
+    assert [b.text() for b in badges()] == ['1','2']
+    assert all(b.property('new_item') and 'new' in b.accessibleName() for b in badges())
+    button = window.guidance_rows['replies'].itemAt(1).widget().findChild(QPushButton)
+    button.setFocus()
+    first_badge = badges()[0]
+    clock[0] = 112
+    window.poll_interpretation(112)
+    assert all(not b.property('new_item') for b in badges())
+    assert badges()[0] is first_badge
+    assert QApplication.focusWidget() is button
+    window.guidance_display.offer(update.model_copy(update={'snapshot_id':2}),113)
+    clock[0] = 113
+    window.render_guidance()
+    assert all(not b.property('new_item') for b in badges())
+    window.guidance_display.dismiss('replies',0)
+    window.render_guidance()
+    assert [b.text() for b in badges()] == ['1']
+    assert not badges()[0].property('new_item')
 
 
 def test_retained_cue_buttons_target_visible_item(window):
@@ -952,8 +986,8 @@ def test_retained_cue_buttons_target_visible_item(window):
             'modalities':['language'],'turn_ids':[n]}}]})
         window.guidance_display.offer(update,n)
     window.render_guidance();layout=window.guidance_rows['social_cues']
-    assert 'Compare option 2.' in layout.itemAt(1).widget().findChild(QLabel).text()
-    older=layout.itemAt(2).widget();assert older.findChild(QLabel).text()=='Earlier: Cue: Compare option 1.'
+    assert 'Compare option 2.' in layout.itemAt(1).widget().findChild(desktop.GuidanceLabel).text()
+    older=layout.itemAt(2).widget();assert older.findChild(desktop.GuidanceLabel).text()=='Earlier: Cue: Compare option 1.'
     QTest.mouseClick(next(b for b in older.findChildren(QPushButton) if b.accessibleName()=='Dismiss'),Qt.LeftButton)
     assert [x.candidate.hypothesis for x in window.guidance_display.visible('social_cues')]==['Compare option 2.']
 
@@ -969,7 +1003,7 @@ def test_first_dispatch_timer_and_earlier_label_on_empty_update(window, monkeypa
     window.guidance_display.offer(update,100);window.render_guidance()
     window.guidance_display.offer(update.model_copy(update={'snapshot_id':2,'replies':[]}),105);window.render_guidance()
     from PySide6.QtWidgets import QLabel
-    assert window.guidance_rows['replies'].itemAt(1).widget().findChild(QLabel).text()=='Earlier: Could you clarify?'
+    assert window.guidance_rows['replies'].itemAt(1).widget().findChild(desktop.GuidanceLabel).text()=='Earlier: Could you clarify?'
 
 
 def test_batched_speech_resets_and_uncertain_reply_label(window, monkeypatch):
@@ -978,7 +1012,7 @@ def test_batched_speech_resets_and_uncertain_reply_label(window, monkeypatch):
     update=GuidedInterpretation(snapshot_id=1,generation=1,analyzed_order=1,status='insufficient_evidence',explanation='No affect evidence.',
         replies=[GuidanceCandidate(text='How was the trip?',confidence='low',memory_ids=['uncertain-revision'])])
     window.guidance_display.offer(update,0);window.render_guidance()
-    assert window.guidance_rows['replies'].itemAt(1).widget().findChild(QLabel).text().startswith('Possible connection:')
+    assert window.guidance_rows['replies'].itemAt(1).widget().findChild(desktop.GuidanceLabel).text().startswith('Possible connection:')
     now=datetime.now(timezone.utc)
     window.turns=[ConversationTurn(speaker_name='Alex',speaker_role='selected_contact',source='test',timestamp=now,display_order=n,content=text)
         for n,text in [(1,'I do not want to talk about that anymore.'),(2,'The weather is nice.')]]

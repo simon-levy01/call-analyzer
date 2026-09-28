@@ -5,6 +5,78 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 
+def test_search_excludes_pending_and_rejected_memories_and_summaries(tmp_path, monkeypatch):
+    import pytest
+    from conversation_copilot import interpretation
+    from conversation_copilot.ask_memory import cloud_sources, cloud_answer, CloudAskOutput
+    from conversation_copilot.memory import MemoryProposalInput, SummaryOutput, SummaryStatementInput
+    from conversation_copilot.models import ConversationTurn
+
+    with MemoryStore(tmp_path / 'approval-boundary.sqlite3') as store:
+        contact = store.create_contact('Alex')
+        approved, blocked = set(), set()
+        for kind in ('memory', 'summary'):
+            for state in ('approved', 'pending', 'rejected', 'legacy_rejected', 'approved_then_rejected'):
+                if kind == 'summary' and state == 'legacy_rejected':
+                    continue
+                if kind == 'memory' and state == 'approved_then_rejected':
+                    continue
+                content = f'Alex has a dentist appointment at {kind}_{state} Clinic.'
+                record = store.create_record(source_kind='call', source_label='Synthetic approval check',
+                    timezone_name='UTC', contact_id=contact.id, status='stopped', turns=[ConversationTurn(
+                        speaker_name='Alex', speaker_role='selected_contact', source='fixture',
+                        display_order=1, content=content)])
+                if kind == 'memory':
+                    batch = store.create_batch(record, model='fake', reasoning='none')
+                    item = store.store_proposals(batch, [MemoryProposalInput(content=content,
+                        memory_type='event_date', confidence='high', evidence_turns=[1])])[0]
+                    if state == 'approved':
+                        item = store.approve_proposal(item)
+                    elif state == 'rejected':
+                        store.review_record_proposals(record, [item], approve=False, expected_pending={item: content})
+                    elif state == 'legacy_rejected':
+                        store.reject_proposal(item)
+                else:
+                    version = store.create_summary_draft(record, SummaryOutput(statements=[SummaryStatementInput(
+                        section='plans', content=content, kind='fact', confidence='high', evidence_turns=[1])]),
+                        expected_generation=1)
+                    item = store.summary_statements(version)[0]['id']
+                    if state == 'approved':
+                        store.approve_summary(version)
+                    elif state in ('rejected', 'approved_then_rejected'):
+                        if state == 'approved_then_rejected':
+                            store.approve_summary(version)
+                        store.delete_summary(record)  # The Review button's actual rejection path.
+                        assert not store._connection.execute('SELECT 1 FROM summary_search WHERE statement_id=?', (item,)).fetchone()
+                        assert not store._connection.execute('SELECT 1 FROM summary_statements WHERE id=?', (item,)).fetchone()
+                (approved if state == 'approved' else blocked).add(item)
+
+        sources, complete = cloud_sources(store, contact.id, 'dentist appointment')
+        assert complete and {source.id for source in sources} == approved
+        result = AskSession(contact.id).answer(store, 'dentist appointment', semantic=False)
+        assert {source.id for source in result.sources} == approved
+        all_contacts = AskSession()
+        all_contacts.set_scope(None, all_contacts=True)
+        assert {source.id for source in all_contacts.answer(store, 'dentist appointment', semantic=False).sources} == approved
+        seen = []
+        def request(schema, payload, instructions, **kwargs):
+            seen.append(payload)
+            assert {entry['id'] for entry in payload['evidence']} == approved
+            assert all('pending' not in entry['text'] and 'rejected' not in entry['text']
+                       for entry in payload['evidence'])
+            return CloudAskOutput(status='answered', answer='There is an approved appointment.',
+                                  source_ids=[next(iter(approved))]), SimpleNamespace(dollars=0)
+        monkeypatch.setattr(interpretation, 'f06_structured_request', request)
+        assert cloud_answer(store, 'dentist appointment', contact_id=contact.id, ledger=None).status == 'answered'
+        assert len(seen) == 1
+        for item in blocked:
+            monkeypatch.setattr(interpretation, 'f06_structured_request', lambda *a, **kw:
+                (CloudAskOutput(status='answered', answer='Unsupported appointment.', source_ids=[item]),
+                 SimpleNamespace(dollars=0)))
+            with pytest.raises(ValueError, match='unsupported evidence'):
+                cloud_answer(store, 'dentist appointment', contact_id=contact.id, ledger=None)
+
+
 def test_approved_summary_offer_is_searchable_without_becoming_an_agreement(tmp_path):
     from conversation_copilot.ask_memory import cloud_sources, summary_source
     from conversation_copilot.memory import SummaryOutput, SummaryStatementInput

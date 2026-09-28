@@ -1,5 +1,26 @@
 # Project session instructions
 
+## September 28 — F08 accepted for now
+
+User tested Zoom, requested the selector/detail/number/color corrections, then said the result looks good and accepted this stage once the approval boundary check passes. Synthetic search verification passes: approved memories and summaries are included; pending proposals, both retained legacy rejections and current Review rejections, pending summaries and rejected summaries are excluded from local Ask and the actual cloud evidence payload. Unsupported citations are rejected. No search product change or paid inference was needed. Final offline suite: 464 passed; expanded search follow-up: 10 passed. Fresh exact Opus 5.5 final review found no confirmed medium/high defect; documentation corrections applied. Current Review rejection leaves independently approved summaries eligible; legacy rejection excludes turn-linked summary statements (code-derived; shared-record linkage is not exercised by this new regression).
+
+This is a **user-accepted limited checkpoint**, not completion of every original validation target. Both independent basic native passes and prior correction reviews are recorded; comprehensive native coverage and affected-flow dual-native retests, physical-device checks, alternative Zoom window modes and clean-machine Windows setup remain deferred/unverified. Development-host fresh-source/venv evidence is not a clean-machine pass. Earlier failures and all ledgers remain intact.
+
+F08 polish is done for now. **October 1 submission remains open:** required video (up to five minutes, Google Drive link), PDF (repository link and Kanban screenshot), and `finalproject.zip`. F08.11 retains these deliverables and deferred-check handoff. F09/shared whisper.cpp investigation follows separately; no ASR replacement or Mac support is established. See [F08 validation](docs/F08-VALIDATION.md) for final verification.
+
+
+## F08 user Zoom walkthrough feedback — 28 September 2026
+
+User likes the current appearance and requested meeting-only Zoom selection, more
+tone detail and numbered section items with colored new-item highlights. Local
+changes use observed Zoom meeting class/exact-title fallback, existing tone
+hypotheses and numbered 1–4 badges highlighted for 12 seconds after first display.
+Badge expiry updates in place to preserve focus. Exact Opus 5.5 high review and
+follow-up completed; 463 offline tests pass. No product inference, prompt/model
+change, real-data edits or publication. Running user app was left undisturbed;
+restart needed to load changes. Native Zoom mode variants remain unverified.
+See docs/F08-VALIDATION.md and private build/f08-zoom-guidance-20260928/.
+
 ## F08 checkpoint publication authorized — 26 September 2026
 
 After the fixes and API comparison, the user explicitly requested committing and

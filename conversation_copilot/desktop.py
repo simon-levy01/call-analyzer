@@ -289,7 +289,7 @@ class Desktop(QWidget):
         content.addWidget(self.contact_box)
         actions = row()
         for text, callback, role in (
-            ("Create", self.create_contact, "tone"), ("Edit", self.open_memories, "social"),
+            ("Create", self.create_contact, "tone"), ("Edit", self.open_memories, "replies"),
             ("Contact information", self.open_memories, "memory"),
             ("Import text", self.import_chat, "follow_up"),
         ):
@@ -321,7 +321,7 @@ class Desktop(QWidget):
         self.window_box.setAccessibleName("Call window")
         self.window_box.setPlaceholderText("Choose an active call window")
         self.window_box.currentIndexChanged.connect(self.window_changed)
-        self.refresh_button = button("Refresh", self.refresh_windows, "replies")
+        self.refresh_button = button("Refresh", self.refresh_windows, "social")
         self.refresh_button.setAccessibleName("Refresh call windows")
         watch_layout.addLayout(row(self.window_box, self.refresh_button))
         self.face_preview = label("Choose a window, then preview the selected face.")
@@ -792,10 +792,12 @@ class Desktop(QWidget):
         displayed['replies'] = self.guidance_display.response_items()
         displayed['tones'] = self.guidance_display.tone_items()
         displayed['social_cues'] = self.guidance_display.context_items()
-        signature = repr((displayed, self.guidance_display.last_snapshot))
+        signature = repr((displayed, self.guidance_display.last_snapshot, self.dark))
         if signature == self.last_guidance:
+            self.refresh_guidance_numbers()
             return
         self.last_guidance = signature
+        self.guidance_numbers = []
         focused = QApplication.focusWidget()
         if focused and self.guidance_scroll.isAncestorOf(focused):
             self.guidance_scroll.setFocus(Qt.OtherFocusReason)
@@ -807,12 +809,12 @@ class Desktop(QWidget):
                     item.widget().deleteLater()
             if not displayed[category]:
                 layout.addWidget(label("Nothing useful to show yet."))
-            for source_category, index, wrapped in displayed[category]:
+            for position, (source_category, index, wrapped) in enumerate(displayed[category], 1):
                 candidate = wrapped.candidate
                 content = candidate.hypothesis if hasattr(candidate, "hypothesis") else candidate.text
                 if category == 'tones':
                     from .guidance import tone_label
-                    content = tone_label(candidate)
+                    content = tone_label(candidate) + '\n' + candidate.hypothesis
                 elif category == 'social_cues':
                     content = ('Context: ' if source_category == 'tones' else 'Cue: ') + content
                 if (candidate.confidence == 'low' and getattr(getattr(candidate, 'evidence', candidate), 'memory_ids', [])
@@ -820,7 +822,7 @@ class Desktop(QWidget):
                     content = 'Possible connection: ' + content
                 if wrapped.snapshot_id < self.guidance_display.last_snapshot:
                     content = 'Earlier: ' + content
-                popup_content = content + ('\n\n' + candidate.hypothesis if category == 'tones' else '')
+                popup_content = content
                 item = QWidget()
                 item.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
                 item.setProperty("plain", True)
@@ -830,6 +832,12 @@ class Desktop(QWidget):
                 wording = GuidanceLabel(content)
                 wording.setWordWrap(True)
                 wording.setTextFormat(Qt.PlainText)
+                number = label(str(position))
+                number.setObjectName('guidance_number')
+                number.setFixedSize(28, 28)
+                number.setAlignment(Qt.AlignCenter)
+                self.guidance_numbers.append((number, category, wrapped.shown_at))
+                item_layout.addWidget(number, 0, Qt.AlignTop)
                 item_layout.addWidget(wording, 1)
                 def dismiss(c=source_category, i=index, view=category):
                     if view == 'tones':
@@ -845,6 +853,22 @@ class Desktop(QWidget):
                     action.setFixedWidth(34)
                     item_layout.addWidget(action)
                 layout.addWidget(item)
+        self.refresh_guidance_numbers()
+
+    def refresh_guidance_numbers(self):
+        now = time.perf_counter()
+        for number, category, shown_at in self.guidance_numbers:
+            is_new = 0 <= now - shown_at < 12
+            if number.property('new_item') == is_new:
+                continue
+            number.setProperty('new_item', is_new)
+            number.setAccessibleName(f'Item {number.text()}' + (' — new' if is_new else ''))
+            number.setToolTip('New suggestion' if is_new else 'Earlier suggestion')
+            color = {'tones':'#F2C94C', 'social_cues':'#F3A2AA',
+                     'replies':'#9BB7FF', 'remember':'#74D6AD'}[category]
+            number.setStyleSheet(f'background: {color if is_new else "transparent"}; '
+                                f'color: {"#111827" if is_new else "#CCD3DF" if self.dark else "#475569"}; '
+                                'border: 1px solid #697386; border-radius: 7px; font-weight: 700;')
 
     def pop_out(self, category, candidate, content):
         title = {'replies': 'Possible responses', 'follow_up': 'Possible responses',
@@ -1359,10 +1383,8 @@ class Desktop(QWidget):
                 else:
                     self.render_interpretation()
         memory_expired = self.stable_interpretation.expire_memory_possibilities(now)
-        previous_guidance = repr((self.guidance_display.items, self.guidance_display.local_remember))
         self.guidance_display.tick(now)
-        if previous_guidance != repr((self.guidance_display.items, self.guidance_display.local_remember)):
-            self.render_guidance()
+        self.render_guidance()
         if memory_expired:
             if self.guidance_display.visible('remember'):
                 self.memory_status_label.setText(f'Showing {len(self.guidance_display.visible("remember"))} retained memory suggestion(s)')

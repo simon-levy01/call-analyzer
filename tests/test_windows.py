@@ -41,6 +41,17 @@ def test_generic_chrome_and_other_browsers_are_rejected():
     assert windows._eligible(snapshot("Google Meet", r"C:\Firefox\firefox.exe")) is None
 
 
+def test_zoom_selector_excludes_workplace_toolbar_and_leave_dialog():
+    from dataclasses import replace
+    for title in ('Zoom Workplace', 'Zoom', 'ZPToolBarParentWnd', 'End meeting or leave meeting?'):
+        assert windows._eligible(snapshot(title, r'C:\Apps\Zoom.exe')) is None
+    meeting = replace(snapshot('Weekly sync', r'C:\Apps\Zoom.exe'),
+                      window_class='ConfMultiTabContentWndClass')
+    assert windows._eligible(meeting).kind == 'Zoom'
+    assert windows._eligible(replace(meeting, title='Zoom Meeting', window_class='ZPToolBarParentWndClass')) is None
+    assert windows._eligible(snapshot('Zoom Meeting', r'C:\Apps\Zoom.exe')).kind == 'Zoom'
+
+
 def test_hidden_minimized_and_cloaked_windows_are_rejected():
     path = r"C:\Apps\Zoom.exe"
     assert windows._eligible(snapshot("Call", path, visible=False)) is None

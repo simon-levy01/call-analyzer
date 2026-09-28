@@ -58,7 +58,7 @@ class Memories(Panel):
         self.alive = True
         self.finished.connect(self.cleanup)
         self.body.addWidget(label(f"Search {self.contact.label}'s memories and approved conversation summaries."))
-        self.body.addWidget(button("Conversation history", self.history, "replies"))
+        self.body.addWidget(button("Conversation history", self.history, "memory"))
         controls = row()
         for title, callback, role in (("Edit aliases", self.aliases, "tone"), ("Merge contact", self.merge, "social"),
                                       ("Export data", self.export, "replies"), ("Delete contact", self.delete_contact, "danger")):

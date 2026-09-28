@@ -54,5 +54,6 @@ def apply_theme(app, dark):
     """
     for role, color in roles.items():
         style += f'QFrame[role="{role}"], QPushButton[role="{role}"] {{ background: {color}; }}'
+    style += f'QFrame[role="social"] {{ background: {"#422329" if dark else "#FFE6E8"}; }}'
     style += f'QPushButton:disabled {{ background: {page}; color: {muted}; border-color: {line}; }}'
     app.setStyleSheet(style)

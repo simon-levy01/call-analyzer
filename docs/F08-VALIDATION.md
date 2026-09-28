@@ -1,5 +1,70 @@
 # F08 validation — 26 September 2026
 
+## September 28 — F08 accepted for now
+
+User tested Zoom, requested the selector/detail/number/color corrections, then said the result looks good and accepted this stage once the approval boundary check passes. Synthetic search verification passes: approved memories and summaries are included; pending proposals, both retained legacy rejections and current Review rejections, pending summaries and rejected summaries are excluded from local Ask and the actual cloud evidence payload. Unsupported citations are rejected. No search product change or paid inference was needed.
+
+This is a **user-accepted limited checkpoint**, not completion of every original validation target. Both independent basic native passes and prior correction reviews are recorded; comprehensive native coverage and affected-flow dual-native retests, physical-device checks, alternative Zoom window modes and clean-machine Windows setup remain deferred/unverified. Development-host fresh-source/venv evidence is not a clean-machine pass. Earlier failures and all ledgers remain intact.
+
+F08 polish is done for now. **October 1 submission remains open:** required video (up to five minutes, Google Drive link), PDF (repository link and Kanban screenshot), and `finalproject.zip`. F08.11 retains these deliverables and deferred-check handoff. F09/shared whisper.cpp investigation follows separately; no ASR replacement or Mac support is established.
+
+The September 28 closeout commit includes these reviewed UI changes, approval regression and status updates. Earlier statements below about unpublished changes describe the pre-closeout checkpoint. Remote publication is verified separately after push; the prior `v1-working` tag remains unchanged.
+
+### Final checks — September 28
+
+- Search regression: **10 passed** in `tests/test_f06_ask.py`, including the new synthetic approval matrix and fake-provider payload/citation checks. Network/DNS blocked; no real data or provider calls. Private evidence: `build/f08-closeout-20260928/`.
+- Final blocked-network offline suite: **464 passed**. Expanded search check after review: **10 passed**, including previously approved then rejected summaries and all-contact local search.
+- Fresh exact **Claude Opus 5.5 high** final code review found no confirmed medium/high bug. Documentation findings corrected; production offer/tick/highlight clocks all use `perf_counter`. Follow-up review is recorded in private evidence.
+- Current Review rejection leaves independently approved summaries eligible; legacy rejection excludes turn-linked summary statements (code-derived; shared-record linkage is not exercised by this new regression). The regression verifies rejected/pending sources are excluded, not that identical wording disappears from other independently approved sources.
+- All 48 older evaluation ledgers plus the F08 API ledger verified unchanged; no new paid product inference. `git diff --check` passes.
+- Current Home button roles: Refresh purple, Edit blue, Conversation history green; cues/context red in both themes. User accepted the reopened app.
+
+
+## September 28 user walkthrough feedback
+
+Subsequent requested color adjustment: Cues & context cards use muted red in dark
+mode and pale red in light mode, with matching red new-item badges. This palette step changed the cards; the later Home/menu step also made Refresh purple, Edit blue and Conversation history green. Both synthetic Qt previews inspected; exact Opus 5.5
+review found no blocker. Color-only follow-up, no new inference or publication;
+the 463-test result below precedes this palette-only edit. Restart loads the palette.
+
+User tested Zoom, liked the appearance, and requested three bounded changes:
+
+- Selector: omit Zoom Workplace and auxiliary toolbar/dialog windows. Read-only
+  Win32 metadata observed `Zoom Meeting` with `ConfMultiTabContentWndClass`,
+  `ZPToolBarParentWnd` with `ZPToolBarParentWndClass`, and the leave-meeting dialog
+  with `zLeaveWndClass`. Eligibility now accepts the observed meeting class,
+  with exact meeting/webinar title fallback only when class lookup is unavailable.
+  Both discovery and selected-window revalidation share this check. Fullscreen,
+  screen sharing, older/localized clients and separate webinar windows remain
+  unverified; a later enumeration found no Zoom windows because none were eligible
+  then, so it is not counted as a native meeting-selection retest.
+- Possible tones now show the existing hypothesis beneath the concise label;
+  the popup preserves that same text. No additional model reasoning is requested.
+- All four sections show 1–4 number badges. Newly displayed content is highlighted
+  in its section color for 12 seconds; retained content keeps an outlined number.
+  Reordering, ordinary redraw and repeated same evidence do not restart highlighting.
+  Existing manual refresh intentionally resets display age. A recently displayed
+  item can still be marked Earlier after a newer analysis omits it: the badge
+  indicates appearance age, while Earlier indicates its analysis snapshot.
+
+Exact Opus 5.5 high review identified a focus regression from rebuilding rows just
+to fade highlights. Corrected by updating badge labels in place, verified through
+the actual poll path with focus and widget identity preserved. Follow-up found no
+confirmed medium/high issue; two low observations concern the distinct appearance
+and snapshot ages above and highlighting a changed explanation under the same tone
+label. Both are intentional visible-content behavior. Nonstandard Zoom modes need
+native checks. No native pass is claimed for this change.
+
+Initial focused run: 54 passed/13 failed (old first-QLabel lookups selected new
+number badges, and a new test fixture omitted valid interpretation metadata).
+After selecting the actual GuidanceLabel and correcting the fixture, targeted
+checks: 15 passed. Final socket/DNS-blocked offline suite: **463 passed in 136.90s**.
+Dark/light synthetic Qt previews inspected. Private review, logs and previews are
+in `build/f08-zoom-guidance-20260928/`; original failed outcomes remain recorded.
+Product prompts/models, private stores and old ledgers unchanged. User's running
+app was not restarted or interrupted. Changes remain local, pending restart and
+user verification; the earlier checkpoint push does not publish these new edits.
+
 ## Checkpoint publication authorization
 
 After reviewing the fixes and API comparison, the user explicitly requested a
@@ -346,3 +411,5 @@ user walkthrough September 29, final review and video/PDF/`finalproject.zip`
 assembly September 30, then link/access verification October 1. These are
 working targets, not completed deliverables or confirmed user appointments.
 F09/whisper.cpp work remains outside this stage.
+
+Final-review follow-up triage: alleged rejected-summary index residue is not reproduced. `summary_versions` deletion cascades to statements/evidence/dependencies, and `summary_search_delete` removes the FTS row. Regression asserts both statement and index absence. No redundant reindex/product change was added. Legacy rejection wording corrected.

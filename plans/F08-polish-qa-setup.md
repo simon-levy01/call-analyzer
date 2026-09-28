@@ -1,7 +1,7 @@
 # F08 — Polish, QA and reliable Windows setup
 
 **Recorded:** 26 September 2026, at the user's request to make the plan.
-**Status:** In progress; reviewed correction checkpoint authorized for main publication. Basic dual-native passes, bounded fixes, offline checks and development-host source setup completed with limits; full acceptance remains open. See [validation](../docs/F08-VALIDATION.md).
+**Status:** User-accepted limited polish checkpoint — September 28. Search approval check passed; final verification is recorded in [validation](../docs/F08-VALIDATION.md). Original unperformed targets remain deferred, not passed. F08.11 submission/handoff remains open.
 **Sequence:** F10 accepted by user → F08 → F09. October 1 remains the usable Windows/submission target.
 **Application:** Conversation Assistant project; current native window title is Conversation Copilot. No rename is implied.
 
@@ -322,23 +322,23 @@ F09 follows F08, subject to submission priority. Carry forward whisper.cpp as th
 
 ## 10. Trello tracking
 
-Board: [Conversation Copilot — Final Project](https://trello.com/b/XeJEDPBa/conversation-copilot-final-project). Preserve the existing [F08 roadmap card](https://trello.com/c/9uFlY8dH), feature IDs, earlier columns and history. Permanent column: **F08 — Polish, QA and reliable Windows setup**. Use F08.01–F08.11 from section 7 with actionable acceptance checklists and dependency/status notes. Only planning may be completed now. All execution cards remain not started or blocked. Local plan is authoritative until later reviewed publication; do not present an unpublished GitHub file link as available.
+Board: [Conversation Copilot — Final Project](https://trello.com/b/XeJEDPBa/conversation-copilot-final-project). Preserve the existing [F08 roadmap card](https://trello.com/c/9uFlY8dH), feature IDs, earlier columns and history. Permanent column: **F08 — Polish, QA and reliable Windows setup**. Use F08.01–F08.11 from section 7 with actionable acceptance checklists and dependency/status notes. September 28 supersedes the historical planning status: F08.01–F08.10 close as the accepted limited checkpoint, with partial evidence explicitly described. F08.11 remains open for submission and deferred-check handoff. Earlier acceptance targets below are retained as the original plan.
 
 Created September 26: 11 cards, each with three acceptance items. No execution item is marked passed.
 
 | Card | Work | Planning-time status |
 |---|---|---|
-| [F08.01](https://trello.com/c/aPENtGDJ) | Focused plan and current control inventory | Planning recorded |
-| [F08.02](https://trello.com/c/0ZTFQmEL) | Isolated fixtures and dual native access prerequisite | Blocked: Claude native prerequisite |
-| [F08.03](https://trello.com/c/Jtr8h9nM) | Codex native control and workflow pass | Not started |
-| [F08.04](https://trello.com/c/vGBY2yZc) | Claude Opus 5.5 independent native pass | Not started |
-| [F08.05](https://trello.com/c/AZE0o49N) | Functional, recovery, production startup and resource checks | Not started |
-| [F08.06](https://trello.com/c/ms7dGkHX) | Bounded root-cause fixes and regression/native retests | Not started |
-| [F08.07](https://trello.com/c/VeWX3lHt) | Reliable Windows source setup and current README | Not started |
-| [F08.08](https://trello.com/c/WdAOrurW) | Preliminary Opus 5.5 QA/code review and corrections | Not started |
-| [F08.09](https://trello.com/c/4OlpS35k) | User walkthrough and targeted corrections | Not started |
-| [F08.10](https://trello.com/c/EVSrAkJv) | Final Opus 5.5 review and reviewed publication | Not started |
-| [F08.11](https://trello.com/c/X0ko56DP) | October 1 submission deliverables and F09 handoff | Not started |
+| [F08.01](https://trello.com/c/aPENtGDJ) | Focused plan and current control inventory | Done |
+| [F08.02](https://trello.com/c/0ZTFQmEL) | Isolated fixtures and dual native access prerequisite | Done: isolated fixtures and both native tools verified |
+| [F08.03](https://trello.com/c/Jtr8h9nM) | Codex native control and workflow pass | Accepted basic pass; full coverage deferred |
+| [F08.04](https://trello.com/c/vGBY2yZc) | Claude Opus 5.5 independent native pass | Accepted basic pass; full coverage deferred |
+| [F08.05](https://trello.com/c/AZE0o49N) | Functional, recovery, production startup and resource checks | Accepted offline/startup/resource evidence; physical checks deferred |
+| [F08.06](https://trello.com/c/ms7dGkHX) | Bounded root-cause fixes and regression/native retests | Fixes/regressions complete; dual-native retests deferred |
+| [F08.07](https://trello.com/c/VeWX3lHt) | Reliable Windows source setup and current README | Development-host source setup passed; clean-machine deferred |
+| [F08.08](https://trello.com/c/WdAOrurW) | Preliminary Opus 5.5 QA/code review and corrections | Done: exact Opus 5.5 review and corrections |
+| [F08.09](https://trello.com/c/4OlpS35k) | User walkthrough and targeted corrections | Done for now: user accepted requested corrections |
+| [F08.10](https://trello.com/c/EVSrAkJv) | Final Opus 5.5 review and reviewed publication | Final review done; reviewed changes included in closeout commit |
+| [F08.11](https://trello.com/c/X0ko56DP) | October 1 submission deliverables and F09 handoff | OPEN: October 1 video/PDF/ZIP and deferred-check handoff |
 
 ## 11. Ready-to-paste implementation / QA-session prompt
 
