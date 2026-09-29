@@ -857,6 +857,39 @@ def test_silent_poll_expires_actual_cue_labels(window, monkeypatch):
         for label in widget.findChildren(QLabel))
 
 
+def test_empty_analysis_keeps_all_guidance_until_original_expiry(window):
+    from conversation_copilot import guidance as g, interpretation as ip
+    evidence = ip.Evidence(explanation='Explicit discussion.', modalities=['language'], turn_ids=[1])
+    initial = g.GuidedInterpretation(snapshot_id=1, generation=1, status='updated',
+        tones=[ip.ToneHypothesis(kind='neutral_calm', hypothesis='Factual details.', confidence='medium', evidence=evidence)],
+        social_cues=[ip.SocialCue(kind='other', hypothesis='Comparing options.', confidence='medium', evidence=evidence)],
+        replies=[g.GuidanceCandidate(text='Tell me more.', confidence='medium', turn_ids=[1])],
+        follow_up=[g.GuidanceCandidate(text='Which option?', confidence='medium', turn_ids=[1])],
+        remember=[g.GuidanceCandidate(text='Earlier plans.', confidence='low', memory_ids=['r1'])])
+    window.guidance_display.offer(initial, 10)
+    local = ip.RetrievedMemoryContext(memory_id='m2', revision_id='r2', excerpt='Local memory.',
+        memory_type='other', confidence='high', sensitivity_safe=False, rank=1, relevance='lexical')
+    window.guidance_display.offer_local_remember([local], 1, 10)
+    before = repr((window.guidance_display.items, window.guidance_display.local_remember))
+    for number, status in enumerate(('insufficient_evidence', 'conflicting_evidence'), 2):
+        empty = g.GuidedInterpretation(snapshot_id=number, generation=1, status=status,
+            explanation='No new supported suggestions.')
+        event = ip.CoordinatorEvent(ip.CoordinatorEventKind.ACCEPTED, number, empty)
+        window.interpretation_coordinator = SimpleNamespace(
+            snapshot=lambda: SimpleNamespace(in_flight=False), poll=lambda _: [event])
+        window.poll_interpretation(10 + number)
+        assert repr((window.guidance_display.items, window.guidance_display.local_remember)) == before
+        for category in window.guidance_rows:
+            row = window.guidance_rows[category].itemAt(1).widget()
+            assert row.findChild(desktop.GuidanceLabel) is not None
+    window.interpretation_coordinator = None
+    window.guidance_display.offer_local_remember([], 5, 20)
+    window.poll_interpretation(189)
+    assert repr((window.guidance_display.items, window.guidance_display.local_remember)) == before
+    window.poll_interpretation(190)
+    assert all(not window.guidance_display.visible(category) for category in g.LIVE_CATEGORIES)
+
+
 def test_responses_include_followups_newest_first_with_correct_controls(window):
     from conversation_copilot.guidance import GuidanceCandidate, DisplayedGuidance
     assert set(window.guidance_rows)=={'tones','social_cues','replies','remember'}

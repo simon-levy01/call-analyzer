@@ -6,6 +6,33 @@ __pycache__/
 build/
 dist/
 .env
-.env.local
+.env.*
+!.env.example
 heygen-video-log.jsonl
 evaluation-history/
+
+# Local credentials, stores, exports, and personal documents.
+*.pem
+*.key
+*.p12
+*.pfx
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.db
+*.db-*
+*.migration-backup
+*.log
+*.jsonl
+/*.pdf
+/finalproject.zip
+
+# Retained local planning and experiment history; keep public docs focused.
+/AGENTS.md
+/CONTEXT.md
+/PLAN.md
+/plans/
+/docs/*
+!/docs/TESTING.md
+!/docs/F08-VALIDATION.md

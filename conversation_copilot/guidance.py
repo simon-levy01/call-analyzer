@@ -450,8 +450,9 @@ class GuidanceDisplay:
         self.pending = update
         self.pending_categories = set(LIVE_CATEGORIES)
         if update.status == InterpretationStatus.CONFLICTING_EVIDENCE:
-            self.items['tones'].clear()
-            self.items['social_cues'].clear()
+            for category in ('tones', 'social_cues'):
+                if getattr(update, category):
+                    self.items[category].clear()
         self.pending_at = now - max(0, source_age)
         self.pending_manual = manual
         self.tick(now)

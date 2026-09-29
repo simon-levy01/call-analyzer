@@ -1398,7 +1398,7 @@ def ten_minute_call_estimate(model: str) -> float | None:
 
     Sep 23: 20 paired live cases; full 341.461-second call extraction/summary.
     Assume one live update per normal cadence; exclude Ask, retries and manual refresh.
-    See docs/UI-REFINEMENTS-20260924.md for provenance and limitations.
+    See docs/TESTING.md for the workload profile and limitations.
     """
     generation_model = LIVE_ASK_MODELS[-1]
     if model not in MODEL_PRICES or generation_model not in MODEL_PRICES:

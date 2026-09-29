@@ -195,7 +195,7 @@ class Desktop(QWidget):
     def __init__(self, store=None, *, discover=True):
         super().__init__()
         self.setWindowTitle("Conversation Copilot")
-        self.resize(1100, 740)
+        self.resize(860, 721)
         self.setMinimumSize(480, 420)
         self.memory_store = store or MemoryStore()
         self.settings = QSettings("ConversationCopilot", "Desktop")
@@ -698,7 +698,7 @@ class Desktop(QWidget):
             self.begin_interpretation_session()
             self.live_contact_label.setText(self.selected_contact_label)
             self.pages.setCurrentWidget(self.live)
-            self.resize(660, 780)
+            self.resize(480, 895)
             self.stop_button.setEnabled(True)
             self.switch_button.setEnabled(True)
             if self.closing:
@@ -747,7 +747,7 @@ class Desktop(QWidget):
                     finalized = False
                     self.persistence_error = f"Call could not be finalized ({type(exc).__name__}). Keep the app open and copy the temporary transcript."
             self.pages.setCurrentWidget(self.home)
-            self.resize(1100, 740)
+            self.resize(860, 721)
             self.status_label.setText(self.persistence_error or "; ".join(errors or []) or "Call saved.")
             if errors or error:
                 self.capture_failed = True
