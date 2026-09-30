@@ -261,6 +261,27 @@ class Desktop(QWidget):
         if discover:
             QTimer.singleShot(0, self.refresh_devices)
             QTimer.singleShot(1500, self.schedule_semantic_backfill)
+            if getattr(sys, 'frozen', False):
+                QTimer.singleShot(0, self.check_initial_setup)
+
+    def check_initial_setup(self):
+        from .setup_dialog import needs_setup
+        path = self.memory_store.path
+        def checked(required, error):
+            if not self.closing and (required or error):
+                self.open_model_setup()
+        self.run_job(lambda: needs_setup(path), checked)
+
+    def open_model_setup(self):
+        from .setup_dialog import SetupDialog
+        if self.audio_session or self.starting or self.stopping:
+            return
+        existing = getattr(self, 'setup_dialog', None)
+        if existing and existing.isVisible():
+            existing.raise_()
+            return
+        self.setup_dialog = SetupDialog(self)
+        self.setup_dialog.show()
 
     def set_logo(self):
         image = QImage(str(Path(__file__).with_name("assets") / "conversation-copilot-icon.png"))
@@ -949,7 +970,7 @@ class Desktop(QWidget):
         panel.show()
 
     def open_settings(self):
-        panel = Panel(self, "Settings", (600, 350))
+        panel = Panel(self, "Settings", (600, 420))
         panel.body.addWidget(label("API key", heading=True))
         panel.body.addWidget(label("•••••••••••• · Existing key in use" if local_openai_api_key() else "No API key configured"))
         panel.body.addWidget(label("Leave this empty to keep your existing key. A replacement is saved privately on this computer."))
@@ -973,6 +994,10 @@ class Desktop(QWidget):
             except (ValueError, OSError) as exc:
                 status.setText(str(exc))
         panel.body.addWidget(button("Save key", save, "primary"))
+        def setup_models():
+            panel.close()
+            self.open_model_setup()
+        panel.body.addWidget(button('Local model setup', setup_models))
         panel.show()
 
     def open_memories(self):

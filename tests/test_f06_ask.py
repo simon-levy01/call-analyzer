@@ -1,3 +1,5 @@
+import pytest
+
 from conversation_copilot.ask_memory import AskSession, memory_source, validate_sources
 from conversation_copilot.memory import MemoryStore
 from conversation_copilot.ask_memory import query_period, source_event_date
@@ -106,7 +108,8 @@ def test_approved_summary_offer_is_searchable_without_becoming_an_agreement(tmp_
         assert summary_source(store,statement,contact.id) is None
 
 
-def test_cloud_history_has_dated_sources_and_automatic_sensitive_eligibility_and_freshness(tmp_path, monkeypatch):
+@pytest.mark.parametrize("model", ["gpt-5.6-luna", "gpt-6.1-sol"])
+def test_cloud_history_has_dated_sources_and_automatic_sensitive_eligibility_and_freshness(tmp_path, monkeypatch, model):
     from conversation_copilot.ask_memory import cloud_sources, cloud_answer, CloudAskOutput
     from conversation_copilot.f06_evaluation import seed_history
     from conversation_copilot import interpretation
@@ -123,11 +126,11 @@ def test_cloud_history_has_dated_sources_and_automatic_sensitive_eligibility_and
         seen = {}
         def request(schema, payload, instructions, **kwargs):
             seen.update(payload)
-            assert kwargs["model"] == "gpt-5.6-luna" and kwargs["reasoning"] == "low" and kwargs["is_current"]()
+            assert kwargs["model"] == model and kwargs["reasoning"] == "low" and kwargs["is_current"]()
             return CloudAskOutput(status="answered", answer="His friend Maya died on September 5, 2026.",
                                   source_ids=[ids["new_loss"]]), SimpleNamespace(dollars=.001)
         monkeypatch.setattr(interpretation, "f06_structured_request", request)
-        result = cloud_answer(store, "Who did he lose most recently?", contact_id=contact, ledger=None)
+        result = cloud_answer(store, "Who did he lose most recently?", contact_id=contact, ledger=None, model=model)
         assert [s.id for s in result.sources] == [ids["new_loss"]]
         assert seen["complete_eligible_history"] and len(seen["evidence"]) == 19
         assert next(s for s in sources if s.id == ids["new_loss"]).kind == "Approved memory"

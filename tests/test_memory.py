@@ -783,7 +783,7 @@ def test_extraction_chunks_and_cost_use_the_same_token_bound():
     assert count == len(chunks) > 1 and maximum > 0
     assert maximum == sum(
         conservative_request_cost(
-                "gpt-6-sol",
+                "gpt-6.1-sol",
             extraction_reservation_tokens(chunk),
             max_output_tokens=2_400,
         )
@@ -811,6 +811,7 @@ def test_openai_memory_extractor_is_stateless_bounded_and_validates_output():
     ])
 
     assert output.proposals == [] and len(calls) == 1
+    assert calls[0]["model"] == "gpt-6.1-sol" and calls[0]["reasoning"] == {"effort": "low"}
     assert calls[0]["store"] is False and calls[0]["max_output_tokens"] == 2_400
     assert calls[0]["text_format"] is ExtractionOutput and len(ledger.records) == 1
 

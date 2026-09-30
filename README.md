@@ -8,6 +8,9 @@ Built with Python and PySide6/Qt. Supports eligible WhatsApp Desktop, Zoom meeti
 and dedicated Chrome/Google Meet windows. English transcription is supported;
 macOS and CPU-only Windows operation are not yet validated.
 
+For the submission video, see the [technology list and API flow](TECHNOLOGIES.md)
+and [architecture diagram](TECHNOLOGY-FLOW.png).
+
 ## Setup
 
 Use **64-bit Python 3.12** and a compatible **NVIDIA GPU and driver** for the current
@@ -32,6 +35,35 @@ indirect recall; without it, exact/date/full-text retrieval remains available.
 Call startup never downloads models. Qt is pinned to 6.8.3 in `pyproject.toml`.
 
 ## Run
+
+### Windows download
+
+Download [ConversationCopilot.exe](https://github.com/simon-levy01/conversation-assistant/releases/latest/download/ConversationCopilot.exe)
+and double-click it. No Python installation or terminal commands are needed.
+On first run, enter your own OpenAI API key and click **Prepare models and save key**.
+The app checks the NVIDIA runtime, downloads its local models, and verifies them.
+Internet and several GB of free space are needed for this one-time setup.
+If a download fails, use **Retry setup**. Setup is also available in
+**Settings → Local model setup**.
+
+Requires 64-bit Windows and a compatible NVIDIA GPU and driver for calls.
+The executable unpacks its libraries into a temporary directory on launch;
+opening it can take a little time. Contacts, call history, approved memories, models
+and the API key are saved under `%LOCALAPPDATA%\ConversationCopilot`, in your own
+Windows account. The download contains no developer contacts, call records or API key.
+Replacing the executable preserves your saved data.
+
+To rebuild from this checkout:
+
+```powershell
+.\.venv\Scripts\python -m pip install -e ".[build]"
+powershell -NoProfile -ExecutionPolicy Bypass -File packaging\build.ps1
+```
+
+The output is `dist\ConversationCopilot.exe`. See [download instructions](packaging/README.txt).
+Packaging uses [PyInstaller](https://www.pyinstaller.org/en/stable/usage.html).
+
+### From source
 
 ```powershell
 .\.venv\Scripts\python -m conversation_copilot
@@ -63,7 +95,7 @@ continues; use **End call** to finish the session.
   and eligible retrieved contact information. Ask, participant detection, and
   post-call generation also send relevant text. Import participant detection sends
   at most the first 20 shortened lines and contact names on explicit selection.
-- Live/Ask offers Luna low or Sol low; summary and memory generation uses Sol low.
+- Live/Ask offers Luna low or Sol 6.1 low; summary and memory generation uses Sol 6.1 low.
   **API usage costs money. Normal app operation has no dollar cap.** Displayed
   usage and estimates are accounting, not spending limits. Starting/ending calls,
   Ask, participant detection, changed summary saves, and retries can send requests.

@@ -1283,7 +1283,7 @@ def test_longitudinal_contact_history_covers_review_correction_future_calls_and_
             store,
             first_record,
             FakeMemoryExtractor([ExtractionOutput(proposals=proposals)]),
-            model="gpt-6-sol",
+            model="gpt-6.1-sol",
             reasoning="low",
         )
         pending = {

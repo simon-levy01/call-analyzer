@@ -679,8 +679,8 @@ def test_delayed_device_discovery_and_combobox_keyboard(window, monkeypatch):
     window.model_box.showPopup()
     QTest.keyClick(window.model_box, Qt.Key_End)
     QTest.keyClick(window.model_box, Qt.Key_Return)
-    assert window.model_box.currentText() == "Sol low"
-    assert window.selected_live_model() == "gpt-6-sol"
+    assert window.model_box.currentText() == "Sol 6.1 low"
+    assert window.selected_live_model() == "gpt-6.1-sol"
 
 
 def test_import_preview_and_contact_aliases_export(window, monkeypatch, tmp_path):
@@ -1027,10 +1027,14 @@ def test_retained_cue_buttons_target_visible_item(window):
 
 def test_first_dispatch_timer_and_earlier_label_on_empty_update(window, monkeypatch):
     from conversation_copilot.guidance import GuidedInterpretation,GuidanceCandidate
-    monkeypatch.setattr(desktop,'OpenAIInterpreter',lambda **kw:SimpleNamespace(_client=None))
+    calls = []
+    window.model_box.setCurrentIndex(1)
+    monkeypatch.setattr(desktop, 'OpenAIInterpreter',
+        lambda **kw: (calls.append(kw), SimpleNamespace(_client=None))[1])
     monkeypatch.setattr(desktop.time,'perf_counter',lambda:100.)
     window.begin_interpretation_session()
     assert window.interpretation_coordinator._first_request_at==106.
+    assert calls[0]["model"] == "gpt-6.1-sol" and calls[0]["reasoning"] == "low"
     update=GuidedInterpretation(snapshot_id=1,generation=1,analyzed_order=1,status='insufficient_evidence',explanation='No affect evidence.',
         replies=[GuidanceCandidate(text='Could you clarify?',confidence='medium',turn_ids=[1])])
     window.guidance_display.offer(update,100);window.render_guidance()

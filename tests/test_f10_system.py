@@ -60,7 +60,7 @@ def record(store: MemoryStore, contact_id: str) -> str:
 
 
 def test_product_profiles_and_uncapped_accounting_preserve_evaluation_caps():
-    assert LIVE_ASK_MODELS == (LUNA_MODEL, SOL_MODEL) == ("gpt-5.6-luna", "gpt-6-sol")
+    assert LIVE_ASK_MODELS == (LUNA_MODEL, SOL_MODEL) == ("gpt-5.6-luna", "gpt-6.1-sol")
     assert LIVE_ASK_REASONING == REVIEW_REASONING == "low"
     assert REVIEW_MODEL == LIVE_ASK_MODELS[-1]
 
@@ -130,21 +130,25 @@ def test_gpt6_prices_preserve_historical_accounting():
     assert _request_cost(LUNA_MODEL, 1_000_000, 0, 1_000_000) == pytest.approx(1.40)
     assert _request_cost("gpt-6-luna", 1_000_000, 0, 1_000_000) == pytest.approx(0.60)
     assert _request_cost(SOL_MODEL, 1_000_000, 0, 1_000_000) == pytest.approx(12.00)
+    assert _request_cost(SOL_MODEL, 1_000_000, 1_000_000, 0) == pytest.approx(.10)
+    assert _request_cost("gpt-6-sol", 1_000_000, 1_000_000, 0) == pytest.approx(.20)
+    assert _request_cost(SOL_MODEL, 1_000_000, 0, 0, 1_000_000) == pytest.approx(2.50)
     assert _request_cost("gpt-5.6-luna", 1_000_000, 0, 1_000_000) == pytest.approx(1.40)
     assert _request_cost("gpt-5.6-terra", 1_000_000, 0, 1_000_000) == pytest.approx(14.00)
 
 
-def test_model_change_restarts_partial_extraction_without_relabeling(tmp_path):
+@pytest.mark.parametrize("old_model", ["gpt-5.6-terra", "gpt-6-sol"])
+def test_model_change_restarts_partial_extraction_without_relabeling(tmp_path, old_model):
     from conversation_copilot.memory import analyze_record
     with MemoryStore(tmp_path / "memory.sqlite3") as store:
         contact = store.create_contact("Alex")
         record_id = record(store, contact.id)
-        old = store.create_batch(record_id, model="gpt-5.6-terra", reasoning="low", chunks_total=1)
+        old = store.create_batch(record_id, model=old_model, reasoning="low", chunks_total=1)
         store.fail_batch(old, "interrupted")
         new = analyze_record(store, record_id, FakeMemoryExtractor([ExtractionOutput()]), batch_id=old)
         assert new != old
         rows = {row["id"]: row for row in store._connection.execute("SELECT * FROM proposal_batches")}
-        assert rows[old]["model"] == "gpt-5.6-terra" and rows[old]["status"] == "invalidated"
+        assert rows[old]["model"] == old_model and rows[old]["status"] == "invalidated"
         assert rows[new]["model"] == REVIEW_MODEL and rows[new]["status"] == "pending_review"
 
 

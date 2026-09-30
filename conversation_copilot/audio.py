@@ -5,6 +5,7 @@ import logging
 import os
 import queue
 import site
+import sys
 import statistics
 import threading
 import time
@@ -513,6 +514,8 @@ def _configure_nvidia_dlls() -> None:
     if os.name != "nt" or _DLLS_CONFIGURED:
         return
     roots = [Path(path) / "nvidia" for path in site.getsitepackages()]
+    if getattr(sys, 'frozen', False):
+        roots.insert(0, Path(sys._MEIPASS) / 'nvidia')
     directories = [path for root in roots for path in root.glob("*/bin")]
     if directories:
         os.environ["PATH"] = (

@@ -12,8 +12,8 @@ def output(n, text):
 
 def test_luna_routing_prices_and_first_analysis():
     assert ip.LUNA_MODEL=='gpt-5.6-luna'
-    assert ip.LIVE_ASK_MODELS==(ip.LUNA_MODEL,'gpt-6-sol')
-    assert ip.REVIEW_MODEL=='gpt-6-sol'
+    assert ip.LIVE_ASK_MODELS==(ip.LUNA_MODEL,'gpt-6.1-sol')
+    assert ip.REVIEW_MODEL=='gpt-6.1-sol'
     assert ip.MODEL_PRICES['gpt-6-luna'].output_per_million==.50
     assert ip.MODEL_PRICES[ip.LUNA_MODEL].output_per_million==1.20
     assert ip.FIRST_ANALYSIS_DELAY_SECONDS==6

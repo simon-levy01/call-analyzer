@@ -5,6 +5,7 @@ from . import test_log
 import math
 import json
 import os
+import sys
 import queue
 import re
 import threading
@@ -45,10 +46,10 @@ MEMORY_DISPLAY_SECONDS = 24.0
 LUNA_MODEL = "gpt-5.6-luna"
 LIVE_BUDGET_CEILING_DOLLARS = 0.27
 TERRA_MODEL = "gpt-5.6-terra"
-SOL_MODEL = "gpt-6-sol"
+SOL_MODEL = "gpt-6.1-sol"
 # Ordered from economical to higher-end; generation follows the higher-end choice.
 LIVE_ASK_MODELS = (LUNA_MODEL, SOL_MODEL)
-MODEL_LABELS = {model: f"{model.rsplit('-', 1)[-1].title()} low" for model in LIVE_ASK_MODELS}
+MODEL_LABELS = {LUNA_MODEL: "Luna low", SOL_MODEL: "Sol 6.1 low"}
 LIVE_ASK_REASONING = "low"
 REVIEW_MODEL = LIVE_ASK_MODELS[-1]
 REVIEW_REASONING = "low"
@@ -1029,7 +1030,8 @@ class ModelPrice:
 
 MODEL_PRICES = {
     "gpt-6-luna": ModelPrice(0.10, 0.01, 0.50),
-    SOL_MODEL: ModelPrice(2.00, 0.20, 10.00),
+    "gpt-6-sol": ModelPrice(2.00, 0.20, 10.00),
+    SOL_MODEL: ModelPrice(2.00, 0.10, 10.00),
     "gpt-5.6-luna": ModelPrice(0.20, 0.02, 1.20),
     TERRA_MODEL: ModelPrice(2.00, 0.20, 12.00),
 }
@@ -1101,6 +1103,13 @@ def budget_limits_from_environment(environ: dict[str, str] | None = None) -> Bud
     )
 
 
+def _local_key_path() -> str:
+    if getattr(sys, 'frozen', False):
+        from .memory import default_database_path
+        return str(default_database_path().parent / '.env.local')
+    return os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env.local')
+
+
 def local_openai_api_key(
     path: str | os.PathLike[str] | None = None,
     environ: dict[str, str] | None = None,
@@ -1108,7 +1117,7 @@ def local_openai_api_key(
     values = os.environ if environ is None else environ
     if values.get("OPENAI_API_KEY"):
         return values["OPENAI_API_KEY"]
-    key_path = path or os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env.local")
+    key_path = path or _local_key_path()
     try:
         lines = open(key_path, encoding="utf-8").read().splitlines()
     except FileNotFoundError:
@@ -1129,7 +1138,7 @@ def save_local_openai_api_key(
     key = key.strip()
     if not key or len(key) > 512 or any(char.isspace() for char in key):
         raise ValueError("Enter a valid API key without spaces")
-    key_path = os.fspath(path or os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env.local"))
+    key_path = os.fspath(path or _local_key_path())
     try:
         lines = open(key_path, encoding="utf-8").read().splitlines()
     except FileNotFoundError:
