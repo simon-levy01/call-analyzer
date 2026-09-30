@@ -553,7 +553,8 @@ def test_openai_retry_stale_auth_budget_and_local_key_file(tmp_path):
 
 
 def test_first_request_at_twelve_seconds_with_one_finalized_turn():
-    single = build_snapshot(turns(1), snapshot_id=1, generation=1)
+    contact = turns(1)[0].model_copy(update={'speaker_role':SpeakerRole.SELECTED_CONTACT})
+    single = build_snapshot([contact], snapshot_id=1, generation=1)
     calls = []
     coordinator = InterpretationCoordinator(lambda item: calls.append(item) or update(), first_request_at=12,
         adaptive_cadence=True)
@@ -565,10 +566,28 @@ def test_first_request_at_twelve_seconds_with_one_finalized_turn():
     assert len(calls[0].turns) == 1
 
 
-@pytest.mark.parametrize(("arrival_gap", "expected_interval"), [(2, 10), (4, 12), (8, 15)])
+def test_user_opening_does_not_consume_first_contact_analysis_slot():
+    fake=FakeInterpreter([update()])
+    coordinator=InterpretationCoordinator(fake,first_request_at=0,adaptive_cadence=True)
+    user=turns(1)[0].model_copy(update={'speaker_role':SpeakerRole.USER})
+    assert not coordinator.offer(build_snapshot([user],snapshot_id=1,generation=1),0)
+    assert not coordinator.offer(build_snapshot([user],snapshot_id=1,generation=1),3,manual=True)
+    coordinator.poll(6)
+    assert not fake.calls and coordinator.snapshot().last_started_at is None
+    contact=turns(2)[-1].model_copy(update={'speaker_role':SpeakerRole.SELECTED_CONTACT})
+    assert coordinator.offer(build_snapshot([user,contact],snapshot_id=2,generation=1),6.3)
+    wait_until(lambda:len(fake.calls)==1)
+    wait_until(lambda:bool(coordinator.poll(6.3)))
+    assert fake.calls[0].snapshot_id==2 and coordinator.snapshot().last_started_at==6.3
+    coordinator.poll(100)
+    assert len(fake.calls)==1 # Silence creates no extra analysis.
+
+
+@pytest.mark.parametrize(("arrival_gap", "expected_interval"), [(2, 8), (4, 11), (8, 13)])
 def test_adaptive_cadence_follows_transcript_arrivals(arrival_gap, expected_interval):
     fake = FakeInterpreter([update(), update()])
     coordinator = InterpretationCoordinator(fake, adaptive_cadence=True)
+    assert coordinator._arrival_gap * 3 == 10
     assert coordinator.offer(snapshot(1, 2), 0)
     wait_until(lambda: bool(coordinator.poll(0)))
     assert not coordinator.offer(snapshot(2, 3), arrival_gap)
@@ -581,6 +600,8 @@ def test_adaptive_cadence_follows_transcript_arrivals(arrival_gap, expected_inte
     wait_until(lambda: bool(coordinator.poll(expected_interval)))
     coordinator.poll(100)
     assert len(fake.calls) == 2  # Silence does not generate more requests.
+    coordinator.reset(2)
+    assert coordinator._arrival_gap * 3 == 10
 
 
 def test_first_request_cadence_and_one_latest_pending_snapshot():
@@ -608,8 +629,8 @@ def test_first_request_cadence_and_one_latest_pending_snapshot():
     wait_until(first_finished)
     assert completed[0].kind == CoordinatorEventKind.ACCEPTED
     assert calls == [1]
-    assert coordinator.poll(11.9) == []
-    coordinator.poll(12)
+    assert coordinator.poll(9.9) == []
+    coordinator.poll(10)
     wait_until(lambda: len(calls) == 2)
     assert calls == [1, 3]
 

@@ -927,7 +927,9 @@ def test_live_ambiguous_memories_are_uncertain_candidates_not_direct_labels(wind
     assert snapshot and snapshot.memories
     assert snapshot.memories[0].confidence==InterpretationConfidence.LOW
     assert 'uncertain' in snapshot.memories[0].relevance
-    assert not window.guidance_display.visible('remember')
+    shown = window.guidance_display.visible('remember')
+    assert len(shown)==1 and shown[0].candidate.confidence=='low'
+    assert shown[0].candidate.text.startswith('Possible match: ')
     assert 'uncertain' in window.memory_status_label.text()
 
 
@@ -1033,7 +1035,7 @@ def test_first_dispatch_timer_and_earlier_label_on_empty_update(window, monkeypa
         lambda **kw: (calls.append(kw), SimpleNamespace(_client=None))[1])
     monkeypatch.setattr(desktop.time,'perf_counter',lambda:100.)
     window.begin_interpretation_session()
-    assert window.interpretation_coordinator._first_request_at==106.
+    assert window.interpretation_coordinator._first_request_at==100.
     assert calls[0]["model"] == "gpt-6.1-sol" and calls[0]["reasoning"] == "low"
     update=GuidedInterpretation(snapshot_id=1,generation=1,analyzed_order=1,status='insufficient_evidence',explanation='No affect evidence.',
         replies=[GuidanceCandidate(text='Could you clarify?',confidence='medium',turn_ids=[1])])
@@ -1043,7 +1045,7 @@ def test_first_dispatch_timer_and_earlier_label_on_empty_update(window, monkeypa
     assert window.guidance_rows['replies'].itemAt(1).widget().findChild(desktop.GuidanceLabel).text()=='Earlier: Could you clarify?'
 
 
-def test_batched_speech_resets_and_uncertain_reply_label(window, monkeypatch):
+def test_batched_topic_change_keeps_displayed_uncertain_reply(window, monkeypatch):
     from conversation_copilot.guidance import GuidedInterpretation,GuidanceCandidate
     from PySide6.QtWidgets import QLabel
     update=GuidedInterpretation(snapshot_id=1,generation=1,analyzed_order=1,status='insufficient_evidence',explanation='No affect evidence.',
@@ -1052,23 +1054,49 @@ def test_batched_speech_resets_and_uncertain_reply_label(window, monkeypatch):
     assert window.guidance_rows['replies'].itemAt(1).widget().findChild(desktop.GuidanceLabel).text().startswith('Possible connection:')
     now=datetime.now(timezone.utc)
     window.turns=[ConversationTurn(speaker_name='Alex',speaker_role='selected_contact',source='test',timestamp=now,display_order=n,content=text)
-        for n,text in [(1,'I do not want to talk about that anymore.'),(2,'The weather is nice.')]]
+        for n,text in [(1,'Moving on, let us talk about something else.'),(2,'The weather is nice.')]]
     monkeypatch.setattr(window,'submit_local',lambda *a:None)
     window.offer_interpretation_snapshot()
-    assert not window.guidance_display.visible('replies')
-    assert window.guidance_topic_start==1 and window.guidance_last_speech_order==2
+    assert window.guidance_display.visible('replies')
 
 
-def test_reset_removes_local_only_memory_row_and_wrapped_rows_fit(window, monkeypatch):
+@pytest.mark.parametrize('text', ['We can leave that alone. The park sounds good?',
+    "I'd rather not talk about the numbers today.", 'Moving on, what about dinner?',
+    'Correction, the time is already set.', 'Would a free walk help?'])
+def test_speech_keeps_all_guidance_visible(window, monkeypatch, text):
+    from conversation_copilot import interpretation as ip, guidance as g
+    evidence=ip.Evidence(explanation='Explicit concern.',modalities=['language'],turn_ids=[1])
+    update=g.GuidedInterpretation(snapshot_id=1,generation=1,status='updated',
+        tones=[ip.ToneHypothesis(kind='tense_negative',confidence='medium',hypothesis='They describe financial pressure.',evidence=evidence)],
+        social_cues=[ip.SocialCue(kind='other',confidence='medium',hypothesis='They explain a spending limit.',evidence=evidence)],
+        replies=[g.GuidanceCandidate(text='Would a free walk help?',confidence='medium',turn_ids=[1])],
+        follow_up=[g.GuidanceCandidate(text='Which park works?',confidence='medium',turn_ids=[1])],
+        remember=[g.GuidanceCandidate(text='Possible job context.',confidence='low',memory_ids=['r'])])
+    window.guidance_display.offer(update,10)
+    window.render_guidance()
+    window.turns=[ConversationTurn(speaker_name='You',speaker_role='user',source='test',
+        content=text,timestamp=datetime.now(timezone.utc),display_order=2)]
+    monkeypatch.setattr(window,'submit_local',lambda *a:None)
+    window.offer_interpretation_snapshot()
+    assert window.guidance_display.tone_items() and window.guidance_display.context_items()
+    assert window.guidance_display.response_items() and window.guidance_display.visible('remember')
+    for key in window.guidance_rows:
+        assert window.guidance_rows[key].itemAt(1).widget().findChild(desktop.GuidanceLabel)
+    window.set_interpretation_unavailable('Request timed out.',20)
+    window.render_interpretation(replaced=True)
+    assert all(window.guidance_display.visible(key) for key in g.LIVE_CATEGORIES)
+
+
+def test_topic_change_keeps_local_memory_row_and_wrapped_rows_fit(window, monkeypatch):
     from conversation_copilot.interpretation import RetrievedMemoryContext
     from conversation_copilot.guidance import GuidedInterpretation,GuidanceCandidate
     from PySide6.QtWidgets import QLabel
     local=RetrievedMemoryContext(memory_id='m',revision_id='r',excerpt='Local only memory.',memory_type='other',confidence='high',sensitivity_safe=False,rank=1,relevance='lexical')
     window.guidance_display.offer_local_remember([local],1,0);window.render_guidance()
-    window.turns=[ConversationTurn(speaker_name='Alex',speaker_role='selected_contact',source='test',timestamp=datetime.now(timezone.utc),display_order=1,content='I do not want to talk about that anymore.')]
+    window.turns=[ConversationTurn(speaker_name='Alex',speaker_role='selected_contact',source='test',timestamp=datetime.now(timezone.utc),display_order=1,content='Moving on, let us talk about something else.')]
     monkeypatch.setattr(window,'submit_local',lambda *a:None)
     window.offer_interpretation_snapshot()
-    assert window.guidance_rows['remember'].itemAt(1).widget().text()=='Nothing useful to show yet.'
+    assert 'Local only memory.' in window.guidance_rows['remember'].itemAt(1).widget().findChild(desktop.GuidanceLabel).text()
     update=GuidedInterpretation(snapshot_id=2,generation=1,analyzed_order=1,status='insufficient_evidence',explanation='No affect evidence.',
         replies=[GuidanceCandidate(text=f'Option {i}: Could you explain the specific alternatives you are considering before deciding what to do next?',confidence='medium',turn_ids=[1]) for i in range(4)])
     window.guidance_display.offer(update,1);window.pages.setCurrentWidget(window.live);window.render_guidance();window.resize(900,780)
@@ -1308,6 +1336,76 @@ def test_f08_retained_memory_status_matches_visible_guidance(window):
     window.poll_interpretation(30)
     assert window.guidance_display.visible('remember')
     assert 'Showing 1 retained memory' in window.memory_status_label.text()
+
+
+@pytest.mark.parametrize('ambiguous', [False, True])
+def test_retrieved_semantic_memory_is_visible_without_cloud_result(window, monkeypatch, ambiguous):
+    from conversation_copilot import interpretation as ip, guidance as g
+    clock = [10.0]
+    monkeypatch.setattr(desktop.time, 'perf_counter', lambda: clock[0])
+    memory_id = window.memory_store.create_memory(window.selected_contact_id, 'The contact recently lost a job.')
+    revision_id = window.memory_store.current_revision(memory_id)['id']
+    context = ip.RetrievedMemoryContext(memory_id=memory_id, revision_id=revision_id,
+        excerpt='The contact recently lost a job.', memory_type='other', confidence='high',
+        sensitivity_safe=True, rank=1, relevance='semantic')
+    private = context.model_copy(update={'revision_id':'private', 'sensitivity_safe':False})
+    turn = ConversationTurn(speaker_name='Contact', speaker_role='selected_contact', source='test',
+        content="Money's been really tight.", timestamp=datetime.now(timezone.utc), display_order=1)
+    window.turns = [turn]
+    snapshot = ip.build_snapshot([turn],snapshot_id=1,generation=window.interpretation_generation,
+        contact_id=window.selected_contact_id,retrieved_memories=[context])
+    window.memory_snapshot_results.put((window.interpretation_generation,1,snapshot,ambiguous,[context,private],True,None,''))
+    window.poll_memory_results()
+    items = window.guidance_display.visible('remember')
+    assert len(items)==1 and items[0].candidate.text.startswith('Possible match: ')
+    assert items[0].candidate.confidence=='low' and items[0].candidate.memory_ids==[revision_id]
+    window.guidance_display.offer(g.GuidedInterpretation(snapshot_id=1,generation=window.interpretation_generation,
+        status='insufficient_evidence',explanation='No new supported observation.'),11)
+    assert window.guidance_display.visible('remember')  # Empty API memory output cannot hide retrieval.
+    window.guidance_display.offer(g.GuidedInterpretation(snapshot_id=2,generation=window.interpretation_generation,
+        status='insufficient_evidence',explanation='No new supported observation.',remember=[g.GuidanceCandidate(text='Possibly related: a previous job loss.',
+        confidence='low',memory_ids=[revision_id])]),12)
+    items=window.guidance_display.visible('remember')
+    assert len(items)==1 and items[0].candidate.text.startswith('Possibly related:')
+    window.guidance_display.dismiss('remember',0)
+    window.guidance_display.offer_local_remember([context],3,13)
+    assert not window.guidance_display.visible('remember')
+    window.guidance_display.invalidate(new_topic=True)
+    window.guidance_display.offer_local_remember([context],4,20)
+    window.guidance_display.tick(199)
+    assert window.guidance_display.visible('remember')
+    window.guidance_display.tick(200)
+    assert not window.guidance_display.visible('remember')
+
+
+def test_semantic_memory_fallback_rejects_stale_session(window):
+    from conversation_copilot import interpretation as ip
+    context=ip.RetrievedMemoryContext(memory_id='m',revision_id='r',excerpt='Old contact memory.',
+        memory_type='other',confidence='high',sensitivity_safe=True,rank=1,relevance='semantic')
+    window.memory_snapshot_results.put((window.interpretation_generation-1,1,None,False,[context],True,None,''))
+    window.poll_memory_results()
+    assert not window.guidance_display.visible('remember')
+
+
+@pytest.mark.parametrize('boundary', ["I'd rather not talk about the numbers today.", 'We can leave that alone.'])
+def test_memory_retrieval_keeps_context_through_discussion_boundary(window, monkeypatch, boundary):
+    from conversation_copilot import interpretation as ip
+    queries=[]
+    monkeypatch.setattr(memory.MemoryStore,'retrieve',lambda _store,_cid,query,**kw:
+        queries.append((query,kw)) or SimpleNamespace(matches=[],ambiguous=False,semantic_available=True))
+    monkeypatch.setattr(window,'submit_local',lambda _name,work:work())
+    now=datetime.now(timezone.utc)
+    window.turns=[ConversationTurn(speaker_name='Contact',speaker_role='selected_contact',source='test',
+        content=text,timestamp=now,display_order=n) for n,text in enumerate(
+            ['Money is tight.', 'Even a meal out adds up.', 'I still want to see you.'],1)]
+    window.offer_interpretation_snapshot() # Leave this older worker result queued.
+    window.turns.append(window.turns[0].model_copy(update={'content':boundary,'display_order':4}))
+    window.offer_interpretation_snapshot()
+    window.poll_memory_results()
+    assert window.latest_interpretation_snapshot.snapshot_id==2
+    assert 'Money is tight' in queries[-1][1]['semantic_query']
+    assert 'Money is tight' in queries[-1][1]['contact_cue_query']
+    assert not window.guidance_display.visible('remember')
 
 
 def test_f08_empty_actions_and_export_cancel_have_current_feedback(window, monkeypatch):

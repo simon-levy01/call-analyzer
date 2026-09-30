@@ -222,7 +222,7 @@ class Desktop(QWidget):
         self.stable_interpretation = StableInterpretationCard()
         self.guidance_display = GuidanceDisplay()
         self.interpretation_coordinator = None
-        self.interpretation_generation = self.guidance_topic_start = self.next_interpretation_snapshot_id = 0
+        self.interpretation_generation = self.next_interpretation_snapshot_id = 0
         self.latest_interpretation_snapshot = None
         self.interpretation_updated_at = ""
         self.memory_snapshot_results = queue.SimpleQueue()
@@ -839,7 +839,7 @@ class Desktop(QWidget):
                 elif category == 'social_cues':
                     content = ('Context: ' if source_category == 'tones' else 'Cue: ') + content
                 if (candidate.confidence == 'low' and getattr(getattr(candidate, 'evidence', candidate), 'memory_ids', [])
-                        and not content.casefold().startswith(('possibly related:', 'possible connection:'))):
+                        and not content.casefold().startswith(('possibly related:', 'possible connection:', 'possible match:'))):
                     content = 'Possible connection: ' + content
                 if wrapped.snapshot_id < self.guidance_display.last_snapshot:
                     content = 'Earlier: ' + content
@@ -1191,8 +1191,6 @@ class Desktop(QWidget):
         self.render_interpretation(replaced=True)
 
     def begin_interpretation_session(self) -> None:
-        self.guidance_topic_start = 0
-        self.guidance_last_speech_order = 0
         test_log.emit('call_start', contact_id=self.selected_contact_id)
         self.interpretation_generation += 1
         self.next_interpretation_snapshot_id = 0
@@ -1210,8 +1208,6 @@ class Desktop(QWidget):
 
             def current_guidance(item, store):
                 if item.generation != self.interpretation_generation or self.stopping or item.contact_id != self.selected_contact_id:
-                    return False
-                if max((turn.display_order for turn in item.turns)) < self.guidance_topic_start:
                     return False
                 if item.memories:
                     for memory in item.memories:
@@ -1242,19 +1238,6 @@ class Desktop(QWidget):
     def offer_interpretation_snapshot(self) -> None:
         if self.stopping or not self.turns:
             return
-        previous_guidance = repr((self.guidance_display.items, self.guidance_display.local_remember))
-        from .memory import _TOPIC_BOUNDARY
-        from .guidance import guidance_context_reset
-        for turn in self.turns:
-            if turn.display_order <= getattr(self, 'guidance_last_speech_order', 0):
-                continue
-            self.guidance_display.on_speech(turn)
-            if guidance_context_reset(turn.content):
-                self.guidance_topic_start = turn.display_order
-                self.guidance_display.invalidate(new_topic=bool(_TOPIC_BOUNDARY.search(turn.content)), turn_ids=set(), memory_ids=set())
-            self.guidance_last_speech_order = turn.display_order
-        if previous_guidance != repr((self.guidance_display.items, self.guidance_display.local_remember)):
-            self.render_guidance()
         self.next_interpretation_snapshot_id += 1
         snapshot_id = self.next_interpretation_snapshot_id
         generation = self.interpretation_generation
@@ -1343,21 +1326,25 @@ class Desktop(QWidget):
                 self.memory_status_label.setText('Local memory retrieval unavailable — interpretation continues without memory')
             else:
                 self.stable_interpretation.offer_memory_possibilities([item for item in possibilities if not item.sensitivity_safe and (not ambiguous) and ('lexical' in item.relevance)], time.perf_counter())
-                if not ambiguous:
-                    self.guidance_display.offer_local_remember([item for item in possibilities if not item.sensitivity_safe and 'lexical' in item.relevance], snapshot.snapshot_id, time.perf_counter())
-                    self.render_guidance()
+                # Retrieval is a possible match, not a model-confirmed connection.
+                local_matches = [item.model_copy(update={
+                    'excerpt': textwrap.shorten(f'Possible match: {item.excerpt}', width=180, placeholder='…'),
+                    'confidence': InterpretationConfidence.LOW})
+                    for item in possibilities if item.sensitivity_safe and 'semantic' in item.relevance]
                 if ambiguous:
                     self.stable_interpretation.clear_memory_possibilities()
-                    self.guidance_display.local_remember.clear()
-                    self.render_guidance()
                     self.memory_status_label.setText('Checking possible memory connections — identity is uncertain')
-                elif snapshot.memories:
+                else:
+                    local_matches += [item for item in possibilities if not item.sensitivity_safe and 'lexical' in item.relevance]
+                self.guidance_display.offer_local_remember(local_matches, snapshot.snapshot_id, time.perf_counter())
+                self.render_guidance()
+                if not ambiguous and snapshot.memories:
                     suffix = '' if semantic_available else ' · indirect recall reduced'
                     shown = len(self.guidance_display.visible('remember'))
                     self.memory_status_label.setText(f'Checking {len(snapshot.memories)} candidate memories for relevance · {shown} displayed{suffix}')
-                elif self.guidance_display.visible('remember'):
+                elif not ambiguous and self.guidance_display.visible('remember'):
                     self.memory_status_label.setText(f'Showing {len(self.guidance_display.visible("remember"))} retained memory suggestion(s)')
-                else:
+                elif not ambiguous:
                     self.memory_status_label.setText('No eligible approved memory matched this snapshot' if semantic_available else 'No direct match. Indirect recall is unavailable; check the memory model setup in the README.')
             if preference_notice:
                 self.memory_status_label.setText(self.memory_status_label.text() + ' · ' + preference_notice)

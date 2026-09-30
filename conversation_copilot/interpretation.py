@@ -40,8 +40,8 @@ SNAPSHOT_WINDOW_SECONDS = 180
 TRANSCRIPT_TOKEN_BUDGET = 1_300
 # Each segment costs at least eight framing tokens; short fragments cannot exhaust this guard first.
 MAX_SNAPSHOT_TURNS = TRANSCRIPT_TOKEN_BUDGET // 8
-AUTO_INTERPRETATION_INTERVAL_SECONDS = 12.0
-FIRST_ANALYSIS_DELAY_SECONDS = 6.0
+AUTO_INTERPRETATION_INTERVAL_SECONDS = 10.0
+FIRST_ANALYSIS_DELAY_SECONDS = 0.0
 MEMORY_DISPLAY_SECONDS = 24.0
 LUNA_MODEL = "gpt-5.6-luna"
 LIVE_BUDGET_CEILING_DOLLARS = 0.27
@@ -1792,7 +1792,7 @@ class InterpretationCoordinator:
         self._adaptive_cadence = adaptive_cadence
         self._last_arrival_at: float | None = None
         self._last_arrival_order = 0
-        self._arrival_gap = 4.0
+        self._arrival_gap = self._minimum_interval / 3
         self._lock = threading.Lock()
         self._results: queue.SimpleQueue[
             tuple[InterpretationSnapshot, InterpretationUpdate | None, Exception | None]
@@ -1810,6 +1810,8 @@ class InterpretationCoordinator:
         with self._lock:
             if snapshot.generation != self._generation:
                 raise ValueError("snapshot belongs to a stale session generation")
+            if not any(turn.speaker_role == SpeakerRole.SELECTED_CONTACT for turn in snapshot.turns):
+                return False
             newest_order = max(turn.display_order for turn in snapshot.turns)
             if newest_order > self._last_arrival_order:
                 if self._last_arrival_at is not None:
@@ -1881,7 +1883,7 @@ class InterpretationCoordinator:
                 self._last_started_at = None
             self._last_arrival_at = None
             self._last_arrival_order = 0
-            self._arrival_gap = 4.0
+            self._arrival_gap = self._minimum_interval / 3
             self._last_started_turn_order = 0
             self._last_completed_snapshot_id = 0
             self._last_signature = None
@@ -1904,7 +1906,7 @@ class InterpretationCoordinator:
         if (
             not self._pending_manual and self._last_started_at is not None
             and now - self._last_started_at < (
-                min(15.0, max(10.0, 3 * self._arrival_gap))
+                min(13.0, max(8.0, 3 * self._arrival_gap))
                 if self._adaptive_cadence else self._minimum_interval
             )
         ):
@@ -1963,7 +1965,7 @@ class StableInterpretationCard:
         self.update: InterpretationUpdate | None = None
         self.memory_possibilities: list[RetrievedMemoryContext] = []
         self._memory_last_seen: dict[tuple[str, str], float] = {}
-        self.message = f"Analysis starts after {FIRST_ANALYSIS_DELAY_SECONDS:g} seconds, once speech is transcribed"
+        self.message = "Waiting for transcribed contact speech"
         self.shown_at: float | None = None
         self._pending: InterpretationUpdate | None = None
 
@@ -1971,7 +1973,7 @@ class StableInterpretationCard:
         self.update = None
         self.memory_possibilities = []
         self._memory_last_seen = {}
-        self.message = f"Analysis starts after {FIRST_ANALYSIS_DELAY_SECONDS:g} seconds, once speech is transcribed"
+        self.message = "Waiting for transcribed contact speech"
         self.shown_at = None
         self._pending = None
 

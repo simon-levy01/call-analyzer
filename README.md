@@ -1,15 +1,6 @@
 # Conversation Copilot
 
-A Windows desktop assistant for one-to-one video calls. It transcribes both sides
-locally, offers possible tones and replies, and recalls approved information about
-the selected contact. After a call, you can review its summary and memory suggestions.
-
-Built with Python and PySide6/Qt. Supports eligible WhatsApp Desktop, Zoom meeting,
-and dedicated Chrome/Google Meet windows. English transcription is supported;
-macOS and CPU-only Windows operation are not yet validated.
-
-For the submission video, see the [technology list and API flow](TECHNOLOGIES.md)
-and [architecture diagram](TECHNOLOGY-FLOW.png).
+The app that helps you talk to your friends and manage their information.
 
 ## Setup
 
@@ -119,6 +110,7 @@ continues; use **End call** to finish the session.
 
 Ordinary tests use disposable data and fake providers. See the [testing guide](docs/TESTING.md)
 and [current validation status](docs/F08-VALIDATION.md) for coverage and remaining limits.
+The [Eden demo](DEMO.md) includes the original script and an extra opening for faster speech.
 The source includes fictional replay fixtures and bundled vision models; their origins
 are documented beside the [vision](conversation_copilot/assets/PROVENANCE.md),
 [audio](conversation_copilot/assets/audio/PROVENANCE.md), and

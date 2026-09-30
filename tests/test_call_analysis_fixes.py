@@ -138,7 +138,7 @@ def test_old_sarcasm_does_not_override_new_topic():
     assert _cautious_policy(case) is None
 
 
-def test_contact_answers_retire_matching_reply_in_flight_and_on_screen():
+def test_contact_answers_filter_late_reply_but_keep_displayed_reply():
     case=snapshot()
     candidate=guidance.GuidanceCandidate(text='About three minutes so far.', confidence='high',turn_ids=[2])
     update=guidance.GuidedInterpretation(status='insufficient_evidence',explanation='No cue.',snapshot_id=1,generation=1,
@@ -147,8 +147,8 @@ def test_contact_answers_retire_matching_reply_in_flight_and_on_screen():
     assert not guidance.reconcile_replies(update,[later],case.created_at).replies
     display=guidance.GuidanceDisplay()
     display.offer(update,0)
-    display.on_speech(later)
-    assert not display.visible('replies') and not display.pending
+    display.offer(guidance.reconcile_replies(update,[later],case.created_at).model_copy(update={'snapshot_id':2}),1)
+    assert display.visible('replies') and not display.pending
     assert update.replies  # Saved accepted output is immutable to display filtering.
     assert guidance.reply_superseded(candidate,later.model_copy(update={'content':'fifteen minutes almost sixteen'}))
     assert not guidance.reply_superseded(guidance.GuidanceCandidate(text='Ten minutes should be enough.',confidence='medium',turn_ids=[2]),

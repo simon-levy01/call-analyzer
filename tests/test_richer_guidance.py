@@ -1,5 +1,6 @@
 """User-approved richer guidance behavior, no API calls."""
 from datetime import datetime, timezone, timedelta
+import pytest
 from conversation_copilot import guidance as g, interpretation as ip
 from conversation_copilot.models import ConversationTurn
 
@@ -16,7 +17,8 @@ def test_luna_routing_prices_and_first_analysis():
     assert ip.REVIEW_MODEL=='gpt-6.1-sol'
     assert ip.MODEL_PRICES['gpt-6-luna'].output_per_million==.50
     assert ip.MODEL_PRICES[ip.LUNA_MODEL].output_per_million==1.20
-    assert ip.FIRST_ANALYSIS_DELAY_SECONDS==6
+    assert ip.FIRST_ANALYSIS_DELAY_SECONDS==0
+    assert ip.AUTO_INTERPRETATION_INTERVAL_SECONDS==10
 
 
 def test_balanced_cue_prompt_and_anchor():
@@ -59,9 +61,10 @@ def test_positive_local_rules_keep_grounded_model_cues_but_abstention_still_wins
     snapshot=EvaluationScenario('coverage','live','Tell me more.','I am excited. What happens next?').snapshot('transcript')
     assert not g.interpret_guidance(snapshot,ledger=ip.UsageLedger.product()).social_cues
 
-def test_newest_first_fill_four_and_expire_without_renewing_old_evidence():
+@pytest.mark.parametrize('status', ['updated', 'conflicting_evidence'])
+def test_newest_first_fill_four_and_expire_without_renewing_old_evidence(status):
     display=g.GuidanceDisplay()
-    for n in range(1,6):display.offer(output(n,f'Choice {n}?'),n)
+    for n in range(1,6):display.offer(output(n,f'Choice {n}?').model_copy(update={'status':status}),n)
     for category in ('social_cues','replies'):
         assert len(display.visible(category))==4
         assert [x.snapshot_id for x in display.visible(category)]==[5,4,3,2]
@@ -83,8 +86,9 @@ def test_retained_cue_dismissal_reset_and_source_invalidation():
     display.offer(output(3,'Compare lengths?'),10)
     turn=ConversationTurn(speaker_name='Contact',speaker_role='selected_contact',source='test',display_order=4,
         timestamp=datetime.now(timezone.utc),content='I do not want to talk about that anymore.')
-    display.on_speech(turn)
-    assert all(not display.visible(k) for k in g.LIVE_CATEGORIES)
+    display.offer(g.reconcile_replies(output(3,'Compare lengths?'),[turn],turn.timestamp).model_copy(update={'snapshot_id':4}),11)
+    assert display.visible('social_cues')
+    assert display.visible('replies')
 
 def test_old_source_reply_is_still_rejected_at_delivery():
     update=output(1,'Compare?')

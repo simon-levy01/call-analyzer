@@ -66,6 +66,7 @@ def guidance_context_reset(text):
     from .memory import _TOPIC_BOUNDARY
     return bool(_TOPIC_BOUNDARY.search(text) or re.search(
         r"^\s*(?:correction|make that)\b|\b(?:don't|do not) want to (?:talk|discuss)|"
+        r"\b(?:rather|prefer) not (?:to )?(?:talk|discuss)|"
         r"\bstop (?:asking|talking)|\bleave (?:it|that) (?:there|alone)", text, re.I))
 
 
@@ -74,10 +75,12 @@ def reconcile_replies(update, turns, now=None):
     now = now or datetime.now(timezone.utc)
     changed = [turn for turn in turns if turn.display_order > update.analyzed_order]
     expired = update.context_at is not None and (now - update.context_at).total_seconds() >= 24
-    reset = any(guidance_context_reset(turn.content) for turn in changed)
-    if reset or expired:
+    from .memory import _TOPIC_BOUNDARY
+    if expired or any(_TOPIC_BOUNDARY.search(turn.content) for turn in changed):
         return update.model_copy(update={**{key: [] for key in LIVE_CATEGORIES},
             "status": InterpretationStatus.INSUFFICIENT_EVIDENCE, "explanation": "The conversation moved on; waiting for current guidance."})
+    if any(guidance_context_reset(turn.content) for turn in changed):
+        return update.model_copy(update={key: [] for key in CATEGORIES})
     return update.model_copy(update={key: [item for item in getattr(update, key)
         if not any(reply_superseded(item, turn) for turn in changed)]
         for key in ("replies", "follow_up")})
@@ -355,7 +358,13 @@ class GuidanceDisplay:
                 if len(self.dismissed) < 256:
                     self.dismissed.add(self.fingerprint(key, item.candidate))
             return
-        if item in self.local_remember:
+        if category == 'remember':
+            fingerprint = self.fingerprint(category, item.candidate)
+            self.local_remember = [other for other in self.local_remember
+                if self.fingerprint(category, other.candidate) != fingerprint]
+            self.items[category] = [other for other in self.items[category]
+                if self.fingerprint(category, other.candidate) != fingerprint]
+        elif item in self.local_remember:
             self.local_remember.remove(item)
         else:
             self.items[category].remove(item)
@@ -424,8 +433,11 @@ class GuidanceDisplay:
         return result
 
     def all_items(self, category):
-        return (sorted(self.local_remember + self.items[category], key=lambda item: item.supported_at, reverse=True)[:LIVE_CATEGORY_LIMIT]
-                if category == "remember" else self.items[category])
+        if category != 'remember':
+            return self.items[category]
+        selected = {self.fingerprint(category, item.candidate) for item in self.items[category]}
+        local = [item for item in self.local_remember if self.fingerprint(category, item.candidate) not in selected]
+        return sorted(local + self.items[category], key=lambda item: item.supported_at, reverse=True)[:LIVE_CATEGORY_LIMIT]
 
     def offer_local_remember(self, memories, snapshot_id, now):
         renewed = []
@@ -449,35 +461,24 @@ class GuidanceDisplay:
         self.last_snapshot = update.snapshot_id
         self.pending = update
         self.pending_categories = set(LIVE_CATEGORIES)
-        if update.status == InterpretationStatus.CONFLICTING_EVIDENCE:
-            for category in ('tones', 'social_cues'):
-                if getattr(update, category):
-                    self.items[category].clear()
         self.pending_at = now - max(0, source_age)
         self.pending_manual = manual
         self.tick(now)
 
-    def on_speech(self, turn):
-        if guidance_context_reset(turn.content):
-            self.invalidate(turn_ids=set(), memory_ids=set())
-            return
-        for category in ("replies", "follow_up"):
-            self.items[category] = [item for item in self.items[category]
-                if not reply_superseded(item.candidate, turn)]
-            if self.pending:
-                # Work on a copy: the accepted model result remains inspectable.
-                self.pending = self.pending.model_copy(update={category: [item for item in getattr(self.pending, category)
-                    if not reply_superseded(item, turn)]})
-
-    def invalidate(self, *, turn_ids=None, memory_ids=None, new_topic=False):
+    def invalidate(self, *, turn_ids=None, memory_ids=None, new_topic=False, categories=LIVE_CATEGORIES):
         if new_topic or (turn_ids == set() and memory_ids == set()):
             if new_topic:
                 self.dismissed.clear()
                 self.expanded.clear()
-            self.items = {key: [] for key in LIVE_CATEGORIES}
-            self.local_remember.clear()
-            self.pending = None
-            self.pending_categories.clear()
+            for key in categories:
+                self.items[key].clear()
+            if 'remember' in categories:
+                self.local_remember.clear()
+            if self.pending:
+                self.pending = self.pending.model_copy(update={key: [] for key in categories})
+            self.pending_categories.difference_update(categories)
+            if not self.pending_categories:
+                self.pending = None
             return
         for category in LIVE_CATEGORIES:
             self.items[category] = [item for item in self.items[category] if

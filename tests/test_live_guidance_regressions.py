@@ -21,8 +21,9 @@ def test_recent_reply_ideas_survive_speech_but_not_changed_topic_or_expiry():
     now = snapshot.created_at+timedelta(seconds=3)
     assert guidance.reconcile_replies(update, [later], now).replies
     # Explicit resets and corrections still invalidate the old question.
-    for text in ('Moving on, what about dinner?', 'Correction, the date is already set.', "I don't want to talk about it."):
+    for text in ('Moving on, what about dinner?', 'Correction, the date is already set.'):
         assert not guidance.reconcile_replies(update, [later.model_copy(update={'content':text})], now).replies
+    assert not guidance.reconcile_replies(update, [later.model_copy(update={'content':"I don't want to talk about it."})], now).replies
     assert not guidance.reconcile_replies(update, [later], snapshot.created_at+timedelta(seconds=24)).replies
     said = snapshot.turns[0].model_copy(update={'display_order':3, 'content':'What date would be realistic?'})
     assert not guidance.reconcile_replies(update, [said], now).replies
@@ -30,7 +31,6 @@ def test_recent_reply_ideas_survive_speech_but_not_changed_topic_or_expiry():
 
     display = guidance.GuidanceDisplay()
     display.offer(update, 10, source_age=10)
-    display.on_speech(later)
     assert display.visible('replies')
     display.tick(23.9)
     assert display.visible('replies')
@@ -39,8 +39,8 @@ def test_recent_reply_ideas_survive_speech_but_not_changed_topic_or_expiry():
     display.tick(180)
     assert not display.visible('replies')
     display.offer(update.model_copy(update={'snapshot_id':2}), 50)
-    display.on_speech(said)
-    assert not display.visible('replies')
+    display.offer(guidance.reconcile_replies(update,[said],now).model_copy(update={'snapshot_id':3}),51)
+    assert display.visible('replies')
 
 
 def test_long_context_preserves_both_sensors_with_shared_budget(monkeypatch):
