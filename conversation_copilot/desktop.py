@@ -289,7 +289,7 @@ class Desktop(QWidget):
         content.addWidget(self.contact_box)
         actions = row()
         for text, callback, role in (
-            ("Create", self.create_contact, "tone"), ("Edit", self.open_memories, "replies"),
+            ("Create", self.create_contact, "tone"),
             ("Contact information", self.open_memories, "memory"),
             ("Import text", self.import_chat, "follow_up"),
         ):
