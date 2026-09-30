@@ -1,6 +1,6 @@
 Conversation Copilot for Windows
 
-Download ConversationCopilot.exe from the GitHub release and double-click it.
+Run ConversationCopilot.exe by double-clicking it.
 No Python installation or terminal commands are needed. Opening it can take a
 little time while the libraries unpack into a temporary directory.
 

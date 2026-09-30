@@ -36,10 +36,12 @@ Call startup never downloads models. Qt is pinned to 6.8.3 in `pyproject.toml`.
 
 ## Run
 
-### Windows download
+### Windows executable
 
-Download [ConversationCopilot.exe](https://github.com/simon-levy01/conversation-assistant/releases/latest/download/ConversationCopilot.exe)
-and double-click it. No Python installation or terminal commands are needed.
+The standalone build is about **1.63 GB**, mostly bundled NVIDIA libraries.
+It is currently kept locally; a GitHub executable release is deferred because of
+that size. Run `ConversationCopilot.exe` by double-clicking it. No Python installation
+or terminal commands are needed to run the executable.
 On first run, enter your own OpenAI API key and click **Prepare models and save key**.
 The app checks the NVIDIA runtime, downloads its local models, and verifies them.
 Internet and several GB of free space are needed for this one-time setup.
