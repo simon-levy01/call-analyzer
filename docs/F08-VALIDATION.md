@@ -34,7 +34,7 @@ renewing its original 180-second expiry. Topic, source, and dismissal checks rem
 - No environment file, private database, or personal PDF was found in the checked
   commit trees. Personal PDFs do exist in local Codex snapshot trees; these are
   separate from the checked GitHub branches/tags and were not published there.
-- GitHub secret scanning and Dependabot alerts are disabled for this private repository. These local
+- At the time of this September audit, GitHub secret scanning and Dependabot alerts were disabled for the private repository. These local
   checks cover available history/objects; they cannot prove anything about deleted
   remote history, external copies, or other repositories.
 - Six local documentation links, 21 ignore-rule cases, and 11 declared asset
@@ -66,4 +66,4 @@ record linkage is not fully exercised by the new regression.
 - October 1 submission deliverables: video up to five minutes with a Google Drive
   link, PDF with repository link and Kanban screenshot, and `finalproject.zip`.
   This repository sweep does not complete those deliverables.
-- The repository is private; a lecturer needs explicit access to open its link.
+- Repository visibility is managed separately from these historical validation results; see the current GitHub repository page.
